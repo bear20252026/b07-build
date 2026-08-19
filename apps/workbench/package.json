@@ -1,6 +1,6 @@
 {
   "name": "@awo/workbench",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI Work OS - React/TS 工作台（一组件=一种作用，UI 只订阅事件+发意图）",
   "private": true,
   "type": "module",
@@ -17,6 +17,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }

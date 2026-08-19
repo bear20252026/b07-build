@@ -1,48 +1,67 @@
-// apps/workbench/src/components/preview/PreviewPanel.tsx
-// 一个文件=一个作用：宿主级持久预览面板（参照 AionUi Preview/PreviewPanel + PreviewTabs；多 Tab 路由）
+// 一个文件=一种作用：宿主级持久产物预览（AionUi PreviewPanel/PreviewTabs 的独立实现）。
 import { useState } from 'react';
 
-type ViewKey = 'markdown' | 'pdf' | 'html';
+type ViewKey = 'markdown' | 'html' | 'diff';
 
 const TABS: { key: ViewKey; label: string }[] = [
-  { key: 'markdown', label: 'Markdown' },
-  { key: 'pdf', label: 'PDF' },
-  { key: 'html', label: 'HTML' },
+  { key: 'markdown', label: '交付说明' },
+  { key: 'html', label: '预览' },
+  { key: 'diff', label: '变更' },
 ];
+
+const COPY: Record<ViewKey, { title: string; description: string }> = {
+  markdown: {
+    title: '任务产物将在这里持续更新',
+    description: '运行时完成事件、产物引用和可编辑 Markdown 将通过 C6 事件流投递到此面板。',
+  },
+  html: {
+    title: '安全的单视图预览容器',
+    description: '后续 HTML、文档和浏览器视图会保持宿主级持久化，不因会话切换而丢失状态。',
+  },
+  diff: {
+    title: '每一项变更都应可审查',
+    description: '文件修改、审批决策与可回滚 diff 将与任务事件关联，成为可解释交付的一部分。',
+  },
+};
 
 export function PreviewPanel() {
   const [active, setActive] = useState<ViewKey>('markdown');
+  const copy = COPY[active];
 
   return (
-    <aside
-      style={{
-        borderTop: '1px solid #e5e7eb',
-        height: 180,
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      <div style={{ display: 'flex', gap: 4, padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>
-        {TABS.map((t) => (
+    <aside className="preview-panel" aria-label="产物预览">
+      <header className="preview-header">
+        <div>
+          <div className="preview-title">交付预览</div>
+          <div className="preview-subtitle">宿主级持久视图</div>
+        </div>
+        <span className="status-chip"><span className="status-dot" />同步</span>
+      </header>
+      <div className="preview-tabs" role="tablist" aria-label="预览类型">
+        {TABS.map((tab) => (
           <button
-            key={t.key}
-            onClick={() => setActive(t.key)}
-            style={{
-              border: 'none',
-              borderRadius: 6,
-              padding: '4px 10px',
-              cursor: 'pointer',
-              background: active === t.key ? '#eef2ff' : 'transparent',
-            }}
+            className={`preview-tab${active === tab.key ? ' active' : ''}`}
+            key={tab.key}
+            onClick={() => setActive(tab.key)}
+            role="tab"
+            aria-selected={active === tab.key}
+            type="button"
           >
-            {t.label}
+            {tab.label}
           </button>
         ))}
       </div>
-      <div style={{ flex: 1, overflow: 'auto', padding: 12, fontSize: 13, color: '#6b7280' }}>
-        {/* viewer 占位：真实实现按 Tab 挂载对应 viewer（MarkdownViewer/PDFViewer/HTMLViewer） */}
-        [{active} viewer 面板 — 产物可编辑/可预览]
-      </div>
+      <section className="preview-canvas">
+        <div className="preview-artifact-type">{active} artifact</div>
+        <h2>{copy.title}</h2>
+        <p>{copy.description}</p>
+        <div className="preview-lines" aria-hidden="true">
+          <div className="preview-line" />
+          <div className="preview-line short" />
+          <div className="preview-line" />
+          <div className="preview-line short" />
+        </div>
+      </section>
     </aside>
   );
 }

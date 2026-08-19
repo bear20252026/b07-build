@@ -1,52 +1,48 @@
-// apps/workbench/src/components/layout/Sider.tsx
-// 一个文件=一个作用：可折叠导航栏（参照 AionUi Sider/SiderItem；纯展示+发意图，不碰业务）
+// 一个文件=一种作用：AionUi 风格侧栏导航（纯展示与本地导航状态）。
 import { useState } from 'react';
 
-type NavKey = 'chat' | 'files' | 'cron' | 'settings';
+type NavKey = 'chat' | 'files' | 'schedule' | 'settings';
 
 const NAV: { key: NavKey; label: string; icon: string }[] = [
-  { key: 'chat', label: '会话', icon: '💬' },
-  { key: 'files', label: '文件', icon: '📁' },
-  { key: 'cron', label: '定时', icon: '⏰' },
-  { key: 'settings', label: '设置', icon: '⚙️' },
+  { key: 'chat', label: '任务会话', icon: '◇' },
+  { key: 'files', label: '产物与文件', icon: '▣' },
+  { key: 'schedule', label: '计划任务', icon: '◷' },
+  { key: 'settings', label: '工作区设置', icon: '⚙' },
 ];
 
 export function Sider() {
-  const [collapsed, setCollapsed] = useState(false);
   const [active, setActive] = useState<NavKey>('chat');
 
   return (
-    <nav
-      style={{
-        width: collapsed ? 56 : 160,
-        borderRight: '1px solid #e5e7eb',
-        padding: 8,
-        transition: 'width .15s',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-      }}
-    >
-      <button onClick={() => setCollapsed((c) => !c)} style={{ marginBottom: 8 }}>
-        {collapsed ? '»' : '« 折叠'}
-      </button>
-      {NAV.map((n) => (
-        <button
-          key={n.key}
-          onClick={() => setActive(n.key)}
-          style={{
-            textAlign: 'left',
-            background: active === n.key ? '#eef2ff' : 'transparent',
-            border: 'none',
-            borderRadius: 6,
-            padding: '6px 8px',
-            cursor: 'pointer',
-          }}
-          title={n.label}
-        >
-          {n.icon} {collapsed ? '' : n.label}
-        </button>
-      ))}
+    <nav className="sider" aria-label="工作台导航">
+      <div className="sider-brand">
+        <div className="sider-brand-mark" aria-hidden="true">AW</div>
+        <div className="sider-brand-copy">
+          <div className="sider-brand-name">AI Work OS</div>
+          <div className="sider-brand-subtitle">Outcome workspace</div>
+        </div>
+      </div>
+      <button className="sider-new-task" type="button">+ 新建任务</button>
+      <div className="sider-section-label">Workspace</div>
+      <div className="sider-nav">
+        {NAV.map((item) => (
+          <button
+            className={`sider-item${active === item.key ? ' active' : ''}`}
+            key={item.key}
+            onClick={() => setActive(item.key)}
+            title={item.label}
+            type="button"
+          >
+            <span className="sider-icon" aria-hidden="true">{item.icon}</span>
+            <span className="sider-label">{item.label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="sider-spacer" />
+      <div className="sider-workspace">
+        <div className="sider-workspace-name">b07-build</div>
+        <div className="sider-workspace-meta">本地优先 · 受控执行</div>
+      </div>
     </nav>
   );
 }

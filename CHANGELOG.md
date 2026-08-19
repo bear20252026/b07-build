@@ -101,3 +101,22 @@
 
 ### 后续边界
 - 本版本不会自动摘要内容、不会写入任务存储、不会创建子 agent，也不会执行 Hook。预算器只产生可解释决策；后续能力必须通过既有协议和权限链接入。
+
+
+## [2026-08-19] v0.5.0 AionUi 对齐工作台切片
+
+### 产品与设计
+
+本版本将 `apps/workbench` 从静态演示升级为具备产品层级的三栏工作台。布局以 AionUi 公开的 Layout、Sider、SendBox、PreviewPanel 和 PreviewTabs 的**边界分工**为主参照，但采用独立组件、独立视觉 token 和独立代码实现。左栏负责品牌、工作区和导航；中栏负责任务目标、Agent 状态、事件时间线与输入意图；右栏作为宿主级、持久化的交付预览容器。
+
+### 新增能力
+
+工作台新增深色任务空间主题、运行时状态芯片、能力标签、任务活动时间线、可提交的目标输入区及多标签交付预览。输入目标并点击“生成计划”会在前端创建符合 `TaskEvent` 契约的 `task.created` 和 `plan.proposed` 事件，随即更新当前目标和活动计数。此行为明确标记为 UI 意图演示，尚不绕过或替代真实的 Agent、权限、审批、预算和存储链路。
+
+### 工程与验证
+
+工作台新增标准 `build` 脚本并升至 v0.2.0，根工程版本升至 v0.5.0。本次通过了 Vite 生产构建、工作台严格 TypeScript 检查、根 TypeScript 检查、16 项协议与运行时测试，以及高危级依赖审计（0 vulnerabilities）。浏览器验收确认三栏布局正常渲染，提交目标后会新增两条事件并更新任务标题。
+
+### 参考边界
+
+已新增参考能力矩阵，整合 DeepSeek-Harness、OpenWorker、UI-TARS、MiMo-Code、OpenClaw、ClawCode、LobeHub、Chatbox、Cherry Studio、AnythingLLM、Jan、AionUi、OpenCode、AtomCode 与 Claude Code 官方公开资料的高层能力方向。参考资料不进入运行时构建链；所有实现均通过 b07-build 自有协议、端口和测试落地。

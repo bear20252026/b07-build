@@ -13,7 +13,7 @@
 | `sidecars/document-worker` | Python FastAPI + token 鉴权 + 纯文档处理（OpenWorker 式） | ✅ 端到端 401/200 通过 |
 | `packages/provider-sdk` | ModelDriver 端口 + OpenAI adapter(SSE) + Router（AgentForge/cc-switch 式） | ✅ `tsc` 零错误 |
 | `packages/agent-runtime` | DAG + 默认拒绝策略 + 审批门控 + 执行预算 + 上下文预算（只经 ToolRunner port 执行） | ✅ 类型检查 + 16 项运行时测试 |
-| `apps/workbench` | React 三栏工作台：Sider + 事件流 + Preview + 单 tab 浏览器（参照 AionUi） | ✅ `tsc` 零错误 |
+| `apps/workbench` | AionUi 对齐三栏工作台：持久 Sider + 任务事件流 + 目标输入 + 常驻 Preview | ✅ Vite 构建 + `tsc` 零错误 |
 
 ## 验证命令（本机已通过）
 ```bash
@@ -21,7 +21,8 @@ cargo check -p process-supervisor          # Rust ✅
 cd sidecars/document-worker && ./.venv/Scripts/python.exe -m py_compile processor.py app.py  # Python ✅
 npm run typecheck                           # TS packages + tests ✅
 npm test                                    # 事件契约/DAG/审批门控/上下文与执行预算 ✅
-cd apps/workbench && npx tsc --noEmit -p tsconfig.json  # UI ✅
+npm run build --workspace=@awo/workbench                # UI 生产构建 ✅
+npm run typecheck --workspace=@awo/workbench            # UI 类型检查 ✅
 ```
 
 ## 目录（积木式，单职责）
@@ -36,7 +37,7 @@ apps/workbench           React 三栏工作台（一组件=一作用）
 
 ## 下一步冲刺
 1. Agent Profile（Build / Plan / Explore）与可收紧的工具权限集
-2. Rust↔Python 真实拉起接线（`AWO_SIDECAR_TOKEN` 注入、健康检查、失败回收）
-3. SQLite append-only 事件日志、运行快照与任务回放
-4. 受控 Hook port（只能拒绝/观察，不能绕过策略与审批）
-5. 工作台接入真实任务提交、审批、上下文用量与可编辑产物视图
+2. 工作台接入真实任务提交、审批、上下文用量和运行状态，而非当前前端意图演示
+3. Rust↔Python 真实拉起接线（`AWO_SIDECAR_TOKEN` 注入、健康检查、失败回收）
+4. SQLite append-only 事件日志、运行快照与任务回放
+5. 受控 Hook port（只能拒绝/观察，不能绕过策略与审批）
