@@ -100,6 +100,15 @@ export const catalog = {
         edit: '编辑草稿', preview: '预览草稿', aria: '本地交付说明草稿', placeholder: '在此记录可审查的交付说明、假设和下一步…', empty: '此草稿只存在于当前浏览器视图，尚未写入任务或知识库。', localOnly: '仅本地草稿', note: '草稿不会自动提交、授权工具、修改 Memory Ledger 或启动 MCP。',
       },
     },
+    extensionCenter: {
+      aria: '扩展控制面', eyebrow: 'CONTROLLED EXTENSIONS', title: '扩展中心', refresh: '刷新状态', loading: '读取本地控制面…', empty: '尚未登记扩展。扩展必须先经过来源、审查和摘要核验，才可能进入激活计划。',
+      note: '此面板只读取网关 DTO；它不会下载、加载、启动扩展，不会读取密钥，也不会授予工具权限。',
+      summary: (installed: number, total: number) => `${installed}/${total} 个 extension 已核验安装`,
+      extensions: '扩展清单', diagnostics: '诊断', profiles: 'Provider Profiles', plans: '激活计划', noDiagnostics: '没有待处理的扩展诊断。', noProfiles: '尚无 Provider Profile。', noPlans: '当前任务尚无扩展激活计划。',
+      source: '来源', boundary: '数据边界', declared: '声明能力', requested: '请求权限', budget: '资源预算', reviewer: '审核者', entry: '入口', credentialRef: '凭据引用', drivers: '驱动 allowlist',
+      status: { discovered: '已发现', reviewed: '已审查', installed: '已安装', disabled: '已停用', revoked: '已撤销', registered: '已登记', active: '已激活' },
+      decision: { selected: '已选择', blocked: '已阻断', ignored: '未参与' }, planReady: '计划就绪', planBlocked: '计划被阻断', canExecute: '计划不授予执行权',
+    },
     citation: {
       aria: '本地知识引用预览', eyebrow: '本地知识', title: '引用预览', count: (count: number) => `${count} 条`,
       searchAria: '检索本地知识', placeholder: '检索本地知识…', search: '检索', loading: '检索中',
@@ -168,6 +177,15 @@ export const catalog = {
       draft: {
         edit: 'Edit draft', preview: 'Preview draft', aria: 'Local delivery-notes draft', placeholder: 'Record reviewable delivery notes, assumptions, and next steps…', empty: 'This draft only exists in the current browser view; it has not been written to a task or knowledge workspace.', localOnly: 'Local-only draft', note: 'Drafts never auto-submit, authorize tools, alter the Memory Ledger, or launch MCP.',
       },
+    },
+    extensionCenter: {
+      aria: 'Extension control plane', eyebrow: 'CONTROLLED EXTENSIONS', title: 'Extension center', refresh: 'Refresh', loading: 'Reading local control plane…', empty: 'No extension is registered. An extension must pass source review and digest verification before it can enter an activation plan.',
+      note: 'This panel only reads gateway DTOs. It cannot download, load, start extensions, read secrets, or grant tool permissions.',
+      summary: (installed: number, total: number) => `${installed}/${total} extensions verified and installed`,
+      extensions: 'Extension manifest', diagnostics: 'Diagnostics', profiles: 'Provider profiles', plans: 'Activation plans', noDiagnostics: 'No extension diagnostics need attention.', noProfiles: 'No provider profile is registered.', noPlans: 'No extension activation plan exists for the current task.',
+      source: 'Source', boundary: 'Data boundary', declared: 'Declared capabilities', requested: 'Requested permissions', budget: 'Resource budget', reviewer: 'Reviewer', entry: 'Entry', credentialRef: 'Credential reference', drivers: 'Driver allowlist',
+      status: { discovered: 'Discovered', reviewed: 'Reviewed', installed: 'Installed', disabled: 'Disabled', revoked: 'Revoked', registered: 'Registered', active: 'Active' },
+      decision: { selected: 'Selected', blocked: 'Blocked', ignored: 'Ignored' }, planReady: 'Plan ready', planBlocked: 'Plan blocked', canExecute: 'Plans never grant execution',
     },
     citation: {
       aria: 'Local knowledge citation preview', eyebrow: 'Local knowledge', title: 'Citation preview', count: (count: number) => `${count} items`, searchAria: 'Search local knowledge', placeholder: 'Search local knowledge…', search: 'Search', loading: 'Searching', empty: 'Enter keywords to display traceable source passages from the local SQLite vector index.',

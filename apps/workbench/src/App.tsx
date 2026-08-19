@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider } from './components/layout/Sider';
 import { ControlPlaneInsights } from './components/observability/ControlPlaneInsights';
+import { ExtensionCenter } from './components/observability/ExtensionCenter';
 import { PreviewPanel } from './components/preview/PreviewPanel';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
@@ -182,6 +183,7 @@ export function App() {
               )}
             </section>
             <ControlPlaneInsights events={events} snapshot={snapshot} />
+            <ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} />
             <section className="event-section">
               <div className="section-heading">
                 <span>{messages.task.activity}</span>
