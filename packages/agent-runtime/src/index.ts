@@ -15,4 +15,5 @@ export * from './sqlite-memory-ledger-store.js';
 export * from './task-command-receipts.js';
 export * from './read-only-subtasks.js';
 export * from './mcp-registry.js';
+export * from './extension-registry.js';
 export * from './task-runtime-service.js';

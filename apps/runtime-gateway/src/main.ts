@@ -12,6 +12,9 @@ import {
   SqliteSubtaskSnapshotStore,
   McpRegistry,
   SqliteMcpManifestStore,
+  ExtensionRegistry,
+  SqliteExtensionManifestStore,
+  type DiscoverExtensionRequest,
   type McpConnection,
   type McpToolManifest,
   type DAGNode,
@@ -31,6 +34,7 @@ const KNOWLEDGE_WORKSPACE_DIR = resolve(process.env.AWO_KNOWLEDGE_WORKSPACE_DIR 
 const RECEIPT_PATH = resolve(process.env.AWO_RECEIPT_DB ?? '.awo/task-command-receipts.sqlite');
 const SUBTASK_PATH = resolve(process.env.AWO_SUBTASK_DB ?? '.awo/read-only-subtasks.sqlite');
 const MCP_MANIFEST_PATH = resolve(process.env.AWO_MCP_MANIFEST_DB ?? '.awo/mcp-manifests.sqlite');
+const EXTENSION_MANIFEST_PATH = resolve(process.env.AWO_EXTENSION_MANIFEST_DB ?? '.awo/extension-manifests.sqlite');
 const store = new SqliteTaskSnapshotStore(SNAPSHOT_PATH);
 const knowledgeWorkspaceStore = new SqliteKnowledgeWorkspaceStore(KNOWLEDGE_WORKSPACE_PATH);
 const knowledgeStoreFactory = new SqliteWorkspaceKnowledgeStoreFactory(KNOWLEDGE_WORKSPACE_DIR);
@@ -40,6 +44,8 @@ const subtaskStore = new SqliteSubtaskSnapshotStore(SUBTASK_PATH);
 const readOnlySubtasks = new ReadOnlySubtaskService(subtaskStore);
 const mcpManifestStore = new SqliteMcpManifestStore(MCP_MANIFEST_PATH);
 const mcpRegistry = new McpRegistry(mcpManifestStore);
+const extensionManifestStore = new SqliteExtensionManifestStore(EXTENSION_MANIFEST_PATH);
+const extensionRegistry = new ExtensionRegistry(extensionManifestStore);
 const DEFAULT_KNOWLEDGE_WORKSPACE_ID = 'default-local';
 if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
   knowledgeWorkspaces.create({
@@ -205,6 +211,65 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
   const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
   try {
+    if (request.method === 'GET' && url.pathname === '/api/extensions') {
+      send(response, 200, extensionRegistry.list());
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/extensions') {
+      const body = await jsonBody(request) as Record<string, unknown>;
+      if (
+        typeof body.id !== 'string' || typeof body.version !== 'string' || typeof body.kind !== 'string'
+        || typeof body.displayName !== 'string' || !body.source || !body.compatibility
+        || !Array.isArray(body.declaredCapabilities) || !Array.isArray(body.requestedPermissions)
+        || typeof body.dataBoundary !== 'string' || !body.resourceBudget
+        || (body.note !== undefined && typeof body.note !== 'string')
+      ) {
+        send(response, 400, { error: 'extension 必须提供 id、version、kind、displayName、source、compatibility、capabilities、dataBoundary 与 resourceBudget' });
+        return;
+      }
+      try {
+        const discovered = extensionRegistry.discover({
+          ...(body as unknown as Omit<DiscoverExtensionRequest, 'at'>),
+          at: Date.now(),
+        });
+        send(response, 201, discovered);
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'extension manifest 无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && segments[0] === 'api' && segments[1] === 'extensions' && segments[2] && segments[3] && segments.length === 4) {
+      const operation = segments[3];
+      if (operation !== 'review' && operation !== 'install' && operation !== 'disable' && operation !== 'revoke') {
+        send(response, 404, { error: 'extension 状态操作必须是 review、install、disable 或 revoke' });
+        return;
+      }
+      const body = await jsonBody(request) as { reviewedBy?: unknown; verifiedDigest?: unknown; note?: unknown };
+      if (
+        typeof body.reviewedBy !== 'string' || (body.note !== undefined && typeof body.note !== 'string')
+        || (operation === 'install' && typeof body.verifiedDigest !== 'string')
+      ) {
+        send(response, 400, { error: operation === 'install' ? 'extension 安装必须提供 reviewedBy 与 verifiedDigest' : 'extension 状态变更必须提供 reviewedBy' });
+        return;
+      }
+      try {
+        const at = Date.now();
+        const manifest = operation === 'review'
+          ? extensionRegistry.review(segments[2], body.reviewedBy, at, body.note)
+          : operation === 'install'
+            ? extensionRegistry.install(segments[2], body.verifiedDigest as string, body.reviewedBy, at, body.note)
+            : operation === 'disable'
+              ? extensionRegistry.disable(segments[2], body.reviewedBy, at, body.note)
+              : extensionRegistry.revoke(segments[2], body.reviewedBy, at, body.note);
+        send(response, 200, manifest);
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'extension 状态变更无效' });
+      }
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/mcp/servers') {
       send(response, 200, mcpRegistry.list());
       return;
@@ -575,6 +640,7 @@ function shutdown(): void {
     commandReceipts.close();
     subtaskStore.close();
     mcpManifestStore.close();
+    extensionManifestStore.close();
   });
 }
 process.once('SIGINT', shutdown);
