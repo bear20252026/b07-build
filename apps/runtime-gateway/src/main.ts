@@ -17,6 +17,9 @@ import {
   ExtensionActivationPlanner,
   ExtensionDoctor,
   AgentAdapterControlPlane,
+  AuditedScheduleControlPlane,
+  SqliteScheduleManifestStore,
+  SqliteScheduledRunStore,
   SqliteAdapterApprovalMailboxStore,
   SqliteAgentAdapterManifestStore,
   SqliteAgentAdapterSessionStore,
@@ -26,6 +29,8 @@ import {
   type McpConnection,
   type McpToolManifest,
   type AgentAdapterHandshakeRequest,
+  type ScheduleManifestV1,
+  type RegisterScheduleRequest,
   type AgentAdapterManifestV1,
   type DAGNode,
   type RegisterAgentAdapterRequest,
@@ -62,6 +67,8 @@ const SKILL_PACK_PATH = resolve(process.env.AWO_SKILL_PACK_DB ?? '.awo/skill-pac
 const AGENT_ADAPTER_MANIFEST_PATH = resolve(process.env.AWO_AGENT_ADAPTER_MANIFEST_DB ?? '.awo/agent-adapters.sqlite');
 const AGENT_ADAPTER_SESSION_PATH = resolve(process.env.AWO_AGENT_ADAPTER_SESSION_DB ?? '.awo/agent-adapter-sessions.sqlite');
 const AGENT_ADAPTER_MAILBOX_PATH = resolve(process.env.AWO_AGENT_ADAPTER_MAILBOX_DB ?? '.awo/agent-adapter-mailbox.sqlite');
+const SCHEDULE_MANIFEST_PATH = resolve(process.env.AWO_SCHEDULE_MANIFEST_DB ?? '.awo/audited-schedules.sqlite');
+const SCHEDULE_RUN_PATH = resolve(process.env.AWO_SCHEDULE_RUN_DB ?? '.awo/audited-schedule-runs.sqlite');
 const store = new SqliteTaskSnapshotStore(SNAPSHOT_PATH);
 const knowledgeWorkspaceStore = new SqliteKnowledgeWorkspaceStore(KNOWLEDGE_WORKSPACE_PATH);
 const knowledgeStoreFactory = new SqliteWorkspaceKnowledgeStoreFactory(KNOWLEDGE_WORKSPACE_DIR);
@@ -82,6 +89,9 @@ const agentAdapterManifestStore = new SqliteAgentAdapterManifestStore(AGENT_ADAP
 const agentAdapterSessionStore = new SqliteAgentAdapterSessionStore(AGENT_ADAPTER_SESSION_PATH);
 const agentAdapterMailboxStore = new SqliteAdapterApprovalMailboxStore(AGENT_ADAPTER_MAILBOX_PATH);
 const agentAdapters = new AgentAdapterControlPlane(agentAdapterManifestStore, agentAdapterSessionStore, agentAdapterMailboxStore);
+const scheduleManifestStore = new SqliteScheduleManifestStore(SCHEDULE_MANIFEST_PATH);
+const scheduledRunStore = new SqliteScheduledRunStore(SCHEDULE_RUN_PATH);
+const schedules = new AuditedScheduleControlPlane(scheduleManifestStore, scheduledRunStore);
 const DEFAULT_KNOWLEDGE_WORKSPACE_ID = 'default-local';
 if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
   knowledgeWorkspaces.create({
@@ -236,6 +246,15 @@ function agentAdapterSummary(manifest: AgentAdapterManifestV1): AgentAdapterMani
   } };
 }
 
+function scheduleSummary(manifest: ScheduleManifestV1): ScheduleManifestV1 {
+  return {
+    ...manifest,
+    taskTemplate: { ...manifest.taskTemplate, requestedCapabilities: [...manifest.taskTemplate.requestedCapabilities] },
+    trigger: { ...manifest.trigger },
+    budget: { ...manifest.budget },
+  };
+}
+
 function jsonBody(request: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -269,6 +288,109 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
   const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
   try {
+    if (request.method === 'GET' && url.pathname === '/api/schedules/approval-inbox') {
+      send(response, 200, schedules.approvalInbox());
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/schedules') {
+      send(response, 200, schedules.listSchedules().map(scheduleSummary));
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/schedules') {
+      const body = await jsonBody(request) as Record<string, unknown>;
+      if (
+        typeof body.id !== 'string' || typeof body.displayName !== 'string' || !body.taskTemplate || !body.trigger || !body.budget
+        || typeof body.requiresApproval !== 'boolean' || (body.note !== undefined && typeof body.note !== 'string')
+      ) {
+        send(response, 400, { error: 'Schedule 候选必须提供 id、displayName、taskTemplate、trigger、budget 与 requiresApproval' });
+        return;
+      }
+      try {
+        send(response, 201, scheduleSummary(schedules.registerCandidate({
+          ...(body as unknown as Omit<RegisterScheduleRequest, 'at'>), at: Date.now(),
+        })));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Schedule 候选无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'GET' && segments[0] === 'api' && segments[1] === 'schedules' && segments[2] && segments[3] === 'runs' && segments.length === 4) {
+      try {
+        send(response, 200, schedules.listRuns(segments[2]));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Schedule runs 查询无效' });
+      }
+      return;
+    }
+
+    /** 此路由只对当前调度窗口创建不可执行的 run 计划；没有 timer、runner 或自动执行。 */
+    if (request.method === 'POST' && segments[0] === 'api' && segments[1] === 'schedules' && segments[2] && segments[3] === 'runs' && segments.length === 4) {
+      const body = await jsonBody(request) as { runId?: unknown };
+      if (typeof body.runId !== 'string') {
+        send(response, 400, { error: 'Schedule run 规划必须提供独立 runId' });
+        return;
+      }
+      try {
+        send(response, 201, schedules.planDueRun({ scheduleId: segments[2], runId: body.runId, at: Date.now() }));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Schedule run 规划无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && segments[0] === 'api' && segments[1] === 'schedules' && segments[2] && segments[3] && segments.length === 4) {
+      const operation = segments[3];
+      if (operation !== 'review' && operation !== 'enable' && operation !== 'disable' && operation !== 'revoke') {
+        send(response, 404, { error: 'Schedule 操作必须是 review、enable、disable 或 revoke' });
+        return;
+      }
+      const body = await jsonBody(request) as { reviewedBy?: unknown; note?: unknown };
+      if (typeof body.reviewedBy !== 'string' || (body.note !== undefined && typeof body.note !== 'string')) {
+        send(response, 400, { error: 'Schedule 状态变更必须提供 reviewedBy，note 只能为字符串' });
+        return;
+      }
+      try {
+        const manifest = operation === 'review'
+          ? schedules.review(segments[2], body.reviewedBy, Date.now(), body.note)
+          : operation === 'enable'
+            ? schedules.enable(segments[2], body.reviewedBy, Date.now(), body.note)
+            : operation === 'disable'
+              ? schedules.disable(segments[2], body.reviewedBy, Date.now(), body.note)
+              : schedules.revoke(segments[2], body.reviewedBy, Date.now(), body.note);
+        send(response, 200, scheduleSummary(manifest));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Schedule 状态变更无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && segments[0] === 'api' && segments[1] === 'scheduled-runs' && segments[2] && segments[3] && segments.length === 4) {
+      const operation = segments[3];
+      if (operation !== 'approve' && operation !== 'deny' && operation !== 'expire') {
+        send(response, 404, { error: 'Schedule run 操作必须是 approve、deny 或 expire' });
+        return;
+      }
+      const body = await jsonBody(request) as { reviewedBy?: unknown; note?: unknown };
+      if ((operation !== 'expire' && typeof body.reviewedBy !== 'string') || (body.note !== undefined && typeof body.note !== 'string')) {
+        send(response, 400, { error: operation === 'expire' ? 'Schedule run expire 的 note 只能为字符串' : 'Schedule run 决定必须提供 reviewedBy，note 只能为字符串' });
+        return;
+      }
+      try {
+        const run = operation === 'approve'
+          ? schedules.approveRun(segments[2], body.reviewedBy as string, Date.now(), body.note)
+          : operation === 'deny'
+            ? schedules.denyRun(segments[2], body.reviewedBy as string, Date.now(), body.note)
+            : schedules.expireRun(segments[2], Date.now(), body.note);
+        send(response, 200, run);
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Schedule run 操作无效' });
+      }
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/agent-adapters') {
       send(response, 200, agentAdapters.listManifests().map(agentAdapterSummary));
       return;
