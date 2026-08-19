@@ -31,6 +31,13 @@ export interface WorkbenchTaskIntent {
  * 浏览器端的唯一运行时入口。该接口故意不暴露节点、工具、审批许可或数据库操作；
  * 它们必须由本地服务端在可信边界内装配。
  */
+function createIdempotencyKey(operation: string): string {
+  const suffix = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${operation}-${suffix}`;
+}
+
 export interface WorkbenchTaskClient {
   submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot>;
   resume(taskId: string, runId: string): Promise<WorkbenchTaskSnapshot>;
@@ -57,17 +64,24 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
   constructor(private readonly baseUrl = '/api/tasks') {}
 
   async submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot> {
-    return this.request('', { method: 'POST', body: JSON.stringify(intent) });
+    return this.request('', {
+      method: 'POST',
+      body: JSON.stringify(intent),
+      headers: { 'idempotency-key': createIdempotencyKey('submit') },
+    });
   }
 
   async resume(taskId: string, runId: string): Promise<WorkbenchTaskSnapshot> {
-    return this.request(`/${encodeURIComponent(taskId)}/${encodeURIComponent(runId)}/resume`, { method: 'POST' });
+    return this.request(`/${encodeURIComponent(taskId)}/${encodeURIComponent(runId)}/resume`, {
+      method: 'POST',
+      headers: { 'idempotency-key': createIdempotencyKey('resume') },
+    });
   }
 
   async approve(taskId: string, runId: string, nodeId: string): Promise<WorkbenchTaskSnapshot> {
     return this.request(
       `/${encodeURIComponent(taskId)}/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(nodeId)}`,
-      { method: 'POST' },
+      { method: 'POST', headers: { 'idempotency-key': createIdempotencyKey('approve') } },
     );
   }
 

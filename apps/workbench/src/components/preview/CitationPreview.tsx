@@ -1,4 +1,5 @@
 import type { FormEvent } from 'react';
+import { useLocale } from '../../i18n/LocaleProvider';
 import type { CitationPreview as Citation } from '../../runtime/knowledge-client';
 
 export interface CitationPreviewProps {
@@ -27,32 +28,33 @@ export function CitationPreview({
   onQueryChange,
   onSearch,
 }: CitationPreviewProps) {
+  const { messages } = useLocale();
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     onSearch();
   };
 
   return (
-    <section className="citation-preview" aria-label="本地知识引用预览">
+    <section className="citation-preview" aria-label={messages.citation.aria}>
       <div className="citation-header">
         <div>
-          <div className="citation-eyebrow">Local knowledge</div>
-          <h2>引用预览</h2>
+          <div className="citation-eyebrow">{messages.citation.eyebrow}</div>
+          <h2>{messages.citation.title}</h2>
         </div>
-        <span className="citation-count">{citations.length} 条</span>
+        <span className="citation-count">{messages.citation.count(citations.length)}</span>
       </div>
       <form className="citation-search" onSubmit={submit}>
         <input
-          aria-label="检索本地知识"
+          aria-label={messages.citation.searchAria}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="检索本地知识…"
+          placeholder={messages.citation.placeholder}
           value={query}
         />
-        <button disabled={!query.trim() || loading} type="submit">{loading ? '检索中' : '检索'}</button>
+        <button disabled={!query.trim() || loading} type="submit">{loading ? messages.citation.loading : messages.citation.search}</button>
       </form>
       {error && <div className="citation-error" role="alert">{error}</div>}
       {citations.length === 0 && !loading && !error && (
-        <p className="citation-empty">输入关键词后，将显示本机 SQLite 向量索引中的可追溯来源片段。</p>
+        <p className="citation-empty">{messages.citation.empty}</p>
       )}
       <div className="citation-list">
         {citations.map((citation) => (

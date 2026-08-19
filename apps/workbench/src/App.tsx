@@ -2,52 +2,53 @@ import { useState } from 'react';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider } from './components/layout/Sider';
 import { PreviewPanel } from './components/preview/PreviewPanel';
+import { useLocale } from './i18n/LocaleProvider';
+import type { Translation } from './i18n/catalog';
 import {
   HttpWorkbenchTaskClient,
   type WorkbenchTaskSnapshot,
 } from './runtime/task-client';
 
-const INITIAL_GOAL = '提交一个目标，启动可恢复的本地受控任务。';
 const taskClient = new HttpWorkbenchTaskClient();
 
-const PROFILE_UI: Record<AgentProfileId, { label: string; description: string }> = {
-  build: { label: 'Build', description: '实现与交付；高影响工具需要审批' },
-  plan: { label: 'Plan', description: '分析与规划；不允许写入或执行 Shell' },
-  explore: { label: 'Explore', description: '快速只读探索；严格限制步骤和上下文' },
-};
+function profileUi(messages: Translation): Record<AgentProfileId, { label: string; description: string }> {
+  return messages.profile;
+}
 
-function eventPresentation(event: TaskEvent): { title: string; detail: string; tone: string } {
+function eventPresentation(event: TaskEvent, messages: Translation): { title: string; detail: string; tone: string } {
   switch (event.type) {
     case 'task.created':
-      return { title: '任务已创建', detail: event.goal, tone: '' };
-    case 'agent.profile.selected':
-      return { title: 'Agent Profile 已选择', detail: `${PROFILE_UI[event.profileId].label} · ${PROFILE_UI[event.profileId].description}`, tone: 'success' };
+      return { ...messages.event.created(event.goal), tone: '' };
+    case 'agent.profile.selected': {
+      const profile = profileUi(messages)[event.profileId];
+      return { ...messages.event.profile(profile.label, profile.description), tone: 'success' };
+    }
     case 'plan.proposed':
-      return { title: '执行计划已生成', detail: `${event.steps.length} 个受控步骤已交给本地运行时`, tone: '' };
+      return { ...messages.event.plan(event.steps.length), tone: '' };
     case 'approval.required':
-      return { title: '需要人工审批', detail: `${event.capability} · ${event.reason}`, tone: 'warn' };
+      return { ...messages.event.approvalRequired(event.capability, event.reason), tone: 'warn' };
     case 'approval.resolved':
-      return { title: event.decision === 'approved' ? '审批已通过' : '审批被拒绝', detail: `操作 ${event.actionId} 由 ${event.resolvedBy} 处理`, tone: event.decision === 'approved' ? 'success' : 'danger' };
+      return { ...messages.event.approvalResolved(event.decision === 'approved', event.actionId, event.resolvedBy), tone: event.decision === 'approved' ? 'success' : 'danger' };
     case 'tool.called':
-      return { title: `正在调用 ${event.tool.name}`, detail: `${event.tool.capability} · ${event.tool.risk} 风险`, tone: '' };
+      return { ...messages.event.toolCalled(event.tool.name, event.tool.capability, event.tool.risk), tone: '' };
     case 'tool.result':
-      return { title: event.status === 'ok' ? '工具执行完成' : '工具执行未完成', detail: event.reason ?? event.outputRef, tone: event.status === 'ok' ? 'success' : 'danger' };
+      return { ...messages.event.toolResult(event.status === 'ok', event.reason ?? event.outputRef), tone: event.status === 'ok' ? 'success' : 'danger' };
     case 'artifact.created':
-      return { title: '交付产物已生成', detail: `${event.mime} · ${event.path}`, tone: 'success' };
+      return { ...messages.event.artifact(event.mime, event.path), tone: 'success' };
     case 'task.completed':
-      return { title: '任务已完成', detail: event.summaryRef, tone: 'success' };
+      return { ...messages.event.completed(event.summaryRef), tone: 'success' };
     case 'task.failed':
-      return { title: '任务执行失败', detail: `${event.code} · ${event.message}`, tone: 'danger' };
+      return { ...messages.event.failed(event.code, event.message), tone: 'danger' };
     case 'context.compacted':
-      return { title: '上下文已压缩', detail: `${event.estimatedTokensBefore} → ${event.estimatedTokensAfter} tokens`, tone: 'warn' };
+      return { ...messages.event.compacted(event.estimatedTokensBefore, event.estimatedTokensAfter), tone: 'warn' };
     case 'execution.blocked':
-      return { title: '执行预算已阻断', detail: `${event.code} · ${event.reason}`, tone: 'warn' };
+      return { ...messages.event.blocked(event.code, event.reason), tone: 'warn' };
   }
 }
 
-function statusLabel(status: WorkbenchTaskSnapshot['status'] | undefined): string {
-  if (!status) return '等待任务';
-  return { created: '已创建', running: '运行中', blocked: '等待审批', completed: '已完成', failed: '执行失败' }[status];
+function statusLabel(status: WorkbenchTaskSnapshot['status'] | undefined, messages: Translation): string {
+  if (!status) return messages.task.status.idle;
+  return messages.task.status[status];
 }
 
 export function App() {
@@ -55,11 +56,13 @@ export function App() {
   const [snapshot, setSnapshot] = useState<WorkbenchTaskSnapshot>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
-  const [activeGoal, setActiveGoal] = useState(INITIAL_GOAL);
+  const [activeGoal, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
   const [pending, setPending] = useState(false);
   const [serviceError, setServiceError] = useState<string>();
-  const profile = PROFILE_UI[activeProfile];
+  const { messages } = useLocale();
+  const profiles = profileUi(messages);
+  const profile = profiles[activeProfile];
   const blockedNodeId = snapshot && Object.entries(snapshot.nodeOutcomes).find(([, outcome]) => outcome === 'blocked')?.[0];
 
   const hydrate = async (nextSnapshot: WorkbenchTaskSnapshot): Promise<void> => {
@@ -79,7 +82,7 @@ export function App() {
       setActiveGoal(goal);
       setDraft('');
     } catch (error) {
-      setServiceError(error instanceof Error ? error.message : '无法连接本地任务服务');
+      setServiceError(error instanceof Error ? error.message : messages.task.error.connect);
     } finally {
       setPending(false);
     }
@@ -92,7 +95,7 @@ export function App() {
     try {
       await hydrate(await taskClient.resume(snapshot.taskId, snapshot.runId));
     } catch (error) {
-      setServiceError(error instanceof Error ? error.message : '恢复任务失败');
+      setServiceError(error instanceof Error ? error.message : messages.task.error.resume);
     } finally {
       setPending(false);
     }
@@ -105,7 +108,7 @@ export function App() {
     try {
       await hydrate(await taskClient.approve(snapshot.taskId, snapshot.runId, blockedNodeId));
     } catch (error) {
-      setServiceError(error instanceof Error ? error.message : '审批或恢复任务失败');
+      setServiceError(error instanceof Error ? error.message : messages.task.error.approve);
     } finally {
       setPending(false);
     }
@@ -114,64 +117,64 @@ export function App() {
   return (
     <div className={`workbench-shell theme-${theme}`}>
       <Sider
-        onNewTask={() => document.querySelector<HTMLTextAreaElement>('[aria-label="任务目标"]')?.focus()}
+        onNewTask={() => document.querySelector<HTMLTextAreaElement>(`[aria-label="${messages.task.goalAria}"]`)?.focus()}
         onThemeToggle={() => setTheme((current) => current === 'light' ? 'dark' : 'light')}
         theme={theme}
       />
       <main className="workbench-main">
         <header className="workbench-titlebar">
           <div>
-            <div className="titlebar-kicker">LOCAL CONTROL PLANE</div>
-            <div className="titlebar-title">任务工作台</div>
+            <div className="titlebar-kicker">{messages.task.controlPlane}</div>
+            <div className="titlebar-title">{messages.task.title}</div>
           </div>
           <div className="titlebar-actions">
-            <div className="profile-switcher" aria-label="选择 Agent Profile">
-              {(Object.keys(PROFILE_UI) as AgentProfileId[]).map((profileId) => (
+            <div className="profile-switcher" aria-label={messages.profile.selectAria}>
+              {(Object.keys(profiles) as AgentProfileId[]).map((profileId) => (
                 <button
                   className={`agent-chip${activeProfile === profileId ? ' active' : ''}`}
                   key={profileId}
                   onClick={() => setActiveProfile(profileId)}
-                  title={PROFILE_UI[profileId].description}
+                  title={profiles[profileId].description}
                   type="button"
                 >
-                  {PROFILE_UI[profileId].label}
+                  {profiles[profileId].label}
                 </button>
               ))}
             </div>
-            <span className="context-chip">{snapshot?.stats ? `并发峰值 ${snapshot.stats.maxObservedConcurrency}` : '本地快照'}</span>
-            <span className={`status-chip ${snapshot?.status ?? ''}`}><span className="status-dot" />{statusLabel(snapshot?.status)}</span>
+            <span className="context-chip">{snapshot?.stats ? messages.task.concurrencyPeak(snapshot.stats.maxObservedConcurrency) : messages.common.localFirst}</span>
+            <span className={`status-chip ${snapshot?.status ?? ''}`}><span className="status-dot" />{statusLabel(snapshot?.status, messages)}</span>
           </div>
         </header>
-        <section className="conversation-scroll" aria-label="任务事件流">
+        <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
             <div className="welcome-card">
-              <div className="welcome-eyebrow">AI WORK OS · LOCAL-FIRST</div>
-              <h1>今天想推进什么成果？</h1>
-              <p>{activeGoal}</p>
-              <div className="capability-row" aria-label="当前能力">
-                <span className="capability-badge">事件协议 v1.0</span>
-                <span className="capability-badge">最小权限</span>
-                <span className="capability-badge">SQLite 快照</span>
+              <div className="welcome-eyebrow">{messages.task.welcomeEyebrow}</div>
+              <h1>{messages.task.welcomeTitle}</h1>
+              <p>{activeGoal ?? messages.task.initialGoal}</p>
+              <div className="capability-row" aria-label={messages.task.currentCapabilities}>
+                <span className="capability-badge">{messages.task.eventProtocol}</span>
+                <span className="capability-badge">{messages.task.leastPrivilege}</span>
+                <span className="capability-badge">{messages.task.sqliteSnapshot}</span>
                 <span className="capability-badge">{profile.label} Profile</span>
               </div>
             </div>
-            {serviceError && <div className="runtime-error" role="alert">本地运行时：{serviceError}</div>}
-            <section className="runtime-snapshot" aria-label="当前任务快照">
+            {serviceError && <div className="runtime-error" role="alert">{messages.common.local}: {serviceError}</div>}
+            <section className="runtime-snapshot" aria-label={messages.task.snapshotAria}>
               <div>
-                <div className="snapshot-eyebrow">真实运行时快照</div>
-                <strong>{snapshot ? statusLabel(snapshot.status) : '尚无任务'}</strong>
-                <span>{snapshot ? `第 ${snapshot.attempt} 次尝试 · ${Object.keys(snapshot.nodeOutcomes).length} 个节点` : '提交目标后将在此显示 SQLite 持久化的任务状态。'}</span>
+                <div className="snapshot-eyebrow">{messages.task.runtimeSnapshot}</div>
+                <strong>{snapshot ? statusLabel(snapshot.status, messages) : messages.task.noTask}</strong>
+                <span>{snapshot ? messages.task.attempt(snapshot.attempt, Object.keys(snapshot.nodeOutcomes).length) : messages.task.noTaskDescription}</span>
               </div>
               {snapshot && (
                 <div className="snapshot-actions">
                   {snapshot.status === 'blocked' && blockedNodeId && (
                     <button className="snapshot-primary" disabled={pending} onClick={approveAndResume} type="button">
-                      {pending ? '处理中…' : `批准并恢复 ${blockedNodeId}`}
+                      {pending ? messages.common.processing : messages.task.approveAndResume(blockedNodeId)}
                     </button>
                   )}
                   {(snapshot.status === 'blocked' || snapshot.status === 'failed') && (
                     <button className="snapshot-secondary" disabled={pending} onClick={resume} type="button">
-                      从快照恢复
+                      {messages.task.resume}
                     </button>
                   )}
                 </div>
@@ -179,13 +182,13 @@ export function App() {
             </section>
             <section className="event-section">
               <div className="section-heading">
-                <span>任务活动</span>
-                <span className="event-count">{events.length} 条真实事件</span>
+                <span>{messages.task.activity}</span>
+                <span className="event-count">{messages.task.eventCount(events.length)}</span>
               </div>
               <div className="event-timeline">
-                {events.length === 0 && <div className="empty-events">尚未接收到运行时事件。启动本地网关后提交一个目标。</div>}
+                {events.length === 0 && <div className="empty-events">{messages.task.noEvents}</div>}
                 {events.map((nextEvent) => {
-                  const presentation = eventPresentation(nextEvent);
+                  const presentation = eventPresentation(nextEvent, messages);
                   return (
                     <article className="event-card" key={nextEvent.eventId}>
                       <span className={`event-marker ${presentation.tone}`} aria-hidden="true" />
@@ -202,20 +205,20 @@ export function App() {
         </section>
         <div className="task-composer">
           <textarea
-            aria-label="任务目标"
+            aria-label={messages.task.goalAria}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') void submitIntent();
             }}
-            placeholder="描述期望成果；系统会在本地生成可解释、可恢复的受控计划…"
+            placeholder={messages.task.goalPlaceholder}
             value={draft}
           />
           <div className="composer-footer">
-            <span className="composer-hint">Ctrl / ⌘ + Enter 提交。高风险动作会进入审批流。</span>
+            <span className="composer-hint">{messages.task.composerHint}</span>
             <div className="composer-actions">
               <span className="composer-mode">{profile.label} Profile</span>
               <button className="composer-submit" disabled={!draft.trim() || pending} onClick={() => void submitIntent()} type="button">
-                {pending ? '提交中…' : '开始任务'}
+                {pending ? messages.task.submitting : messages.task.submit}
               </button>
             </div>
           </div>

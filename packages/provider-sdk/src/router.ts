@@ -1,5 +1,6 @@
 // 一个文件=一种作用：模型选择策略；不发起模型请求、不保存密钥、不处理 UI。
 import type { ModelCapabilities, ModelDriver } from './driver.js';
+import type { LocalEndpointAvailability } from './local-endpoint-registry.js';
 
 export type TaskKind = 'research' | 'document' | 'code' | 'chat';
 export type DataBoundary = 'local-preferred' | 'local-only' | 'remote-allowed';
@@ -10,6 +11,8 @@ export interface ModelRouteRequest {
   needsTools?: boolean;
   needsVision?: boolean;
   dataBoundary?: DataBoundary;
+  /** 将健康判定绑定到调用时刻，方便测试与任务回放。 */
+  at?: number;
 }
 
 export interface ModelRouteCandidate {
@@ -52,7 +55,11 @@ function requirementsFor(kind: TaskKind): Required<Pick<ModelRouteRequest, 'need
  * 而不是散落在 UI 或各个 provider adapter 中。候选按 `score desc, driverId asc` 稳定排序。
  */
 export class ModelRouter {
-  constructor(private readonly drivers: Map<string, ModelDriver> = new Map()) {}
+  constructor(
+    private readonly drivers: Map<string, ModelDriver> = new Map(),
+    private readonly localEndpointAvailability?: LocalEndpointAvailability,
+    private readonly now: () => number = () => Date.now(),
+  ) {}
 
   register(driver: ModelDriver): void {
     this.drivers.set(driver.id(), driver);
@@ -69,6 +76,8 @@ export class ModelRouter {
     const needsTools = request.needsTools ?? defaults.needsTools;
     const needsVision = request.needsVision ?? defaults.needsVision;
     const dataBoundary = request.dataBoundary ?? 'remote-allowed';
+    const routeAt = request.at ?? this.now();
+    if (!Number.isSafeInteger(routeAt) || routeAt < 0) throw new Error('route at 必须是非负安全整数');
     const candidates: Array<ModelRouteCandidate & { driver: ModelDriver }> = [];
 
     for (const driver of this.drivers.values()) {
@@ -77,6 +86,9 @@ export class ModelRouter {
       if (needsTools && !capabilities.supportsTools) continue;
       if (needsVision && !capabilities.supportsVision) continue;
       if (dataBoundary === 'local-only' && !capabilities.isLocal) continue;
+      if (capabilities.isLocal && this.localEndpointAvailability && !this.localEndpointAvailability.isRoutable(driver.id(), routeAt)) {
+        continue;
+      }
 
       let score = COST_SCORE[capabilities.costTier];
       if (capabilities.isLocal) score += dataBoundary === 'local-preferred' ? 40 : 12;
@@ -94,7 +106,9 @@ export class ModelRouter {
     }
     const reason = [
       `${selected.driverId} 得分 ${selected.score}`,
-      selected.capabilities.isLocal ? '本地优先' : '远程受控',
+      selected.capabilities.isLocal
+        ? this.localEndpointAvailability ? '本地端点健康且受控' : '本地优先'
+        : '远程受控',
       `上下文 ${selected.capabilities.contextWindow}`,
       `成本 ${selected.capabilities.costTier}`,
     ].join(' · ');
