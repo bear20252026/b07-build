@@ -1,6 +1,6 @@
 {
   "name": "@awo/protocol",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "AI Work OS 协议唯一事实源：TaskEvent、能力策略与 JSON Schema 契约校验（一包=一作用）",
   "type": "module",
   "main": "src/index.ts",

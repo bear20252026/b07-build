@@ -161,7 +161,8 @@
             "status": { "enum": ["ok", "error"] },
             "outputRef": { "type": "string", "minLength": 1 },
             "errorCode": { "type": "string", "minLength": 1 },
-            "reason": { "type": "string", "minLength": 1 }
+            "reason": { "type": "string", "minLength": 1 },
+            "blocked": { "type": "boolean" }
           }
         }
       ],

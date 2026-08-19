@@ -1,0 +1,8 @@
+{
+  "name": "@awo/knowledge-workflow",
+  "version": "0.1.0",
+  "description": "AI Work OS - 本地知识摄取、检索和可追溯引用端口",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts"
+}

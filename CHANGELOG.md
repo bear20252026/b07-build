@@ -216,3 +216,45 @@ DAG 执行器新增已完成节点恢复入口、节点终态观测及 `emitTool
 - 本版本定义并测试了任务服务与路由 adapter；工作台尚未在浏览器中直接调用该服务。下一步通过 C1/C2/C3 adapter 接入真实快照、审批与恢复状态，不将 Node SQLite 或 Provider 密钥导入前端。
 - Anthropic adapter 目前覆盖文本流式响应。原生 tool-use 请求和多模态内容块必须先扩展协议 `ChatRequest`，再通过可验证事件接入，不在 adapter 内部私自改变调用语义。
 - Rust `SchedulerStats` 尚未消费 TypeScript 调度器的实时统计；该同步将通过版本化 JSON-RPC 或文件 IPC 增加，避免任一语言直接访问另一方内部内存。
+
+
+## [2026-08-19] v0.10.0 工作台真实闭环、统计 IPC 与本地知识基础
+
+### 决策
+
+- **浏览器只持有意图与 DTO**：`WorkbenchTaskClient` 只接受目标、Profile、恢复与审批意图，并返回经过客户端形状检查的快照及经协议校验的事件。浏览器永不构造 DAG、工具、基线策略、审批集合或 SQLite 句柄。
+- **开发网关只在回环地址服务**：`apps/runtime-gateway` 绑定 `127.0.0.1`，在可信服务端装配固定的本地任务模板、`RuleBasedCapabilityPolicy`、审批端口、空副作用 runner 和 SQLite 快照。该网关是开发会话桥接，不是常驻生产服务。
+- **审批演示不产生文件副作用**：Build 模板中的 `workspace.write.intent` 用来验证审批、恢复和事件顺序，runner 只输出 `local://` 引用；它不会写文件、执行 Shell 或调用网络。
+- **跨语言统计采用独立版本化消息**：Rust `SchedulerStatsMessage` 使用 `awo.scheduler.v1`、`schemaVersion=1` 和严格 JSON 字段，避免 Rust 与 TypeScript 直接共享内存或数据库实现。
+- **知识结果必须有来源**：本地知识流程只摄取已解析文本、使用确定性分块与词法检索，并返回 chunk、文档和 URI 引用。网络摄取、模型摘要和向量索引仍留在可替换 adapter 之后。
+
+### 新增
+
+- `apps/runtime-gateway/src/main.ts`：回环 HTTP 网关，提供提交、快照、事件、恢复和指定节点审批入口；服务端生成受控 DAG 并持久化 SQLite 快照。
+- `apps/workbench/src/runtime/task-client.ts`：浏览器任务服务端口与 HTTP adapter，验证快照版本和每个 C6 事件后才更新界面。
+- 工作台宿主接入真实运行时状态：显示任务状态、尝试次数、节点数、并发峰值、审批按钮和快照恢复按钮；时间线不再伪造执行记录。
+- `crates/process-supervisor/src/scheduler_stats_ipc.rs`：SchedulerStats JSON 编解码、字段/版本/标识校验与 Rust 控制面投影。
+- `packages/knowledge-workflow`：本地知识文档、分块、引用、Store 端口、内存 adapter 与确定性检索实现。
+- `docs/validation/workbench-runtime-loop-2026-08-19.md`：工作台真实闭环的浏览器验收记录。
+
+### 修正
+
+- **工作台首次连接真实网关时拒绝事件流**：`ControlledToolRunner` 在可恢复阻断时发送了 `blocked`，但 `ToolResultEvent` 类型与封闭 JSON Schema 未允许该字段。
+  → 处置：将可选 `blocked: boolean` 纳入 `tool.result` 类型和 Schema。浏览器验收确认 9 条阻断前真实事件与审批后的 12 条完整事件均可通过校验并显示。
+
+### 验证
+
+| 检查 | 结果 |
+|---|---|
+| `npm run typecheck` | 通过 |
+| `npm run test` | 43/43 通过 |
+| `npm run build --workspace=@awo/workbench` | 通过 |
+| `cargo fmt --check && cargo check && cargo test` | 6/6 通过 |
+| 回环 HTTP 闭环 | Build：审批前 `blocked`，批准 `deliver` 后 attempt 1 → 2、仅重跑未完成节点并达到 `completed` |
+| 浏览器验收 | 工作台渲染真实 SQLite 快照、9 条审批前事件与 12 条恢复后事件 |
+
+### 后续边界
+
+- 开发网关的请求元数据仅保留在进程内；SQLite 已保存快照，但进程重启后恢复完整请求仍需桌面壳安全保存已授权任务定义，绝不从浏览器重建工具参数。
+- Rust IPC 当前是已测试的 JSON 消息契约；真实 JSON-RPC/文件监听 adapter、心跳发送和取消回传将在桌面控制面阶段实现。
+- 本地知识流程当前为可验证词法基线；SQLite FTS/向量 Store、受控文档解析任务、检索事件与工作台引用预览将沿既有端口扩展。

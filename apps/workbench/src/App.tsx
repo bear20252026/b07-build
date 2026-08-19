@@ -1,10 +1,14 @@
-// 一个文件=一种作用：AionUi 风格三栏工作台宿主；UI 只产生意图并订阅 TaskEvent。
 import { useState } from 'react';
-import type { AgentProfileId, EventEnvelope, TaskEvent } from '@awo/protocol';
+import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider } from './components/layout/Sider';
 import { PreviewPanel } from './components/preview/PreviewPanel';
+import {
+  HttpWorkbenchTaskClient,
+  type WorkbenchTaskSnapshot,
+} from './runtime/task-client';
 
-const INITIAL_GOAL = '为 b07-build 设计一个可验证的本地任务执行闭环';
+const INITIAL_GOAL = '提交一个目标，启动可恢复的本地受控任务。';
+const taskClient = new HttpWorkbenchTaskClient();
 
 const PROFILE_UI: Record<AgentProfileId, { label: string; description: string }> = {
   build: { label: 'Build', description: '实现与交付；高影响工具需要审批' },
@@ -12,56 +16,14 @@ const PROFILE_UI: Record<AgentProfileId, { label: string; description: string }>
   explore: { label: 'Explore', description: '快速只读探索；严格限制步骤和上下文' },
 };
 
-type TaskEventDraft = TaskEvent extends infer Event
-  ? Event extends EventEnvelope
-    ? Omit<Event, 'protocolVersion' | 'eventId' | 'at'>
-    : never
-  : never;
-
-function createEvent(event: TaskEventDraft, suffix: string): TaskEvent {
-  const at = Date.now();
-  return {
-    ...event,
-    protocolVersion: '1.0',
-    eventId: `${event.runId}:${suffix}:${at}`,
-    at,
-  } as TaskEvent;
-}
-
-function createInitialEvents(): TaskEvent[] {
-  return [
-    createEvent(
-      { type: 'agent.profile.selected', taskId: 'seed-task', runId: 'seed-run', profileId: 'build' },
-      'profile',
-    ),
-    createEvent(
-      { type: 'task.created', taskId: 'seed-task', runId: 'seed-run', goal: INITIAL_GOAL },
-      'created',
-    ),
-    createEvent(
-      {
-        type: 'plan.proposed',
-        taskId: 'seed-task',
-        runId: 'seed-run',
-        steps: [
-          { id: 'inspect', description: '核查运行时、协议与现有验证基线', risk: 'low' },
-          { id: 'implement', description: '实现受控执行链与可回放事件', risk: 'medium' },
-          { id: 'deliver', description: '验证代码并交付可编辑产物', risk: 'low' },
-        ],
-      },
-      'plan',
-    ),
-  ];
-}
-
 function eventPresentation(event: TaskEvent): { title: string; detail: string; tone: string } {
   switch (event.type) {
     case 'task.created':
       return { title: '任务已创建', detail: event.goal, tone: '' };
     case 'agent.profile.selected':
-      return { title: 'Agent Profile 已切换', detail: `${PROFILE_UI[event.profileId].label} · ${PROFILE_UI[event.profileId].description}`, tone: 'success' };
+      return { title: 'Agent Profile 已选择', detail: `${PROFILE_UI[event.profileId].label} · ${PROFILE_UI[event.profileId].description}`, tone: 'success' };
     case 'plan.proposed':
-      return { title: '执行计划已生成', detail: `${event.steps.length} 个步骤等待运行时调度`, tone: '' };
+      return { title: '执行计划已生成', detail: `${event.steps.length} 个受控步骤已交给本地运行时`, tone: '' };
     case 'approval.required':
       return { title: '需要人工审批', detail: `${event.capability} · ${event.reason}`, tone: 'warn' };
     case 'approval.resolved':
@@ -83,47 +45,69 @@ function eventPresentation(event: TaskEvent): { title: string; detail: string; t
   }
 }
 
+function statusLabel(status: WorkbenchTaskSnapshot['status'] | undefined): string {
+  if (!status) return '等待任务';
+  return { created: '已创建', running: '运行中', blocked: '等待审批', completed: '已完成', failed: '执行失败' }[status];
+}
+
 export function App() {
-  const [events, setEvents] = useState<TaskEvent[]>(createInitialEvents);
+  const [events, setEvents] = useState<readonly TaskEvent[]>([]);
+  const [snapshot, setSnapshot] = useState<WorkbenchTaskSnapshot>();
   const [draft, setDraft] = useState('');
   const [activeGoal, setActiveGoal] = useState(INITIAL_GOAL);
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
+  const [pending, setPending] = useState(false);
+  const [serviceError, setServiceError] = useState<string>();
   const profile = PROFILE_UI[activeProfile];
+  const blockedNodeId = snapshot && Object.entries(snapshot.nodeOutcomes).find(([, outcome]) => outcome === 'blocked')?.[0];
 
-  const selectProfile = (profileId: AgentProfileId): void => {
-    if (profileId === activeProfile) return;
-    setActiveProfile(profileId);
-    setEvents((previous) => [
-      ...previous.slice(-199),
-      createEvent(
-        { type: 'agent.profile.selected', taskId: 'workspace-task', runId: 'workspace-run', profileId },
-        'profile',
-      ),
-    ]);
+  const hydrate = async (nextSnapshot: WorkbenchTaskSnapshot): Promise<void> => {
+    const nextEvents = await taskClient.events(nextSnapshot.taskId, nextSnapshot.runId);
+    setSnapshot(nextSnapshot);
+    setEvents(nextEvents);
   };
 
-  const submitIntent = (): void => {
+  const submitIntent = async (): Promise<void> => {
     const goal = draft.trim();
-    if (!goal) return;
-    const taskId = `task-${Date.now()}`;
-    const runId = `run-${Date.now()}`;
-    const created = createEvent({ type: 'task.created', taskId, runId, goal }, 'created');
-    const planned = createEvent(
-      {
-        type: 'plan.proposed',
-        taskId,
-        runId,
-        steps: [
-          { id: 'understand', description: '理解目标、边界与已有材料', risk: 'low' },
-          { id: 'execute', description: '在权限与预算约束下执行任务', risk: 'medium' },
-          { id: 'deliver', description: '生成可编辑产物并回报验证结果', risk: 'low' },
-        ],
-      },
-      'plan',
-    );
-    setActiveGoal(goal);
-    setEvents((previous) => [...previous.slice(-197), created, planned]);
-    setDraft('');
+    if (!goal || pending) return;
+    setPending(true);
+    setServiceError(undefined);
+    try {
+      const nextSnapshot = await taskClient.submit({ goal, profileId: activeProfile });
+      await hydrate(nextSnapshot);
+      setActiveGoal(goal);
+      setDraft('');
+    } catch (error) {
+      setServiceError(error instanceof Error ? error.message : '无法连接本地任务服务');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const resume = async (): Promise<void> => {
+    if (!snapshot || pending) return;
+    setPending(true);
+    setServiceError(undefined);
+    try {
+      await hydrate(await taskClient.resume(snapshot.taskId, snapshot.runId));
+    } catch (error) {
+      setServiceError(error instanceof Error ? error.message : '恢复任务失败');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const approveAndResume = async (): Promise<void> => {
+    if (!snapshot || !blockedNodeId || pending) return;
+    setPending(true);
+    setServiceError(undefined);
+    try {
+      await hydrate(await taskClient.approve(snapshot.taskId, snapshot.runId, blockedNodeId));
+    } catch (error) {
+      setServiceError(error instanceof Error ? error.message : '审批或恢复任务失败');
+    } finally {
+      setPending(false);
+    }
   };
 
   return (
@@ -141,7 +125,7 @@ export function App() {
                 <button
                   className={`agent-chip${activeProfile === profileId ? ' active' : ''}`}
                   key={profileId}
-                  onClick={() => selectProfile(profileId)}
+                  onClick={() => setActiveProfile(profileId)}
                   title={PROFILE_UI[profileId].description}
                   type="button"
                 >
@@ -149,33 +133,56 @@ export function App() {
                 </button>
               ))}
             </div>
-            <span className="context-chip">Context 18%</span>
-            <span className="status-chip"><span className="status-dot" />运行时就绪</span>
+            <span className="context-chip">{snapshot?.stats ? `并发峰值 ${snapshot.stats.maxObservedConcurrency}` : '本地快照'}</span>
+            <span className={`status-chip ${snapshot?.status ?? ''}`}><span className="status-dot" />{statusLabel(snapshot?.status)}</span>
           </div>
         </header>
         <section className="conversation-scroll" aria-label="任务事件流">
           <div className="conversation-frame">
             <div className="welcome-card">
-              <div className="welcome-eyebrow">AI Work OS</div>
-              <h1>把目标拆解为受控、可解释、可交付的任务。</h1>
+              <div className="welcome-eyebrow">AI Work OS · Local Runtime</div>
+              <h1>把目标拆解为受控、可解释、可恢复的任务。</h1>
               <p>{activeGoal}</p>
               <div className="capability-row" aria-label="当前能力">
                 <span className="capability-badge">事件协议 v1.0</span>
                 <span className="capability-badge">最小权限</span>
-                <span className="capability-badge">执行预算</span>
-                <span className="capability-badge">上下文预算</span>
+                <span className="capability-badge">SQLite 快照</span>
+                <span className="capability-badge">{profile.label} Profile</span>
               </div>
             </div>
+            {serviceError && <div className="runtime-error" role="alert">本地运行时：{serviceError}</div>}
+            <section className="runtime-snapshot" aria-label="当前任务快照">
+              <div>
+                <div className="snapshot-eyebrow">真实运行时快照</div>
+                <strong>{snapshot ? statusLabel(snapshot.status) : '尚无任务'}</strong>
+                <span>{snapshot ? `第 ${snapshot.attempt} 次尝试 · ${Object.keys(snapshot.nodeOutcomes).length} 个节点` : '提交目标后将在此显示 SQLite 持久化的任务状态。'}</span>
+              </div>
+              {snapshot && (
+                <div className="snapshot-actions">
+                  {snapshot.status === 'blocked' && blockedNodeId && (
+                    <button className="snapshot-primary" disabled={pending} onClick={approveAndResume} type="button">
+                      {pending ? '处理中…' : `批准并恢复 ${blockedNodeId}`}
+                    </button>
+                  )}
+                  {(snapshot.status === 'blocked' || snapshot.status === 'failed') && (
+                    <button className="snapshot-secondary" disabled={pending} onClick={resume} type="button">
+                      从快照恢复
+                    </button>
+                  )}
+                </div>
+              )}
+            </section>
             <section className="event-section">
               <div className="section-heading">
                 <span>任务活动</span>
-                <span className="event-count">{events.length} 条事件</span>
+                <span className="event-count">{events.length} 条真实事件</span>
               </div>
               <div className="event-timeline">
-                {events.map((event) => {
-                  const presentation = eventPresentation(event);
+                {events.length === 0 && <div className="empty-events">尚未接收到运行时事件。启动本地网关后提交一个目标。</div>}
+                {events.map((nextEvent) => {
+                  const presentation = eventPresentation(nextEvent);
                   return (
-                    <article className="event-card" key={event.eventId}>
+                    <article className="event-card" key={nextEvent.eventId}>
                       <span className={`event-marker ${presentation.tone}`} aria-hidden="true" />
                       <div>
                         <div className="event-title">{presentation.title}</div>
@@ -193,7 +200,7 @@ export function App() {
             aria-label="任务目标"
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') submitIntent();
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') void submitIntent();
             }}
             placeholder="描述你希望交付的结果，例如：审查当前运行时并生成可靠性改进方案"
             value={draft}
@@ -202,7 +209,9 @@ export function App() {
             <span className="composer-hint">Ctrl / ⌘ + Enter 提交。高风险动作会进入审批流。</span>
             <div className="composer-actions">
               <span className="composer-mode">{profile.label} Profile</span>
-              <button className="composer-submit" disabled={!draft.trim()} onClick={submitIntent} type="button">生成计划</button>
+              <button className="composer-submit" disabled={!draft.trim() || pending} onClick={() => void submitIntent()} type="button">
+                {pending ? '提交中…' : '生成计划'}
+              </button>
             </div>
           </div>
         </div>

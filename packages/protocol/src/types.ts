@@ -115,6 +115,8 @@ export interface ToolResultEvent extends EventEnvelope {
   outputRef: string;
   errorCode?: string;
   reason?: string;
+  /** 审批或预算造成的可恢复未启动；与实际工具失败区分。 */
+  blocked?: boolean;
 }
 
 export interface ArtifactCreatedEvent extends EventEnvelope {

@@ -1,6 +1,6 @@
 {
   "name": "ai-work-os",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "description": "AI Work OS 积木式 monorepo（pnpm 不可用 → npm workspaces）",
   "workspaces": [
@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "typecheck": "tsc -b tsconfig.base.json",
-    "test": "node --experimental-sqlite --import tsx --test $(find packages -path '*test/*.test.ts' -print)",
+    "test": "node --experimental-sqlite --import tsx --test $(find packages apps -path '*test/*.test.ts' -print)",
     "benchmark:dag": "node --import tsx packages/agent-runtime/benchmark/dag-scheduler.bench.ts",
     "build": "npm run typecheck"
   },
