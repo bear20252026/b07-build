@@ -25,6 +25,12 @@ import {
   type TaskRuntimeRequest,
 } from '@awo/agent-runtime';
 import {
+  ProviderProfileRegistry,
+  SqliteProviderProfileStore,
+  type RegisterProviderProfileRequest,
+  type UpdateProviderProfileRequest,
+} from '@awo/provider-sdk';
+import {
   KnowledgeWorkspaceService,
   SqliteKnowledgeWorkspaceStore,
   SqliteWorkspaceKnowledgeStoreFactory,
@@ -40,6 +46,7 @@ const SUBTASK_PATH = resolve(process.env.AWO_SUBTASK_DB ?? '.awo/read-only-subta
 const MCP_MANIFEST_PATH = resolve(process.env.AWO_MCP_MANIFEST_DB ?? '.awo/mcp-manifests.sqlite');
 const EXTENSION_MANIFEST_PATH = resolve(process.env.AWO_EXTENSION_MANIFEST_DB ?? '.awo/extension-manifests.sqlite');
 const EXTENSION_PLAN_PATH = resolve(process.env.AWO_EXTENSION_PLAN_DB ?? '.awo/extension-plans.sqlite');
+const PROVIDER_PROFILE_PATH = resolve(process.env.AWO_PROVIDER_PROFILE_DB ?? '.awo/provider-profiles.sqlite');
 const store = new SqliteTaskSnapshotStore(SNAPSHOT_PATH);
 const knowledgeWorkspaceStore = new SqliteKnowledgeWorkspaceStore(KNOWLEDGE_WORKSPACE_PATH);
 const knowledgeStoreFactory = new SqliteWorkspaceKnowledgeStoreFactory(KNOWLEDGE_WORKSPACE_DIR);
@@ -52,6 +59,8 @@ const mcpRegistry = new McpRegistry(mcpManifestStore);
 const extensionManifestStore = new SqliteExtensionManifestStore(EXTENSION_MANIFEST_PATH);
 const extensionRegistry = new ExtensionRegistry(extensionManifestStore);
 const extensionPlanStore = new SqliteExtensionPlanStore(EXTENSION_PLAN_PATH);
+const providerProfileStore = new SqliteProviderProfileStore(PROVIDER_PROFILE_PATH);
+const providerProfiles = new ProviderProfileRegistry(providerProfileStore);
 const DEFAULT_KNOWLEDGE_WORKSPACE_ID = 'default-local';
 if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
   knowledgeWorkspaces.create({
@@ -223,6 +232,65 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
   const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
   try {
+    if (request.method === 'GET' && url.pathname === '/api/providers/profiles') {
+      send(response, 200, providerProfiles.list());
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/providers/profiles') {
+      const body = await jsonBody(request) as Record<string, unknown>;
+      if (
+        typeof body.id !== 'string' || typeof body.displayName !== 'string' || !Array.isArray(body.driverIds)
+        || typeof body.maximumDataBoundary !== 'string' || typeof body.reviewedBy !== 'string'
+        || (body.credentialReference !== undefined && typeof body.credentialReference !== 'string')
+        || (body.note !== undefined && typeof body.note !== 'string')
+      ) {
+        send(response, 400, { error: 'Provider Profile 必须提供 id、displayName、driverIds、maximumDataBoundary 与 reviewedBy；仅可选 credentialReference 标识' });
+        return;
+      }
+      try {
+        send(response, 201, providerProfiles.register({
+          ...(body as unknown as Omit<RegisterProviderProfileRequest, 'at'>), at: Date.now(),
+        }));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Provider Profile 无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && segments[0] === 'api' && segments[1] === 'providers' && segments[2] === 'profiles' && segments[3] && segments[4] && segments.length === 5) {
+      const operation = segments[4];
+      if (operation !== 'update' && operation !== 'activate' && operation !== 'disable' && operation !== 'revoke' && operation !== 'rollback') {
+        send(response, 404, { error: 'Provider Profile 操作必须是 update、activate、disable、revoke 或 rollback' });
+        return;
+      }
+      const body = await jsonBody(request) as Record<string, unknown>;
+      if (typeof body.reviewedBy !== 'string' || (body.note !== undefined && typeof body.note !== 'string')) {
+        send(response, 400, { error: 'Provider Profile 变更必须提供 reviewedBy，note 只能为字符串' });
+        return;
+      }
+      if (operation === 'rollback' && (!Number.isSafeInteger(body.revision) || typeof body.revision !== 'number')) {
+        send(response, 400, { error: 'Provider Profile rollback 必须提供正整数 revision' });
+        return;
+      }
+      try {
+        const at = Date.now();
+        const profile = operation === 'update'
+          ? providerProfiles.update(segments[3], { ...(body as unknown as Omit<UpdateProviderProfileRequest, 'at'>), at })
+          : operation === 'activate'
+            ? providerProfiles.activate(segments[3], body.reviewedBy, at, body.note as string | undefined)
+            : operation === 'disable'
+              ? providerProfiles.disable(segments[3], body.reviewedBy, at, body.note as string | undefined)
+              : operation === 'revoke'
+                ? providerProfiles.revoke(segments[3], body.reviewedBy, at, body.note as string | undefined)
+                : providerProfiles.rollback(segments[3], body.revision as number, body.reviewedBy, at, body.note as string | undefined);
+        send(response, 200, profile);
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Provider Profile 变更无效' });
+      }
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/extensions/doctor') {
       send(response, 200, extensionDoctor.inspect());
       return;
@@ -685,6 +753,7 @@ function shutdown(): void {
     mcpManifestStore.close();
     extensionManifestStore.close();
     extensionPlanStore.close();
+    providerProfileStore.close();
   });
 }
 process.once('SIGINT', shutdown);

@@ -13,6 +13,8 @@ export interface ModelRouteRequest {
   dataBoundary?: DataBoundary;
   /** 将健康判定绑定到调用时刻，方便测试与任务回放。 */
   at?: number;
+  /** 可选的上层 Profile allowlist；缺失表示不额外收紧。 */
+  allowedDriverIds?: readonly string[];
 }
 
 export interface ModelRouteCandidate {
@@ -79,8 +81,10 @@ export class ModelRouter {
     const routeAt = request.at ?? this.now();
     if (!Number.isSafeInteger(routeAt) || routeAt < 0) throw new Error('route at 必须是非负安全整数');
     const candidates: Array<ModelRouteCandidate & { driver: ModelDriver }> = [];
+    const allowedDriverIds = request.allowedDriverIds ? new Set(request.allowedDriverIds) : undefined;
 
     for (const driver of this.drivers.values()) {
+      if (allowedDriverIds && !allowedDriverIds.has(driver.id())) continue;
       const capabilities = { ...DEFAULT_CAPABILITIES, ...driver.capabilities?.() };
       if (capabilities.contextWindow < minContextTokens) continue;
       if (needsTools && !capabilities.supportsTools) continue;
