@@ -16,12 +16,19 @@ import {
   SqliteExtensionManifestStore,
   ExtensionActivationPlanner,
   ExtensionDoctor,
+  AgentAdapterControlPlane,
+  SqliteAdapterApprovalMailboxStore,
+  SqliteAgentAdapterManifestStore,
+  SqliteAgentAdapterSessionStore,
   SqliteExtensionPlanStore,
   type DiscoverExtensionRequest,
   type ExtensionActivationTarget,
   type McpConnection,
   type McpToolManifest,
+  type AgentAdapterHandshakeRequest,
+  type AgentAdapterManifestV1,
   type DAGNode,
+  type RegisterAgentAdapterRequest,
   type TaskRuntimeRequest,
 } from '@awo/agent-runtime';
 import {
@@ -52,6 +59,9 @@ const EXTENSION_MANIFEST_PATH = resolve(process.env.AWO_EXTENSION_MANIFEST_DB ??
 const EXTENSION_PLAN_PATH = resolve(process.env.AWO_EXTENSION_PLAN_DB ?? '.awo/extension-plans.sqlite');
 const PROVIDER_PROFILE_PATH = resolve(process.env.AWO_PROVIDER_PROFILE_DB ?? '.awo/provider-profiles.sqlite');
 const SKILL_PACK_PATH = resolve(process.env.AWO_SKILL_PACK_DB ?? '.awo/skill-packs.sqlite');
+const AGENT_ADAPTER_MANIFEST_PATH = resolve(process.env.AWO_AGENT_ADAPTER_MANIFEST_DB ?? '.awo/agent-adapters.sqlite');
+const AGENT_ADAPTER_SESSION_PATH = resolve(process.env.AWO_AGENT_ADAPTER_SESSION_DB ?? '.awo/agent-adapter-sessions.sqlite');
+const AGENT_ADAPTER_MAILBOX_PATH = resolve(process.env.AWO_AGENT_ADAPTER_MAILBOX_DB ?? '.awo/agent-adapter-mailbox.sqlite');
 const store = new SqliteTaskSnapshotStore(SNAPSHOT_PATH);
 const knowledgeWorkspaceStore = new SqliteKnowledgeWorkspaceStore(KNOWLEDGE_WORKSPACE_PATH);
 const knowledgeStoreFactory = new SqliteWorkspaceKnowledgeStoreFactory(KNOWLEDGE_WORKSPACE_DIR);
@@ -68,6 +78,10 @@ const providerProfileStore = new SqliteProviderProfileStore(PROVIDER_PROFILE_PAT
 const providerProfiles = new ProviderProfileRegistry(providerProfileStore);
 const skillPackStore = new SqliteSkillPackStore(SKILL_PACK_PATH);
 const skillPacks = new SkillPackRegistry(skillPackStore);
+const agentAdapterManifestStore = new SqliteAgentAdapterManifestStore(AGENT_ADAPTER_MANIFEST_PATH);
+const agentAdapterSessionStore = new SqliteAgentAdapterSessionStore(AGENT_ADAPTER_SESSION_PATH);
+const agentAdapterMailboxStore = new SqliteAdapterApprovalMailboxStore(AGENT_ADAPTER_MAILBOX_PATH);
+const agentAdapters = new AgentAdapterControlPlane(agentAdapterManifestStore, agentAdapterSessionStore, agentAdapterMailboxStore);
 const DEFAULT_KNOWLEDGE_WORKSPACE_ID = 'default-local';
 if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
   knowledgeWorkspaces.create({
@@ -212,6 +226,16 @@ function skillPackSummary(manifest: SkillPackManifestV1): Omit<SkillPackManifest
   return summary;
 }
 
+/** Adapter manifest 的 connectionRef 只是受控宿主引用；路由不返回任何实际启动命令、环境或认证材料。 */
+function agentAdapterSummary(manifest: AgentAdapterManifestV1): AgentAdapterManifestV1 {
+  return { ...manifest, source: { ...manifest.source }, protocol: {
+    ...manifest.protocol,
+    supportedVersions: [...manifest.protocol.supportedVersions],
+    declaredAgentCapabilities: [...manifest.protocol.declaredAgentCapabilities],
+    requestedHostCapabilities: [...manifest.protocol.requestedHostCapabilities],
+  } };
+}
+
 function jsonBody(request: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -245,6 +269,173 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
   const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
   try {
+    if (request.method === 'GET' && url.pathname === '/api/agent-adapters') {
+      send(response, 200, agentAdapters.listManifests().map(agentAdapterSummary));
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/agent-adapters') {
+      const body = await jsonBody(request) as Record<string, unknown>;
+      if (
+        typeof body.id !== 'string' || typeof body.version !== 'string' || typeof body.displayName !== 'string'
+        || !body.source || !body.protocol || typeof body.dataBoundary !== 'string' || typeof body.connectionRef !== 'string'
+        || (body.note !== undefined && typeof body.note !== 'string')
+      ) {
+        send(response, 400, { error: 'Agent Adapter 候选必须提供 id、version、displayName、source、protocol、dataBoundary 与 connectionRef' });
+        return;
+      }
+      try {
+        send(response, 201, agentAdapterSummary(agentAdapters.registerCandidate({
+          ...(body as unknown as Omit<RegisterAgentAdapterRequest, 'at'>), at: Date.now(),
+        })));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Agent Adapter 候选无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/agent-adapters/sessions') {
+      const body = await jsonBody(request) as Record<string, unknown>;
+      if (
+        typeof body.adapterId !== 'string' || typeof body.adapterSessionId !== 'string' || typeof body.parentTaskId !== 'string'
+        || typeof body.parentRunId !== 'string' || typeof body.agentSessionId !== 'string' || typeof body.transport !== 'string'
+        || typeof body.protocolVersion !== 'string' || !Array.isArray(body.offeredCapabilities)
+      ) {
+        send(response, 400, { error: 'Adapter handshake 必须提供 adapterId、独立 adapterSessionId、父 task/run、外部 agentSessionId、transport、protocolVersion 与 offeredCapabilities' });
+        return;
+      }
+      try {
+        send(response, 201, agentAdapters.negotiate({
+          ...(body as unknown as Omit<AgentAdapterHandshakeRequest, 'at'>), at: Date.now(),
+        }));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Adapter handshake 无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/agent-adapters/sessions') {
+      const taskId = url.searchParams.get('taskId');
+      const runId = url.searchParams.get('runId');
+      if (!taskId || !runId) {
+        send(response, 400, { error: '查询 Adapter sessions 必须提供 taskId 与 runId' });
+        return;
+      }
+      try {
+        send(response, 200, agentAdapters.listSessions(taskId, runId));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Adapter sessions 查询无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && segments[0] === 'api' && segments[1] === 'agent-adapters' && segments[2] === 'sessions' && segments[3] && segments[4] === 'bridge' && segments.length === 5) {
+      const body = await jsonBody(request) as { mode?: unknown };
+      if (body.mode !== 'read-only' && body.mode !== 'approval-required') {
+        send(response, 400, { error: 'Adapter bridge mode 必须是 read-only 或 approval-required' });
+        return;
+      }
+      try {
+        send(response, 200, agentAdapters.openBridge({ adapterSessionId: segments[3], mode: body.mode, at: Date.now() }));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Adapter bridge 无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && segments[0] === 'api' && segments[1] === 'agent-adapters' && segments[2] === 'sessions' && segments[3] && segments[4] === 'read-only-intents' && segments.length === 5) {
+      const body = await jsonBody(request) as { intentId?: unknown; capability?: unknown; summary?: unknown };
+      if (typeof body.intentId !== 'string' || typeof body.capability !== 'string' || typeof body.summary !== 'string') {
+        send(response, 400, { error: '只读 Adapter intent 必须提供 intentId、capability 与 summary' });
+        return;
+      }
+      try {
+        send(response, 201, agentAdapters.proposeReadOnlyIntent({
+          adapterSessionId: segments[3], intentId: body.intentId,
+          capability: body.capability as 'document.parse' | 'model.chat' | 'filesystem.read', summary: body.summary, at: Date.now(),
+        }));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : '只读 Adapter intent 无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/agent-adapters/mailbox') {
+      const taskId = url.searchParams.get('taskId') ?? undefined;
+      const runId = url.searchParams.get('runId') ?? undefined;
+      try {
+        send(response, 200, agentAdapters.listMailbox(taskId, runId));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Adapter mailbox 查询无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/agent-adapters/mailbox') {
+      const body = await jsonBody(request) as { mailboxId?: unknown; adapterSessionId?: unknown; intentId?: unknown; capability?: unknown; summary?: unknown };
+      if (typeof body.mailboxId !== 'string' || typeof body.adapterSessionId !== 'string' || typeof body.intentId !== 'string' || typeof body.capability !== 'string' || typeof body.summary !== 'string') {
+        send(response, 400, { error: 'Adapter mailbox 必须提供 mailboxId、adapterSessionId、intentId、capability 与 summary' });
+        return;
+      }
+      try {
+        send(response, 201, agentAdapters.proposeApproval({
+          mailboxId: body.mailboxId, adapterSessionId: body.adapterSessionId, intentId: body.intentId,
+          capability: body.capability as CapabilityPolicyRule['capability'], summary: body.summary, at: Date.now(),
+        }));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Adapter mailbox 无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && segments[0] === 'api' && segments[1] === 'agent-adapters' && segments[2] === 'mailbox' && segments[3] && segments[4] && segments.length === 5) {
+      const operation = segments[4];
+      if (operation !== 'approve' && operation !== 'deny' && operation !== 'expire') {
+        send(response, 404, { error: 'Adapter mailbox 操作必须是 approve、deny 或 expire' });
+        return;
+      }
+      const body = await jsonBody(request) as { reviewedBy?: unknown; note?: unknown };
+      if ((operation !== 'expire' && typeof body.reviewedBy !== 'string') || (body.note !== undefined && typeof body.note !== 'string')) {
+        send(response, 400, { error: operation === 'expire' ? 'Adapter mailbox expire 的 note 只能为字符串' : 'Adapter mailbox 决定必须提供 reviewedBy，note 只能为字符串' });
+        return;
+      }
+      try {
+        const item = operation === 'approve'
+          ? agentAdapters.approveMailbox(segments[3], body.reviewedBy as string, Date.now(), body.note)
+          : operation === 'deny'
+            ? agentAdapters.denyMailbox(segments[3], body.reviewedBy as string, Date.now(), body.note)
+            : agentAdapters.expireMailbox(segments[3], Date.now(), body.note);
+        send(response, 200, item);
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Adapter mailbox 操作无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && segments[0] === 'api' && segments[1] === 'agent-adapters' && segments[2] && segments[3] && segments.length === 4) {
+      const operation = segments[3];
+      if (operation !== 'review' && operation !== 'disable' && operation !== 'revoke') {
+        send(response, 404, { error: 'Agent Adapter 操作必须是 review、disable 或 revoke' });
+        return;
+      }
+      const body = await jsonBody(request) as { reviewedBy?: unknown; verifiedDigest?: unknown; note?: unknown };
+      if (typeof body.reviewedBy !== 'string' || (body.note !== undefined && typeof body.note !== 'string') || (operation === 'review' && typeof body.verifiedDigest !== 'string')) {
+        send(response, 400, { error: operation === 'review' ? 'Agent Adapter review 必须提供 reviewedBy 与 verifiedDigest' : 'Agent Adapter 状态变更必须提供 reviewedBy' });
+        return;
+      }
+      try {
+        const manifest = operation === 'review'
+          ? agentAdapters.review(segments[2], body.verifiedDigest as string, body.reviewedBy, Date.now(), body.note)
+          : operation === 'disable'
+            ? agentAdapters.disable(segments[2], body.reviewedBy, Date.now(), body.note)
+            : agentAdapters.revoke(segments[2], body.reviewedBy, Date.now(), body.note);
+        send(response, 200, agentAdapterSummary(manifest));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Agent Adapter 状态变更无效' });
+      }
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/skills/packs') {
       send(response, 200, skillPacks.list().map(skillPackSummary));
       return;

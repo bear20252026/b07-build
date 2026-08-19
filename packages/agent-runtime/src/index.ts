@@ -17,4 +17,5 @@ export * from './read-only-subtasks.js';
 export * from './mcp-registry.js';
 export * from './extension-registry.js';
 export * from './extension-activation.js';
+export * from './agent-adapter.js';
 export * from './task-runtime-service.js';
