@@ -1,0 +1,154 @@
+# Controlled Extension Plane：插件化 AI Work OS 架构与路线图
+
+**作者：Manus AI**  
+**日期：2026-08-19**  
+**适用版本：AI Work OS v0.14.0 + workbench enhancements**
+
+## 结论
+
+AI Work OS 已经具备实现插件化的关键可信基底：**能力策略、人工审批、append-only SQLite 快照、会话隔离、Memory Ledger、知识工作区、只读子任务、MCP manifest、健康的本地端点注册表和浏览器安全 DTO 边界**。因此，下一步不应直接接入一个“可随意加载一切”的插件框架，而应建设一个 **Controlled Extension Plane（受控扩展平面）**。
+
+> **目标原则：** 任何业务能力都可以被模块化声明；但任何扩展都不因被发现、安装、登记或启用而自动获得执行、密钥、数据库、网络、Shell、浏览器或审批权限。
+
+该路线吸收 OpenClaw 的 manifest-first、capability ownership、activation planning、operator install policy 与 runtime inspection；吸收 DeepSeek-Harness 的可组合能力和单一可追溯 session log；同时保留本项目更严格的“默认拒绝、Profile 只能收紧、记忆不等于权限、incognito 不持久化”铁律。[1] [2]
+
+## 当前版本与健康状态
+
+| 维度 | 当前状态 | 结论 |
+| --- | --- | --- |
+| GitHub 主分支 | `main` 与远程对齐；最新提交为 `57c4304` | **当前仓库是已推送的最新状态**，无本地/远程领先或落后。 |
+| 产品版本 | 根工程 `0.14.0`；workbench `0.6.0` | 版本标记尚未因 P0–P3 和工作台增强提升；下一开发里程碑应提升为 `v0.15.0`。 |
+| 前端生态 | React `19.2.8`、`@lobehub/icons` `5.16.0` | 正式图标组件已接入；直接依赖没有待升级项。 |
+| 回归验证 | TypeScript `78/78`；Rust `6/6`；生产构建和浏览器验证通过 | 当前基线稳定，但尚缺覆盖插件宿主/激活计划的测试层。 |
+| 代码卫生 | 当前扫描未发现 `TODO`、`FIXME` 或 `HACK` | 无显式遗留占位，但仍存在需要主动建设的系统能力。 |
+
+## 已完成的能力与缺口
+
+| 领域 | 已具备的真实能力 | 仍缺少的能力 | 优先级 |
+| --- | --- | --- | --- |
+| 扩展治理 | MCP 已有 SHA-256 来源摘要、显式 enable/disable/revoke、工具白名单、SQLite 追加历史 | 通用 extension manifest、包/来源 provenance、签名或本地 digest 核验、兼容性规则 | P0 |
+| 激活路径 | MCP 仅登记/审查；任务 Profile 与 CapabilityPolicy 可收紧权限 | 跨类别 activation planner、冲突所有权处理、可解释 `planned/blocked` 原因、runtime inspect | P0 |
+| 运行隔离 | Rust process supervisor、受控任务执行、只读 subtask、MCP 不执行设计 | 插件 host 生命周期、崩溃隔离、资源限制、版本化 ABI、健康检查、停用后的清理 | P1 |
+| 模型生态 | LocalEndpointRegistry 只探测回环健康端点；ModelRouter 有本地优先边界 | provider profile、端点凭据引用、模型目录快照、可回滚切换、协议适配包 | P1 |
+| 工作台 | AionUi 风格三栏、真实快照、白盒控制面、双语、LobeHub 图标、草稿边界 | 扩展管理页、激活计划、健康/错误诊断、审批 inbox、插件可视化 panel contract | P1 |
+| 技能/知识 | 独立工作区、可追溯 citation、Memory Ledger 候选/确认/撤销 | Skill pack 的 metadata、审查/版本管理、上下文注入来源、受控 importer | P2 |
+| Agent 集成 | 只读 Explore/Scout 子任务、DAG、预算与审批 | 外部 CLI/ACP adapter、agent capability handshake、团队 mailbox/task board | P2 |
+| 自动化 | 本地可恢复任务与事件协议 | Schedule manifest、计划审批策略、missed-run/retry 审计、长期运行隔离 | P3 |
+
+## 目标架构
+
+```mermaid
+flowchart TB
+  UI[Workbench: 只读 Extension UI + Intent] --> GW[Runtime Gateway: 受控 DTO]
+  GW --> EP[Extension Control Plane]
+  EP --> MS[Immutable Metadata Snapshot]
+  EP --> AP[Activation Planner]
+  EP --> POLICY[Capability Policy + Profile + Approval + Budget]
+  AP --> HOST[Rust-supervised Extension Host]
+  HOST --> ADAPTERS[受限 Adapters]
+  ADAPTERS --> MODEL[Model Provider]
+  ADAPTERS --> KNOWLEDGE[Knowledge Importer]
+  ADAPTERS --> TOOLS[Tool / MCP Adapter]
+  ADAPTERS --> AGENTS[Agent / ACP Adapter]
+  EP --> AUDIT[Append-only Extension Ledger]
+  GW --> AUDIT
+  POLICY --> AUDIT
+```
+
+该设计将 **metadata plane** 与 **runtime plane** 分离。metadata plane 只读取 manifest、来源摘要、版本、声明能力和审查记录；它不 import、spawn、连接或执行插件代码。runtime plane 仅消费激活计划中的已批准扩展，并经由 Rust 监督进程启动受资源限额约束的 adapter。任何扩展的能力决策仍由核心 `CapabilityPolicy`、当前 Profile、任务预算与审批共同决定，而非由 manifest 自我声明。
+
+## Extension Manifest v1
+
+应先实现一个通用 manifest，而不是只扩展 MCP 字段。MCP manifest 可迁移为 `kind: "tool-adapter"` 的第一种扩展类型。
+
+```ts
+interface ExtensionManifestV1 {
+  schemaVersion: 1;
+  id: string;
+  version: string;
+  apiVersion: "awo.extension.v1";
+  kind:
+    | "model-provider"
+    | "knowledge-importer"
+    | "tool-adapter"
+    | "skill-pack"
+    | "agent-harness"
+    | "agent-adapter"
+    | "ui-panel"
+    | "scheduler-adapter"
+    | "media-worker";
+  displayName: string;
+  source: { type: "builtin" | "local-path" | "npm" | "git"; locator: string; digest: string };
+  compatibility: { host: string; protocol: string[] };
+  capabilities: readonly Capability[];
+  requestedPermissions: readonly Capability[];
+  dataBoundary: "local-only" | "local-preferred" | "external-allowed";
+  resourceBudget: { maxMemoryMb: number; maxCpuMs: number; maxStartupMs: number };
+  entry?: { mode: "in-process" | "supervised-process" | "remote-protocol"; ref: string };
+  status: "discovered" | "reviewed" | "installed" | "disabled" | "revoked";
+  reviewedBy?: string;
+  revision: number;
+}
+```
+
+`requestedPermissions` 从不等同于 `capabilities`，更不等同于授权。每次任务解析时，核心计算有效权限：
+
+```text
+effective = extension declared capability
+          ∩ extension requested permission
+          ∩ host allowlist
+          ∩ profile policy
+          ∩ task policy
+          ∩ runtime approval
+          ∩ remaining budget
+```
+
+## 建议的开发顺序
+
+| 版本 | 工作项 | 来源项目启发 | 验收标准 |
+| --- | --- | --- | --- |
+| **v0.15.0 — Extension Control Plane** | `ExtensionManifestV1`、SQLite append-only store、来源 digest、状态机、manifest-only discovery、MCP 迁移适配层 | OpenClaw manifest/allow/deny；DeepSeek composition | 未审查扩展不进入运行时；禁用/revoke 不可被计划器选择；MCP 旧 API 行为不回归。 |
+| **v0.15.1 — Activation & Doctor** | 激活计划器、ownership collision、`extension.inspect`、`extension.doctor`、`extension.*` TaskEvent | OpenClaw activation plan/runtime inspect/doctor；ClawCode doctor | 对给定 task/profile 得到稳定计划；每个拒绝有机器可读原因；版本/摘要变化使 snapshot 失效。 |
+| **v0.16.0 — Supervised Hosts** | Rust host process、stdin JSON IPC、启动超时、健康探测、CPU/内存限额、crash/restart ledger | ClawCode Rust parity；OpenWorker sidecar token | 扩展崩溃不影响 Gateway；无 token/DB 直连；host 只能接收最小 DTO 与一次性任务能力。 |
+| **v0.16.1 — Provider Profiles** | `ProviderProfile`、端点 health/catalog snapshot、凭据引用、不保存明文、路由解释/回滚 | CC Switch + LocalEndpointRegistry + OpenWorker | 端点切换可回滚；仅健康且策略允许的端点进入 ModelRouter；UI 显示选择原因。 |
+| **v0.17.0 — Workbench Extension Center** | 扩展清单、风险等级、审批、启动健康、激活理由、audit history、只读 UI panel manifest | AionUi 多 Agent 控制台；LobeHub agent/operator UX | UI 只读取 Gateway DTO，任何 enable/revoke 都要求明确 intent、幂等键及审核者。 |
+| **v0.17.1 — Skills & Knowledge Packs** | Skill pack revision、纯文本规则、citation/上下文来源、候选发布审查 | AionUi 三层 skills；OpenClaw skill bundles | skills 不能隐式授权工具；每个注入携带来源、版本、token 估算与撤销路径。 |
+| **v0.18.0 — External Agent Adapters** | ACP/CLI handshake、能力协商、独立 session、只读/受审批任务桥接、mailbox | AionUi multi-agent/team；OpenClaw agent harnesses | 第一个 adapter 可在无主机权限升级的前提下启动、观察、终止；不支持的能力必须拒绝而非降级猜测。 |
+| **v0.19.0 — Audited Scheduling** | Schedule manifest、任务模板、time zone、预算、requires approval、missed runs、事件审计 | OpenWorker/AionUi schedule；DeepSeek modes | 默认不自动执行高风险能力；未处理审批进入 inbox；每次 scheduled run 有独立 runId 与预算。 |
+
+## 最重要的三项下一步
+
+### 1. 先做通用 Extension Manifest 和 Activation Planner
+
+这是最小而高杠杆的 P0。已有 MCP Registry 已证明 status/revision/source digest/append-only 模式可用。将其抽象为通用扩展机制后，provider、skills、knowledge importer、external agents 和 UI panels 都能复用同一个审查与状态机，而不会出现多个平行的插件体系。
+
+### 2. 再做 Rust Supervised Extension Host
+
+不要先做 npm/git 在线安装器。先让本地、人工审核的 demo adapter 通过受限 JSON IPC 启动并能被 `doctor` 检测、被预算阻止、被审批暂停。这样可以先验证“执行隔离”而不是早期暴露供应链和密钥攻击面。
+
+### 3. 最后做 AionUi/LobeHub 风格的 Extension Center
+
+工作台应成为可解释的控制面，而不是功能开关集合。优先呈现：扩展状态、来源摘要、声明能力、有效权限、激活原因、健康、崩溃/恢复、最近审计事件和可撤销动作。视觉层可以继续使用 LobeHub Icons、可选 UI primitives 和 AionUi 的信息密度；实际权限必须始终由 Runtime Gateway 决定。
+
+## 明确不建议现在做的事
+
+| 不建议 | 原因 | 正确前置条件 |
+| --- | --- | --- |
+| 直接嵌入 Cordis/DeepSeek-Harness 作为运行时依赖 | DeepSeek-Harness 仍为 developer preview 且公开说明 API 会破坏性变化；会与已有 Rust/TS/Python 边界重叠 | 先完成 stable manifest、adapter ABI 与 host contract。 |
+| 自动安装 npm/git/marketplace 扩展 | 扩展安装本质上是获取可执行代码；会绕开本项目默认拒绝和供应链审查原则 | 完成来源 trust policy、内容 digest、版本 pin、隔离 host、用户确认与 rollback。 |
+| 让 UI 插件访问 SQLite/Provider/密钥 | 会违反“UI 只订阅事件、只发意图”铁律 | 只提供纯 UI manifest 和受签/审查 DTO。 |
+| 让 Skill 文本直接增加工具权限 | 会违反“记忆不等于权限”和 Profile 只能收紧 | skill 能声明需要的 capability；任务 policy 必须独立允许且可审批。 |
+| 直接承诺 AionUi 的 unattended/YOLO 行为 | 该行为与当前个人系统的默认拒绝设计相冲突 | 仅在排程/风险模板/审批 inbox/隔离评估全部完成后，针对低风险、可审计模板逐项开放。 |
+
+## References
+
+[1] [OpenClaw Plugin Internals](https://docs.openclaw.ai/plugins/architecture)  
+[2] [OpenClaw Plugin Management](https://docs.openclaw.ai/tools/plugin)  
+[3] [DeepSeek Harness Developer Preview](https://deepseek.com/harness/en/)  
+[4] [DeepSeek Harness Repository](https://github.com/deepseek-ai/deepseek-harness)  
+[5] [ClawCode Repository](https://github.com/ultraworkers/claw-code)  
+[6] [AionUi Repository](https://github.com/iOfficeAI/AionUi)  
+[7] [OpenWorker Repository](https://github.com/andrewyng/openworker)  
+[8] [CC Switch Repository](https://github.com/farion1231/cc-switch)  
+[9] [LobeHub Repository](https://github.com/lobehub/lobehub)  
+[10] [Lobe Chat Plugin SDK](https://github.com/lobehub/chat-plugin-sdk)
