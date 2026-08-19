@@ -328,3 +328,30 @@ DAG 执行器新增已完成节点恢复入口、节点终态观测及 `emitTool
 
 - 当前主题状态只保存在 React 会话内；持久化到桌面设置应通过受控设置服务完成，而不是浏览器直接写入本地文件。
 - 工作区导航中的非任务会话项是已可见的信息架构入口；具体页面应在对应真实服务边界完成后逐项接入。
+
+
+## [2026-08-19] v0.13.0 本地会话控制与个人学习产品融合
+
+### 公开架构研究与产品决策
+
+- 以 **OpenClaw** 的本地 Gateway、会话所有权、SQLite session metadata、显式 durable/incognito 模式和隔离 Agent 边界作为本轮最高优先级参考。
+- 参考 **OpenCode** 的主角色/子角色、最小权限和受限 Plan 模式，将 Profile 与未来 persona/工作区隔离明确分开。
+- 参考 **DeepSeek Harness** 的可替换 capability seam、append-only 可追溯运行和 preset 组合，但坚持使用封闭 manifest 与受控 adapter 注册表，而不引入可执行的通用动态插件。
+- 参考 **AnythingLLM、Open WebUI、Jan、5ire** 的工作区知识、本地模型、多 Provider 和 MCP 产品边界，形成 Local Model Endpoint、Knowledge Workspace、MCP Registry 的后续优先级。
+- 新增 `docs/research/personal-learning-product-fusion-plan-2026-08-19.md` 及四份公开架构研究记录，包含可融合能力、非目标范围、路线版本和验收标准。
+
+### Session Control Plane v1
+
+- 新增 `LocalSessionControlPlane` 与稳定领域 DTO：`LocalSessionScope`、`LocalSessionSnapshot`、`SessionSnapshotStore`、`SessionPersistenceMode`。
+- 引入 `durable`、`ephemeral`、`incognito` 三种会话模式：只有 durable 会话进入持久 store；ephemeral/incognito 只保留在当前进程；领域快照不包含原始 transcript、模型 token 或工具 payload。
+- 新增 append-only `SqliteSessionSnapshotStore`，启用 WAL 并提供最新快照、历史回放和按更新时刻的稳定列表读取。
+- 新增 `stateVersion` 乐观并发检查、touch、pin、archive 与 reset；重置会归档旧会话并新建同 scope 的独立会话。
+- 新增 5 项会话控制测试，覆盖 durable 恢复、incognito 隔离、陈旧客户端冲突、重置语义和 SQLite immutable history。
+
+### 验证
+
+| 检查 | 结果 |
+|---|---|
+| `npm run typecheck` | 通过 |
+| `npm run test` | 53/53 通过 |
+| v0.13 后续重点 | Session/Task Control Gateway v1、幂等收据、snapshot gap refresh、只读子任务与 Runtime Preset Manifest |

@@ -1,6 +1,6 @@
 # AI Work OS
 
-> **v0.12.0** — 本地优先、可恢复、受控执行的个人 Agent 工作系统。
+> **v0.13.0** — 本地优先、可恢复、受控执行的个人 Agent 学习工作系统。
 
 AI Work OS 采用积木式三语言架构：**Rust** 负责进程监督与任务控制面，**TypeScript** 负责产品编排、策略、可恢复运行时与模型路由，**Python** 负责可替换的重计算 sidecar。工作台只提交意图和订阅事件；它不直接访问快照存储、Provider 密钥或工具实现。
 
@@ -12,6 +12,7 @@ AI Work OS 采用积木式三语言架构：**Rust** 负责进程监督与任务
 | 受控执行 | 默认拒绝能力策略、Profile 单向收紧、审批门控、上下文与执行预算 | 任何底层工具调用先经过策略、审批和预算 |
 | 并发调度 | 索引化完成驱动 DAG、有限并发、失败级联阻断、统计端口 | 成功节点可恢复跳过，后继节点不悬空 |
 | 本地恢复 | `TaskSnapshotStore` 端口、内存实现、SQLite append-only 历史与恢复 | 快照只追加；读取返回防御性副本 |
+| 会话控制 | `LocalSessionControlPlane`、durable/ephemeral/incognito、乐观 `stateVersion`、归档、pin 与 reset | incognito/ephemeral 不进入持久 session store；会话不保存原始 transcript 或工具 payload |
 | 服务边界 | `LocalTaskRuntimeService` 的 submit / resume / snapshot 入口 | UI、CLI 与后续 HTTP/IPC adapter 可复用同一任务语义 |
 | Rust 控制面 | 进程监督、任务生命周期、心跳、取消边界与调度统计模型 | 控制面不触碰 TypeScript 业务策略 |
 | Provider | OpenAI-compatible、Local OpenAI-compatible、Anthropic Messages 流式 adapter | 按上下文、工具、视觉、成本和数据边界确定性选模 |
@@ -79,7 +80,7 @@ cargo fmt --check && cargo check && cargo test
 
 ```text
 packages/protocol          事件类型、Schema 与验证（唯一事实源）
-packages/agent-runtime     Profile、策略、预算、DAG、恢复、快照与任务服务
+packages/agent-runtime     Profile、策略、预算、DAG、任务/会话恢复、快照与任务服务
 packages/provider-sdk      模型驱动端口、adapter 与确定性路由
 crates/process-supervisor  Rust 进程监督与任务控制面
 sidecars/document-worker   Python 文档计算 sidecar
@@ -92,4 +93,4 @@ reference                  非构建参考资料，绝不在运行时加载或�
 
 ## 下一阶段
 
-下一阶段将把现有 JSON 调度统计契约装配为真实的 JSON-RPC 或文件 IPC adapter，并把开发会话网关替换为桌面壳的 C1/C3 adapter。知识工作流已具备 SQLite 稀疏向量 adapter 与引用预览；后续将增加受控 `document.parse` 摄取动作、事件化引用回传，以及可选 dense embedding 或 sqlite-vec adapter。UI、领域运行时和 Rust 控制面继续保持隔离。
+v0.13 已基于 OpenClaw 的本地会话控制模式，独立实现可版本化的 Session Control Plane 与 SQLite durable session metadata。下一阶段优先接入 Session/Task Control Gateway v1：为 submit、approve、resume 引入幂等键与 snapshot gap refresh；随后增加只读 Explore/Scout 子任务、Runtime Preset Manifest、本地模型 Endpoint Registry、知识工作区范围与受控 MCP Registry。具体优先级、边界和验收标准见 `docs/research/personal-learning-product-fusion-plan-2026-08-19.md`。UI、领域运行时和 Rust 控制面继续保持隔离。

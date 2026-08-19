@@ -7,4 +7,6 @@ export * from './context-budgeter.js';
 export * from './execution-budget.js';
 export * from './recoverable-task-runtime.js';
 export * from './sqlite-task-snapshot-store.js';
+export * from './session-control-plane.js';
+export * from './sqlite-session-snapshot-store.js';
 export * from './task-runtime-service.js';
