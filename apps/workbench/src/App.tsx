@@ -53,6 +53,7 @@ function statusLabel(status: WorkbenchTaskSnapshot['status'] | undefined): strin
 export function App() {
   const [events, setEvents] = useState<readonly TaskEvent[]>([]);
   const [snapshot, setSnapshot] = useState<WorkbenchTaskSnapshot>();
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
   const [activeGoal, setActiveGoal] = useState(INITIAL_GOAL);
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
@@ -111,13 +112,17 @@ export function App() {
   };
 
   return (
-    <div className="workbench-shell">
-      <Sider />
+    <div className={`workbench-shell theme-${theme}`}>
+      <Sider
+        onNewTask={() => document.querySelector<HTMLTextAreaElement>('[aria-label="任务目标"]')?.focus()}
+        onThemeToggle={() => setTheme((current) => current === 'light' ? 'dark' : 'light')}
+        theme={theme}
+      />
       <main className="workbench-main">
         <header className="workbench-titlebar">
           <div>
-            <div className="titlebar-kicker">Outcome → Plan → Execute → Deliver</div>
-            <div className="titlebar-title">受控任务工作台</div>
+            <div className="titlebar-kicker">LOCAL CONTROL PLANE</div>
+            <div className="titlebar-title">任务工作台</div>
           </div>
           <div className="titlebar-actions">
             <div className="profile-switcher" aria-label="选择 Agent Profile">
@@ -140,8 +145,8 @@ export function App() {
         <section className="conversation-scroll" aria-label="任务事件流">
           <div className="conversation-frame">
             <div className="welcome-card">
-              <div className="welcome-eyebrow">AI Work OS · Local Runtime</div>
-              <h1>把目标拆解为受控、可解释、可恢复的任务。</h1>
+              <div className="welcome-eyebrow">AI WORK OS · LOCAL-FIRST</div>
+              <h1>今天想推进什么成果？</h1>
               <p>{activeGoal}</p>
               <div className="capability-row" aria-label="当前能力">
                 <span className="capability-badge">事件协议 v1.0</span>
@@ -202,7 +207,7 @@ export function App() {
             onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') void submitIntent();
             }}
-            placeholder="描述你希望交付的结果，例如：审查当前运行时并生成可靠性改进方案"
+            placeholder="描述期望成果；系统会在本地生成可解释、可恢复的受控计划…"
             value={draft}
           />
           <div className="composer-footer">
@@ -210,7 +215,7 @@ export function App() {
             <div className="composer-actions">
               <span className="composer-mode">{profile.label} Profile</span>
               <button className="composer-submit" disabled={!draft.trim() || pending} onClick={() => void submitIntent()} type="button">
-                {pending ? '提交中…' : '生成计划'}
+                {pending ? '提交中…' : '开始任务'}
               </button>
             </div>
           </div>

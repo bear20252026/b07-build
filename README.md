@@ -1,6 +1,6 @@
 # AI Work OS
 
-> **v0.11.0** — 本地优先、可恢复、受控执行的个人 Agent 工作系统。
+> **v0.12.0** — 本地优先、可恢复、受控执行的个人 Agent 工作系统。
 
 AI Work OS 采用积木式三语言架构：**Rust** 负责进程监督与任务控制面，**TypeScript** 负责产品编排、策略、可恢复运行时与模型路由，**Python** 负责可替换的重计算 sidecar。工作台只提交意图和订阅事件；它不直接访问快照存储、Provider 密钥或工具实现。
 
@@ -17,7 +17,7 @@ AI Work OS 采用积木式三语言架构：**Rust** 负责进程监督与任务
 | Provider | OpenAI-compatible、Local OpenAI-compatible、Anthropic Messages 流式 adapter | 按上下文、工具、视觉、成本和数据边界确定性选模 |
 | 跨语言控制 | Rust `SchedulerStatsMessage` v1 的严格 JSON 编解码与控制面投影 | 拒绝未知字段、错误版本、标识冲突和非法统计 |
 | 本地知识 | SQLite 持久化稀疏向量、确定性分块、相似度检索、来源引用与可替换 Store 端口 | 不调用网络或模型；Node SQLite 无 FTS5 时仍能本地运行；结果必有来源 URI 和 chunk 引用 |
-| 工作台 | AionUi 风格三栏界面、Profile 切换、真实任务事件、SQLite 快照、审批与恢复按钮 | UI 仅提交目标/Profile 并消费验证后的 DTO；不接触工具、密钥或数据库 |
+| 工作台 | AionUi 参考下的浅色石墨三栏界面、可切换深色主题、Profile 切换、真实任务事件、SQLite 快照、审批恢复与引用预览 | UI 仅提交目标/Profile/查询意图并消费验证后的 DTO；不接触工具、密钥或数据库 |
 
 ## 架构与通道
 
@@ -83,7 +83,7 @@ packages/agent-runtime     Profile、策略、预算、DAG、恢复、快照与�
 packages/provider-sdk      模型驱动端口、adapter 与确定性路由
 crates/process-supervisor  Rust 进程监督与任务控制面
 sidecars/document-worker   Python 文档计算 sidecar
-apps/workbench             React 三栏工作台（意图、事件订阅、快照、审批恢复与引用预览）
+apps/workbench             React 三栏工作台（本地化石墨主题、意图、事件订阅、快照、审批恢复与引用预览）
 apps/runtime-gateway       仅限本地开发会话的 HTTP 桥接；服务端装配策略、审批、DAG、SQLite 和知识检索
 packages/knowledge-workflow 本地文档摄取、SQLite 稀疏向量检索、来源引用与可替换存储端口
 docs/research              公开资料架构研究与能力映射
