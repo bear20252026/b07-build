@@ -7,6 +7,7 @@ import {
   type ToolStatus,
 } from '@awo/protocol';
 import type { Emit, ToolRunner } from './executor.js';
+import { InMemoryExecutionBudget, type ExecutionBudget } from './execution-budget.js';
 
 export interface ControlledToolRequest {
   taskId: string;
@@ -70,6 +71,7 @@ export class ControlledToolRunner {
     private readonly approvals: ApprovalPort,
     private readonly runner: ToolRunner,
     private readonly emit: Emit,
+    private readonly budget: ExecutionBudget = new InMemoryExecutionBudget(),
   ) {}
 
   async run(request: ControlledToolRequest): Promise<ControlledToolResult> {
@@ -110,6 +112,29 @@ export class ControlledToolRunner {
         reason: evaluation.reason,
       };
       this.emit(resultEvent(request, result, 'approval-pending'));
+      return result;
+    }
+
+    const budgetDecision = this.budget.tryConsume({
+      runId: request.runId,
+      toolName: request.tool.name,
+      inputHash: request.inputHash,
+    });
+    if (!budgetDecision.allowed) {
+      this.emit({
+        ...eventContext(request, 'execution-blocked'),
+        type: 'execution.blocked',
+        callId: request.callId,
+        code: budgetDecision.code,
+        reason: budgetDecision.reason,
+      });
+      const result: ControlledToolResult = {
+        status: 'error',
+        outputRef: 'budget://blocked',
+        errorCode: budgetDecision.code,
+        reason: budgetDecision.reason,
+      };
+      this.emit(resultEvent(request, result, 'budget-blocked'));
       return result;
     }
 

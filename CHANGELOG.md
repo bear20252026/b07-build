@@ -78,3 +78,26 @@
 
 ### 后续边界
 - 本版本提供运行时策略门控基础，不替代 Rust 控制面中的密钥存储、OS 权限、进程隔离或事件持久化；这些能力将在后续经 C1/C2/C3 通道接入。
+
+
+## [2026-08-19] v0.4.0 运行时纪律：上下文预算 + 执行预算
+
+### 参考与决策
+- **OpenCode 公开参考**：其 Plan/Explore 等角色以权限收紧实现只读与计划模式，并在相同工具调用重复时触发 doom-loop 保护；本仓以独立 TypeScript 领域模型实现预算与阻断，不复制其实现。
+- **AtomCode / Claude Code 公开参考**：吸收按 turn 管理上下文、工具结果压缩、结构化事件、工具前执行门控的原则；本仓仍坚持策略 → 审批 → 预算 → 工具端口的单向顺序。
+- **参考归档边界**：`reference/ClaudeCode_静态补全候选_20260818.zip` 保持非构建资料；本轮只核查其索引与归档清单，未解压、未执行、未引用其中代码。
+
+### 新增
+- `packages/agent-runtime/src/context-budgeter.ts`：依据稳定优先级在 token 预算内挑选上下文，并在超额时发出 `context.compacted` 事件，供后续摘要器与事件日志消费。
+- `packages/agent-runtime/src/execution-budget.ts`：按 `runId` 隔离的总步骤和重复调用预算；默认阻断相同工具/输入指纹的循环，不跨任务污染状态。
+- `execution.blocked`、`context.compacted` 两类协议事件及对应 JSON Schema 契约。
+- 7 项新增自动化测试，覆盖压缩选择、非法上下文、总步骤上限、重复调用、跨 run 隔离与受控执行链预算阻断。
+- `docs/research/atomcode-public-architecture-notes-2026-08-19.md`：OpenCode、AtomCode 和 Claude Code 官方公开资料的架构提炼与参考边界。
+
+### 验证
+- `npm run typecheck` ✅
+- `npm test` ✅（16/16）
+- `npm run typecheck --workspace=@awo/workbench` ✅
+
+### 后续边界
+- 本版本不会自动摘要内容、不会写入任务存储、不会创建子 agent，也不会执行 Hook。预算器只产生可解释决策；后续能力必须通过既有协议和权限链接入。

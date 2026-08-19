@@ -7,7 +7,7 @@
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@awo/protocol": "^0.3.0"
+    "@awo/protocol": "^0.4.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

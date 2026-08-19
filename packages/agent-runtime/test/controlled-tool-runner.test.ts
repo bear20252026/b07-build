@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { CapabilityPolicyRule, TaskEvent } from '@awo/protocol';
 import { RuleBasedCapabilityPolicy } from '../src/capability-policy.js';
+import { InMemoryExecutionBudget, type ExecutionBudget } from '../src/execution-budget.js';
 import {
   ControlledToolRunner,
   InMemoryApprovalPort,
@@ -38,6 +39,7 @@ function request(actionId: string): ControlledToolRequest {
 function createRunner(
   rules: readonly CapabilityPolicyRule[],
   approvals = new InMemoryApprovalPort(),
+  budget?: ExecutionBudget,
 ): { controlled: ControlledToolRunner; events: TaskEvent[]; runner: RecordingRunner } {
   const events: TaskEvent[] = [];
   const runner = new RecordingRunner();
@@ -47,6 +49,7 @@ function createRunner(
       approvals,
       runner,
       (event) => events.push(event),
+      budget,
     ),
     events,
     runner,
@@ -99,4 +102,31 @@ test('规则允许且审批已存在时才执行工具，并发射成对的调�
   assert.deepEqual(result, { status: 'ok', outputRef: 'artifact://document-summary' });
   assert.equal(runner.calls, 1);
   assert.deepEqual(events.map((event) => event.type), ['tool.called', 'tool.result']);
+});
+
+
+test('执行预算耗尽时发出阻断事件且不会再次触达底层工具', async () => {
+  const rules: CapabilityPolicyRule[] = [
+    {
+      capability: 'document.parse',
+      risk: 'low',
+      decision: 'allow',
+      reason: '本地文档解析已授权',
+    },
+  ];
+  const { controlled, events, runner } = createRunner(
+    rules,
+    new InMemoryApprovalPort(),
+    new InMemoryExecutionBudget({ maxToolCalls: 1, maxIdenticalCalls: 2 }),
+  );
+
+  await controlled.run(request('first-run'));
+  const blocked = await controlled.run(request('second-run'));
+
+  assert.equal(blocked.errorCode, 'STEP_BUDGET_EXCEEDED');
+  assert.equal(runner.calls, 1);
+  assert.deepEqual(events.slice(-2).map((event) => event.type), [
+    'execution.blocked',
+    'tool.result',
+  ]);
 });

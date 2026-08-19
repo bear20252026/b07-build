@@ -200,6 +200,42 @@
       ],
       "type": "object",
       "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "retainedItemIds", "compactedItemIds", "estimatedTokensBefore", "estimatedTokensAfter", "reason"],
+          "properties": {
+            "type": { "const": "context.compacted" },
+            "retainedItemIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "compactedItemIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "estimatedTokensBefore": { "type": "number", "minimum": 0 },
+            "estimatedTokensAfter": { "type": "number", "minimum": 0 },
+            "reason": { "const": "budget_exceeded" }
+          }
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "callId", "code", "reason"],
+          "properties": {
+            "type": { "const": "execution.blocked" },
+            "callId": { "type": "string", "minLength": 1 },
+            "code": { "enum": ["STEP_BUDGET_EXCEEDED", "REPEATED_TOOL_CALL"] },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
     }
   ]
 }

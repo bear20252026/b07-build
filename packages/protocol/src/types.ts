@@ -128,6 +128,24 @@ export interface TaskFailedEvent extends EventEnvelope {
   message: string;
 }
 
+/** 上下文预算器压缩历史时的可回放决策记录。 */
+export interface ContextCompactedEvent extends EventEnvelope {
+  type: 'context.compacted';
+  retainedItemIds: string[];
+  compactedItemIds: string[];
+  estimatedTokensBefore: number;
+  estimatedTokensAfter: number;
+  reason: 'budget_exceeded';
+}
+
+/** 执行预算阻止一次工具调用时的结构化证据。 */
+export interface ExecutionBlockedEvent extends EventEnvelope {
+  type: 'execution.blocked';
+  callId: string;
+  code: 'STEP_BUDGET_EXCEEDED' | 'REPEATED_TOOL_CALL';
+  reason: string;
+}
+
 export type TaskEvent =
   | TaskCreatedEvent
   | PlanProposedEvent
@@ -137,7 +155,9 @@ export type TaskEvent =
   | ToolResultEvent
   | ArtifactCreatedEvent
   | TaskCompletedEvent
-  | TaskFailedEvent;
+  | TaskFailedEvent
+  | ContextCompactedEvent
+  | ExecutionBlockedEvent;
 
 /** C4 端口：所有能力策略实现都必须遵守这一稳定接口。 */
 export interface CapabilityPolicy {

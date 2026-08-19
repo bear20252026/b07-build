@@ -2,3 +2,5 @@
 export * from './executor.js';
 export * from './capability-policy.js';
 export * from './controlled-tool-runner.js';
+export * from './context-budgeter.js';
+export * from './execution-budget.js';
