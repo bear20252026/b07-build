@@ -6,3 +6,5 @@ export * from './controlled-tool-runner.js';
 export * from './context-budgeter.js';
 export * from './execution-budget.js';
 export * from './recoverable-task-runtime.js';
+export * from './sqlite-task-snapshot-store.js';
+export * from './task-runtime-service.js';

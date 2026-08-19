@@ -1,20 +1,45 @@
-// packages/provider-sdk/src/adapters/openai.ts
-// 一个文件=一个作用：OpenAI-compatible 协议适配（AgentForge 手写 fetch+SSE 同款）。
-import type { ModelDriver, ChatRequest } from '../driver';
+// 一个文件=一种作用：OpenAI-compatible 协议适配。只处理 HTTP/SSE，不参与模型选择。
+import type { ChatRequest, ModelCapabilities, ModelDriver } from '../driver.js';
 
 interface OpenAIDelta {
   choices?: { delta?: { content?: string } }[];
 }
 
+export interface OpenAICompatibleOptions {
+  id?: string;
+  capabilities?: ModelCapabilities;
+}
+
+const REMOTE_DEFAULT_CAPABILITIES: ModelCapabilities = {
+  contextWindow: 128_000,
+  supportsTools: false,
+  supportsVision: false,
+  isLocal: false,
+  costTier: 'high',
+};
+
 export class OpenAICompatible implements ModelDriver {
-  constructor(private readonly baseUrl: string) {}
+  private readonly driverId: string;
+  private readonly modelCapabilities: ModelCapabilities;
+
+  constructor(
+    private readonly baseUrl: string,
+    options: OpenAICompatibleOptions = {},
+  ) {
+    this.driverId = options.id ?? 'openai';
+    this.modelCapabilities = options.capabilities ?? REMOTE_DEFAULT_CAPABILITIES;
+  }
 
   id(): string {
-    return 'openai';
+    return this.driverId;
+  }
+
+  capabilities(): ModelCapabilities {
+    return { ...this.modelCapabilities };
   }
 
   async *chat(req: ChatRequest, apiKey: string): AsyncIterable<string> {
-    const r = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -22,28 +47,28 @@ export class OpenAICompatible implements ModelDriver {
       },
       body: JSON.stringify({ ...req, stream: true }),
     });
-    if (!r.ok || !r.body) {
-      throw new Error(`provider http ${r.status}`);
+    if (!response.ok || !response.body) {
+      throw new Error(`provider http ${response.status}`);
     }
-    const reader = r.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop() ?? '';
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
       for (const line of lines) {
         if (!line.startsWith('data:')) continue;
-        const d = line.slice(5).trim();
-        if (d === '[DONE]') return;
+        const data = line.slice(5).trim();
+        if (data === '[DONE]') return;
         try {
-          const j = JSON.parse(d) as OpenAIDelta;
-          const c = j.choices?.[0]?.delta?.content ?? '';
-          if (c) yield c;
+          const payload = JSON.parse(data) as OpenAIDelta;
+          const content = payload.choices?.[0]?.delta?.content ?? '';
+          if (content) yield content;
         } catch {
-          /* 忽略半包/非 JSON 行，继续等下一块 */
+          // 仅忽略没有构成完整 JSON 的 SSE 负载；网络错误由 reader 原样传递。
         }
       }
     }

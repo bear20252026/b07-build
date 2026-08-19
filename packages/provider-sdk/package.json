@@ -1,6 +1,6 @@
 {
   "name": "@awo/provider-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI Work OS - Provider 端口 + 每 provider 一个 adapter（一个包=一类作用）",
   "type": "module",
   "main": "src/index.ts",

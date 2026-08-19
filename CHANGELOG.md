@@ -173,3 +173,46 @@ DAG 执行器新增已完成节点恢复入口、节点终态观测及 `emitTool
 ### 验证
 
 新增 3 项可恢复任务与失败级联用例，完整测试套件达到 29/29 通过。完整 TypeScript 检查通过。
+
+
+## [2026-08-19] v0.9.0 本地任务控制、持久恢复与能力感知模型路由
+
+### 决策
+
+- **持久化保持在端口之后**：`SqliteTaskSnapshotStore` 是 `TaskSnapshotStore` 的 append-only adapter；调度、策略和恢复语义继续归属于运行时领域层。这样可替换数据库实现而不改变任务运行行为。
+- **产品入口统一到服务边界**：新增 `LocalTaskRuntimeService` 的 `submit`、`resume` 和 `snapshot` 三个入口。工作台、CLI、HTTP 与 IPC 适配器必须复用这条路径，禁止直接操纵 DAG、审批状态或快照。
+- **路由将数据边界视为硬约束**：`local-only` 过滤全部远程候选；`local-preferred` 仅在能力满足后提高本机候选分数。路由排序使用分数降序、driver ID 升序，使同一注册集合的选择可复现。
+- **Provider adapter 不承载策略**：OpenAI-compatible、本地 OpenAI-compatible 与 Anthropic Messages adapter 只做协议转换、能力声明和 SSE 解析；成本、隐私、上下文与能力选择集中在 `ModelRouter`。
+
+### 新增
+
+- `crates/process-supervisor/src/control_plane.rs`：`TaskRunState`、`SchedulerStats`、`TaskRunSnapshot` 与 `TaskControlPlane`，覆盖注册、运行、心跳、统计、取消和终态边界。
+- `packages/agent-runtime/src/sqlite-task-snapshot-store.ts`：使用 Node 内置 `node:sqlite` 的 SQLite WAL append-only 快照实现，提供历史记录与最新快照恢复，并避免泄漏可变内部对象。
+- `packages/agent-runtime/src/task-runtime-service.ts`：本地任务运行时服务边界，验证提交任务、恢复已保存任务及读取最新快照。
+- `packages/provider-sdk/src/driver.ts`：`ModelCapabilities` 与成本分层契约，显式建模上下文窗口、工具、视觉和本地执行能力。
+- `packages/provider-sdk/src/router.ts`：`ModelRouteRequest`、候选评分和可解释 `ModelRouteDecision`，按数据边界、能力、成本及稳定顺序选模。
+- `packages/provider-sdk/src/adapters/local-openai.ts`：面向 Ollama、LM Studio、vLLM 等本机 OpenAI-compatible 服务的低成本、本地标签 adapter。
+- `packages/provider-sdk/src/adapters/anthropic.ts`：Anthropic Messages 流式 adapter，处理 system/message 正规化和 `content_block_delta` SSE 事件。
+- Provider、任务服务和 SQLite 测试；完整 TypeScript 测试套件由 29 项扩展至 **38 项**。
+
+### 修正
+
+- **早期路由器只按任务类别硬编码 provider**，无法表达上下文下限、工具/视觉需求、数据边界或选择理由。
+  → 处置：以可过滤的能力契约和稳定评分替换硬编码分支，同时保留 `pick(kind)` 作为向后兼容入口。
+- **早期 OpenAI-compatible adapter 固定返回 `openai` 且没有能力元数据**，使本地端点无法作为严格本地任务候选。
+  → 处置：允许配置 driver ID 与能力；本地端点改由独立 `LocalOpenAICompatible` 显式声明本地性。
+
+### 验证
+
+| 检查 | 结果 |
+|---|---|
+| `npm run typecheck` | 通过 |
+| `npm run test` | 38/38 通过（Node SQLite 实验性提示预期存在） |
+| `cargo fmt --check && cargo check && cargo test` | 4/4 通过，零格式差异 |
+| Rust doc-tests | 通过（0 项） |
+
+### 后续边界
+
+- 本版本定义并测试了任务服务与路由 adapter；工作台尚未在浏览器中直接调用该服务。下一步通过 C1/C2/C3 adapter 接入真实快照、审批与恢复状态，不将 Node SQLite 或 Provider 密钥导入前端。
+- Anthropic adapter 目前覆盖文本流式响应。原生 tool-use 请求和多模态内容块必须先扩展协议 `ChatRequest`，再通过可验证事件接入，不在 adapter 内部私自改变调用语义。
+- Rust `SchedulerStats` 尚未消费 TypeScript 调度器的实时统计；该同步将通过版本化 JSON-RPC 或文件 IPC 增加，避免任一语言直接访问另一方内部内存。
