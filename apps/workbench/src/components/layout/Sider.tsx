@@ -1,4 +1,4 @@
-import lobeHubMark from '@lobehub/icons-static-svg/icons/lobehub.svg';
+import { LobeHub } from '@lobehub/icons';
 import { useState } from 'react';
 import { useLocale } from '../../i18n/LocaleProvider';
 
@@ -26,7 +26,7 @@ export function Sider({ theme, onThemeToggle, onNewTask }: SiderProps) {
     <nav className="sider" aria-label={messages.navigation.aria}>
       <div className="sider-brand">
         <div className="sider-brand-mark" aria-hidden="true">
-          <img alt="" src={lobeHubMark} />
+          <LobeHub size={21} />
         </div>
         <div className="sider-brand-copy">
           <div className="sider-brand-name">AI Work OS</div>
