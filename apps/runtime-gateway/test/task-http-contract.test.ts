@@ -49,6 +49,12 @@ async function withGateway<T>(run: (baseUrl: string) => Promise<T>): Promise<T> 
 
 test('Gateway 强制 Task Submit HTTP v1，并提供脱敏且只读的 run trajectory', async () => {
   await withGateway(async (baseUrl) => {
+    const localHealth = await fetch(`${baseUrl}/api/local-models/health`);
+    assert.equal(localHealth.status, 200);
+    assert.deepEqual(await localHealth.json(), []);
+    const prohibitedLocalModelWrite = await fetch(`${baseUrl}/api/local-models/health`, { method: 'POST' });
+    assert.equal(prohibitedLocalModelWrite.status, 404);
+
     const missingVersion = await fetch(`${baseUrl}/api/tasks`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'idempotency-key': 'contract-missing-version' },

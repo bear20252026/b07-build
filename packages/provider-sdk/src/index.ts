@@ -7,6 +7,8 @@ export {
   SqliteProviderProfileStore,
 } from './provider-profile';
 export { LocalEndpointRegistry } from './local-endpoint-registry';
+export { LocalModelHealthRegistry } from './local-model-health';
+export type { LocalModelHealthSummaryV1 } from './local-model-health';
 export type {
   LocalEndpointAvailability,
   LocalEndpointCapabilities,

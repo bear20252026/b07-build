@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider } from './components/layout/Sider';
 import { ControlPlaneInsights } from './components/observability/ControlPlaneInsights';
 import { ExtensionCenter } from './components/observability/ExtensionCenter';
+import { LocalModelHealthBoard } from './components/observability/LocalModelHealthBoard';
 import { TrajectoryBoard } from './components/observability/TrajectoryBoard';
 import { PreviewPanel } from './components/preview/PreviewPanel';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
 import {
   HttpWorkbenchTaskClient,
+  type WorkbenchLocalModelHealth,
   type WorkbenchTaskSnapshot,
   type WorkbenchRunTrajectoryEvent,
 } from './runtime/task-client';
@@ -58,6 +60,8 @@ function statusLabel(status: WorkbenchTaskSnapshot['status'] | undefined, messag
 export function App() {
   const [events, setEvents] = useState<readonly TaskEvent[]>([]);
   const [trajectory, setTrajectory] = useState<readonly WorkbenchRunTrajectoryEvent[]>([]);
+  const [localModels, setLocalModels] = useState<readonly WorkbenchLocalModelHealth[]>();
+  const [localModelError, setLocalModelError] = useState<string>();
   const [snapshot, setSnapshot] = useState<WorkbenchTaskSnapshot>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
@@ -69,6 +73,14 @@ export function App() {
   const profiles = profileUi(messages);
   const profile = profiles[activeProfile];
   const blockedNodeId = snapshot && Object.entries(snapshot.nodeOutcomes).find(([, outcome]) => outcome === 'blocked')?.[0];
+
+  useEffect(() => {
+    let disposed = false;
+    void taskClient.localModelHealth()
+      .then((models) => { if (!disposed) setLocalModels(models); })
+      .catch((error: unknown) => { if (!disposed) setLocalModelError(error instanceof Error ? error.message : 'Local model health unavailable'); });
+    return () => { disposed = true; };
+  }, []);
 
   const hydrate = async (nextSnapshot: WorkbenchTaskSnapshot): Promise<void> => {
     const [nextEvents, nextTrajectory] = await Promise.all([
@@ -191,6 +203,7 @@ export function App() {
             </section>
             <ControlPlaneInsights events={events} snapshot={snapshot} />
             <TrajectoryBoard events={trajectory} messages={messages} />
+            <LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} />
             <ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} />
             <section className="event-section">
               <div className="section-heading">

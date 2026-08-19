@@ -27,6 +27,21 @@ export interface WorkbenchTaskIntent {
   profileId: AgentProfileId;
 }
 
+export interface WorkbenchLocalModelHealth {
+  schemaVersion: 1;
+  id: string;
+  configuredModelId: string;
+  offline: boolean;
+  health: Readonly<{
+    status: 'unknown' | 'healthy' | 'unhealthy';
+    checkedAt?: number;
+    probePath?: '/health' | '/v1/models';
+    probeMethod?: 'HEAD' | 'GET';
+    modelIds: readonly string[];
+    error?: string;
+  }>;
+}
+
 export interface WorkbenchRunTrajectoryEvent {
   schemaVersion: 1;
   trajectoryEventId: string;
@@ -58,6 +73,23 @@ export interface WorkbenchTaskClient {
   snapshot(taskId: string, runId: string): Promise<WorkbenchTaskSnapshot | undefined>;
   events(taskId: string, runId: string): Promise<readonly TaskEvent[]>;
   trajectory(taskId: string, runId: string): Promise<readonly WorkbenchRunTrajectoryEvent[]>;
+  localModelHealth(): Promise<readonly WorkbenchLocalModelHealth[]>;
+}
+
+function assertLocalModelHealth(value: unknown): asserts value is WorkbenchLocalModelHealth {
+  if (!value || typeof value !== 'object') throw new Error('本地模型健康摘要无效');
+  const summary = value as Partial<WorkbenchLocalModelHealth>;
+  const health = summary.health;
+  if (
+    Object.keys(summary).some((key) => !['schemaVersion', 'id', 'configuredModelId', 'offline', 'health'].includes(key))
+    || summary.schemaVersion !== 1 || typeof summary.id !== 'string' || typeof summary.configuredModelId !== 'string' || typeof summary.offline !== 'boolean'
+    || !health || typeof health !== 'object' || !['unknown', 'healthy', 'unhealthy'].includes(String(health.status))
+    || !Array.isArray(health.modelIds) || !health.modelIds.every((id) => typeof id === 'string')
+    || (health.checkedAt !== undefined && (!Number.isSafeInteger(health.checkedAt) || health.checkedAt < 0))
+    || (health.probePath !== undefined && health.probePath !== '/health' && health.probePath !== '/v1/models')
+    || (health.probeMethod !== undefined && health.probeMethod !== 'HEAD' && health.probeMethod !== 'GET')
+    || (health.error !== undefined && typeof health.error !== 'string')
+  ) throw new Error('本地模型健康摘要返回了不兼容的 metadata contract');
 }
 
 function assertTrajectoryEvent(value: unknown): asserts value is WorkbenchRunTrajectoryEvent {
@@ -83,7 +115,10 @@ function assertSnapshot(value: unknown): asserts value is WorkbenchTaskSnapshot 
 }
 
 export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
-  constructor(private readonly baseUrl = '/api/tasks') {}
+  constructor(
+    private readonly baseUrl = '/api/tasks',
+    private readonly localModelHealthUrl = '/api/local-models/health',
+  ) {}
 
   async submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot> {
     return this.request('', {
@@ -128,6 +163,15 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     if (!Array.isArray(payload)) throw new Error('运行轨迹返回了无效列表');
     payload.forEach(assertTrajectoryEvent);
     return [...payload].sort((left, right) => left.sequence - right.sequence);
+  }
+
+  async localModelHealth(): Promise<readonly WorkbenchLocalModelHealth[]> {
+    const response = await fetch(this.localModelHealthUrl, { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(await response.text() || `本地模型健康请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    if (!Array.isArray(payload)) throw new Error('本地模型健康返回了无效列表');
+    payload.forEach(assertLocalModelHealth);
+    return [...payload].sort((left, right) => left.id.localeCompare(right.id));
   }
 
   async snapshot(taskId: string, runId: string): Promise<WorkbenchTaskSnapshot | undefined> {

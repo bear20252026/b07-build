@@ -84,3 +84,31 @@ test('运行轨迹客户端拒绝可执行或未声明来源的 payload', async 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('本地模型健康客户端仅读取脱敏摘要、按 endpoint ID 排序并拒绝 URL 泄露', async () => {
+  const originalFetch = globalThis.fetch;
+  let url = '';
+  globalThis.fetch = (async (nextUrl) => {
+    url = String(nextUrl);
+    return Response.json([
+      { schemaVersion: 1, id: 'z-local', configuredModelId: 'z-model', offline: false, health: { status: 'unknown', modelIds: [] } },
+      { schemaVersion: 1, id: 'a-local', configuredModelId: 'a-model', offline: true, health: { status: 'unhealthy', checkedAt: 12, modelIds: [], error: 'offline' } },
+    ]);
+  }) as typeof fetch;
+  try {
+    const models = await new HttpWorkbenchTaskClient().localModelHealth();
+    assert.equal(url, '/api/local-models/health');
+    assert.deepEqual(models.map((model) => model.id), ['a-local', 'z-local']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = (async () => Response.json([
+    { schemaVersion: 1, id: 'unsafe', configuredModelId: 'model', offline: false, baseUrl: 'http://127.0.0.1:11434', health: { status: 'healthy', modelIds: [] } },
+  ])) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().localModelHealth(), /不兼容/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

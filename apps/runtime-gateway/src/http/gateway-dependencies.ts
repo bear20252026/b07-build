@@ -13,7 +13,7 @@ import type {
   TaskRuntimeRequest,
 } from '@awo/agent-runtime';
 import type { KnowledgeWorkspaceService, SkillPackRegistry } from '@awo/knowledge-workflow';
-import type { ProviderProfileRegistry } from '@awo/provider-sdk';
+import type { LocalModelHealthRegistry, ProviderProfileRegistry } from '@awo/provider-sdk';
 import type { TaskEvent } from '@awo/protocol';
 
 /** Gateway route 使用的组合对象；只能由 composition root 创建并注入。 */
@@ -27,6 +27,7 @@ export interface GatewayDependencies {
   readonly extensionActivationPlanner: ExtensionActivationPlanner;
   readonly extensionDoctor: ExtensionDoctor;
   readonly providerProfiles: ProviderProfileRegistry;
+  readonly localModelHealth: LocalModelHealthRegistry;
   readonly knowledgeWorkspaces: KnowledgeWorkspaceService;
   readonly skillPacks: SkillPackRegistry;
   readonly agentAdapters: AgentAdapterControlPlane;

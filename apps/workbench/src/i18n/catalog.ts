@@ -78,6 +78,9 @@ export const catalog = {
     trajectory: {
       aria: '运行轨迹', eyebrow: 'APPEND-ONLY TRAJECTORY', title: '运行轨迹', count: (count: number) => `${count} 条 metadata 记录`, empty: '提交任务后，此处会显示按来源、顺序与风险脱敏的只读运行轨迹。', source: '来源', sequence: '序列', cannotReplay: '轨迹只用于审计和解释，不能重放副作用或授予执行权。',
     },
+    localModels: {
+      aria: '本地模型健康', eyebrow: 'LOCAL MODEL OBSERVABILITY', title: '本地模型健康', count: (count: number) => `${count} 个已登记端点`, loading: '正在读取本地健康 metadata…', empty: '尚未登记本地模型端点。端点必须经受控配置后才会出现在此处。', configuredModel: '配置模型', checkedAt: '检查时间', discovered: '已发现模型', notChecked: '尚未检查', none: '无', offline: '操作者离线', status: { unknown: '未知', healthy: '健康', unhealthy: '不可用' }, note: '此卡片只读取回环端点的脱敏健康摘要；不会探测、连接、启动模型，不会修改 Provider Profile 或读取密钥。',
+    },
     event: {
       created: (goal: string) => ({ title: '任务已创建', detail: goal }),
       profile: (label: string, description: string) => ({ title: 'Agent Profile 已选择', detail: `${label} · ${description}` }),
@@ -158,6 +161,9 @@ export const catalog = {
     },
     trajectory: {
       aria: 'Run trajectory', eyebrow: 'APPEND-ONLY TRAJECTORY', title: 'Run trajectory', count: (count: number) => `${count} metadata records`, empty: 'Submit a task to display a read-only run trajectory with source, order, and redacted risk metadata.', source: 'Source', sequence: 'Sequence', cannotReplay: 'Trajectory is for audit and explanation only; it cannot replay side effects or grant execution.',
+    },
+    localModels: {
+      aria: 'Local model health', eyebrow: 'LOCAL MODEL OBSERVABILITY', title: 'Local model health', count: (count: number) => `${count} registered endpoints`, loading: 'Reading local health metadata…', empty: 'No local model endpoint is registered. An endpoint appears here only after controlled configuration.', configuredModel: 'Configured model', checkedAt: 'Checked', discovered: 'Discovered models', notChecked: 'Not checked', none: 'None', offline: 'Operator offline', status: { unknown: 'Unknown', healthy: 'Healthy', unhealthy: 'Unavailable' }, note: 'This card only reads redacted health summaries for loopback endpoints. It cannot probe, connect, or start a model; it cannot alter Provider Profiles or read secrets.',
     },
     event: {
       created: (goal: string) => ({ title: 'Task created', detail: goal }),

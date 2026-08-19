@@ -36,7 +36,7 @@ import {
   SqliteSkillPackStore,
   SqliteWorkspaceKnowledgeStoreFactory,
 } from '@awo/knowledge-workflow';
-import { ProviderProfileRegistry, SqliteProviderProfileStore } from '@awo/provider-sdk';
+import { LocalModelHealthRegistry, ProviderProfileRegistry, SqliteProviderProfileStore } from '@awo/provider-sdk';
 import type { GatewayDependencies } from './http/gateway-dependencies.js';
 import { handleGatewayRequest } from './http/router.js';
 
@@ -122,6 +122,7 @@ export function createGatewayComposition(): GatewayComposition {
   const extensionPlanStore = new SqliteExtensionPlanStore(extensionPlanPath);
   const providerProfileStore = new SqliteProviderProfileStore(providerProfilePath);
   const providerProfiles = new ProviderProfileRegistry(providerProfileStore);
+  const localModelHealth = new LocalModelHealthRegistry();
   const skillPackStore = new SqliteSkillPackStore(skillPackPath);
   const skillPacks = new SkillPackRegistry(skillPackStore);
   const agentAdapterManifestStore = new SqliteAgentAdapterManifestStore(agentAdapterManifestPath);
@@ -215,7 +216,7 @@ export function createGatewayComposition(): GatewayComposition {
   return {
     dependencies: {
       runtime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
-      extensionActivationPlanner, extensionDoctor, providerProfiles, knowledgeWorkspaces, skillPacks,
+      extensionActivationPlanner, extensionDoctor, providerProfiles, localModelHealth, knowledgeWorkspaces, skillPacks,
       agentAdapters, schedules, runTrajectory, defaultKnowledgeWorkspaceId: DEFAULT_KNOWLEDGE_WORKSPACE_ID,
       requests, eventsByRun, approvedActions, createTaskRequest, createEvent,
     },
