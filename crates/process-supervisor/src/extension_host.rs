@@ -3,11 +3,19 @@
 //! 该模块不解析 extension 业务、不下载代码、不授权 capability，也不向子进程注入密钥。
 //! 它只接收已经由上层 Activation Planner 选择的单个扩展制品，并使用直接可执行路径启动。
 
+use crate::resource_isolation::{
+    CgroupV2Lease, ResourceBudgetRequest, ResourceEnforcementLevel, ResourceIsolationMode,
+    ResourceLimitViolation,
+};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{
+    mpsc::{self, Receiver, TryRecvError},
+    Mutex,
+};
+use std::thread;
 
 pub const EXTENSION_HOST_PROTOCOL_VERSION: &str = "awo.extension-host.v1";
 const MAX_ARGS: usize = 32;
@@ -40,6 +48,7 @@ pub enum ExtensionHostState {
     Spawned,
     Healthy,
     TimedOut,
+    ResourceExceeded,
     Exited,
     Stopped,
 }
@@ -49,6 +58,7 @@ pub struct ExtensionHostSnapshot {
     pub protocol_version: String,
     pub extension_id: String,
     pub revision: u64,
+    pub resource_enforcement: ResourceEnforcementLevel,
     pub state: ExtensionHostState,
     pub started_at_ms: u64,
     pub updated_at_ms: u64,
@@ -95,6 +105,8 @@ pub enum ExtensionHostError {
     NotRunning,
     Io(String),
     InvalidProtocol(String),
+    ResponsePending,
+    ResourceIsolation(String),
 }
 
 impl std::fmt::Display for ExtensionHostError {
@@ -108,6 +120,10 @@ impl std::fmt::Display for ExtensionHostError {
             Self::Io(detail) => write!(formatter, "extension host io error: {detail}"),
             Self::InvalidProtocol(detail) => {
                 write!(formatter, "invalid extension host protocol: {detail}")
+            }
+            Self::ResponsePending => write!(formatter, "extension lifecycle response is not ready"),
+            Self::ResourceIsolation(detail) => {
+                write!(formatter, "resource isolation failed: {detail}")
             }
         }
     }
@@ -222,9 +238,10 @@ impl ExtensionHostResponse {
 struct ManagedExtensionChild {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    responses: Receiver<Result<String, String>>,
     snapshot: ExtensionHostSnapshot,
     budget: ExtensionHostBudget,
+    resource_lease: Option<CgroupV2Lease>,
 }
 
 /// 纯状态机，用于在启动前和无真实进程的测试中验证 deadline；运行时 supervisor 复用同一状态约束。
@@ -242,6 +259,7 @@ impl ExtensionHostLifecycle {
                 protocol_version: EXTENSION_HOST_PROTOCOL_VERSION.to_string(),
                 extension_id: spec.extension_id.clone(),
                 revision: spec.revision,
+                resource_enforcement: ResourceEnforcementLevel::RequestedOnly,
                 state: ExtensionHostState::Prepared,
                 started_at_ms: now_ms,
                 updated_at_ms: now_ms,
@@ -296,15 +314,62 @@ impl ExtensionHostLifecycle {
     }
 }
 
+fn spawn_lifecycle_reader(
+    stdout: ChildStdout,
+    extension_id: &str,
+) -> Result<Receiver<Result<String, String>>, ExtensionHostError> {
+    let (sender, receiver) = mpsc::channel();
+    thread::Builder::new()
+        .name(format!("awo-extension-ipc-{extension_id}"))
+        .spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            loop {
+                let mut line = String::new();
+                match reader.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) if sender.send(Ok(line)).is_err() => break,
+                    Ok(_) => {}
+                    Err(error) => {
+                        let _ = sender.send(Err(error.to_string()));
+                        break;
+                    }
+                }
+            }
+        })
+        .map_err(|error| ExtensionHostError::Io(error.to_string()))?;
+    Ok(receiver)
+}
+
+fn terminate_and_reap(child: &mut Child) -> Result<Option<i32>, ExtensionHostError> {
+    let _ = child.kill();
+    let status = child
+        .wait()
+        .map_err(|error| ExtensionHostError::Io(error.to_string()))?;
+    Ok(status.code())
+}
+
+fn cleanup_resource_lease(resource_lease: &Option<CgroupV2Lease>) {
+    if let Some(lease) = resource_lease {
+        lease.cleanup();
+    }
+}
+
 /// 单 extension 进程监督器。无 shell、无继承环境、无 secret 注入；调用方负责将 lifecycle IPC 映射到真实 policy。
 pub struct ExtensionHostSupervisor {
     child: Mutex<Option<ManagedExtensionChild>>,
+    resource_isolation: ResourceIsolationMode,
 }
 
 impl ExtensionHostSupervisor {
     pub fn new() -> Self {
+        Self::with_resource_isolation(ResourceIsolationMode::requested_only())
+    }
+
+    /// 只有 operator 预先委托的 cgroup v2 根目录可以作为硬资源限制后端；本 Host 不提权或修改系统 controller。
+    pub fn with_resource_isolation(resource_isolation: ResourceIsolationMode) -> Self {
         Self {
             child: Mutex::new(None),
+            resource_isolation,
         }
     }
 
@@ -345,7 +410,7 @@ impl ExtensionHostSupervisor {
             .env("AWO_PARENT_PID", std::process::id().to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::null());
 
         #[cfg(target_os = "windows")]
         {
@@ -363,13 +428,40 @@ impl ExtensionHostSupervisor {
         let stdout = child.stdout.take().ok_or_else(|| {
             ExtensionHostError::Io("failed to create extension stdout".to_string())
         })?;
-        let snapshot = lifecycle.mark_spawned(now_ms).clone();
+        let resource_lease = self
+            .resource_isolation
+            .prepare_after_spawn(
+                &spec.extension_id,
+                spec.revision,
+                child.id(),
+                ResourceBudgetRequest {
+                    max_memory_mb: spec.budget.max_memory_mb,
+                    max_cpu_ms: spec.budget.max_cpu_ms,
+                },
+            )
+            .map_err(|error| {
+                let _ = terminate_and_reap(&mut child);
+                ExtensionHostError::ResourceIsolation(error.to_string())
+            })?;
+        let responses = match spawn_lifecycle_reader(stdout, &spec.extension_id) {
+            Ok(responses) => responses,
+            Err(error) => {
+                if let Some(lease) = &resource_lease {
+                    lease.cleanup();
+                }
+                let _ = terminate_and_reap(&mut child);
+                return Err(error);
+            }
+        };
+        let mut snapshot = lifecycle.mark_spawned(now_ms).clone();
+        snapshot.resource_enforcement = self.resource_isolation.enforcement_level();
         *slot = Some(ManagedExtensionChild {
             child,
             stdin,
-            stdout: BufReader::new(stdout),
+            responses,
             snapshot: snapshot.clone(),
             budget: spec.budget,
+            resource_lease,
         });
         Ok(snapshot)
     }
@@ -404,7 +496,8 @@ impl ExtensionHostSupervisor {
         if request.operation == ExtensionHostOperation::Health
             && now_ms.saturating_sub(managed.snapshot.started_at_ms) > managed.budget.max_startup_ms
         {
-            let _ = managed.child.kill();
+            managed.snapshot.exit_code = terminate_and_reap(&mut managed.child)?;
+            cleanup_resource_lease(&managed.resource_lease);
             managed.snapshot.state = ExtensionHostState::TimedOut;
             managed.snapshot.detail =
                 Some("extension did not report health before startup deadline".to_string());
@@ -414,7 +507,7 @@ impl ExtensionHostSupervisor {
     }
 
     /// 只从监督子进程 stdout 消费一条已版本化的 lifecycle 响应；健康状态不会因写入成功而提前提升。
-    /// 调用方必须继续调用 `poll` 执行启动期限治理，此方法不会创建后台读取线程。
+    /// 调用方必须继续调用 `poll` 执行启动期限治理；stdout 由专用 reader 转为无阻塞响应队列。
     pub fn read_lifecycle_response(
         &self,
         request: &ExtensionHostRequest,
@@ -433,16 +526,16 @@ impl ExtensionHostSupervisor {
                 "response extension identity does not match supervised child".to_string(),
             ));
         }
-        let mut line = String::new();
-        let bytes = managed
-            .stdout
-            .read_line(&mut line)
-            .map_err(|error| ExtensionHostError::Io(error.to_string()))?;
-        if bytes == 0 {
-            return Err(ExtensionHostError::InvalidProtocol(
-                "extension closed stdout before lifecycle response".to_string(),
-            ));
-        }
+        let line = match managed.responses.try_recv() {
+            Ok(Ok(line)) => line,
+            Ok(Err(detail)) => return Err(ExtensionHostError::Io(detail)),
+            Err(TryRecvError::Empty) => return Err(ExtensionHostError::ResponsePending),
+            Err(TryRecvError::Disconnected) => {
+                return Err(ExtensionHostError::InvalidProtocol(
+                    "extension closed stdout before lifecycle response".to_string(),
+                ));
+            }
+        };
         let response = ExtensionHostResponse::parse_json_line(line.trim_end())?;
         if response.request_id != request.request_id {
             return Err(ExtensionHostError::InvalidProtocol(
@@ -454,7 +547,8 @@ impl ExtensionHostSupervisor {
                 if now_ms.saturating_sub(managed.snapshot.started_at_ms)
                     > managed.budget.max_startup_ms
                 {
-                    let _ = managed.child.kill();
+                    managed.snapshot.exit_code = terminate_and_reap(&mut managed.child)?;
+                    cleanup_resource_lease(&managed.resource_lease);
                     managed.snapshot.state = ExtensionHostState::TimedOut;
                     managed.snapshot.detail =
                         Some("extension reported health after startup deadline".to_string());
@@ -471,6 +565,8 @@ impl ExtensionHostSupervisor {
                 managed.snapshot.updated_at_ms = now_ms;
             }
             (ExtensionHostOperation::Shutdown, ExtensionHostResponseStatus::Ready) => {
+                managed.snapshot.exit_code = terminate_and_reap(&mut managed.child)?;
+                cleanup_resource_lease(&managed.resource_lease);
                 managed.snapshot.state = ExtensionHostState::Stopped;
                 managed.snapshot.updated_at_ms = now_ms;
             }
@@ -486,10 +582,36 @@ impl ExtensionHostSupervisor {
         let Some(managed) = slot.as_mut() else {
             return Ok(None);
         };
-        if managed.snapshot.state == ExtensionHostState::Spawned
+        let resource_violation = if matches!(
+            managed.snapshot.state,
+            ExtensionHostState::Spawned | ExtensionHostState::Healthy
+        ) {
+            match &managed.resource_lease {
+                Some(lease) => lease
+                    .violation()
+                    .map_err(|error| ExtensionHostError::ResourceIsolation(error.to_string()))?,
+                None => None,
+            }
+        } else {
+            None
+        };
+        if let Some(violation) = resource_violation {
+            managed.snapshot.exit_code = terminate_and_reap(&mut managed.child)?;
+            cleanup_resource_lease(&managed.resource_lease);
+            managed.snapshot.state = ExtensionHostState::ResourceExceeded;
+            managed.snapshot.detail = Some(
+                match violation {
+                    ResourceLimitViolation::CpuTime => "extension exceeded cgroup CPU time budget",
+                    ResourceLimitViolation::MemoryOom => "extension exceeded cgroup memory budget",
+                }
+                .to_string(),
+            );
+            managed.snapshot.updated_at_ms = now_ms;
+        } else if managed.snapshot.state == ExtensionHostState::Spawned
             && now_ms.saturating_sub(managed.snapshot.started_at_ms) > managed.budget.max_startup_ms
         {
-            let _ = managed.child.kill();
+            managed.snapshot.exit_code = terminate_and_reap(&mut managed.child)?;
+            cleanup_resource_lease(&managed.resource_lease);
             managed.snapshot.state = ExtensionHostState::TimedOut;
             managed.snapshot.detail =
                 Some("extension did not report health before startup deadline".to_string());
@@ -499,6 +621,7 @@ impl ExtensionHostSupervisor {
             .try_wait()
             .map_err(|error| ExtensionHostError::Io(error.to_string()))?
         {
+            cleanup_resource_lease(&managed.resource_lease);
             managed.snapshot.state = ExtensionHostState::Exited;
             managed.snapshot.exit_code = status.code();
             managed.snapshot.updated_at_ms = now_ms;
@@ -517,8 +640,8 @@ impl ExtensionHostSupervisor {
         let Some(mut managed) = slot.take() else {
             return Ok(None);
         };
-        let _ = managed.child.kill();
-        let _ = managed.child.wait();
+        managed.snapshot.exit_code = terminate_and_reap(&mut managed.child)?;
+        cleanup_resource_lease(&managed.resource_lease);
         managed.snapshot.state = ExtensionHostState::Stopped;
         managed.snapshot.updated_at_ms = now_ms;
         Ok(Some(managed.snapshot))

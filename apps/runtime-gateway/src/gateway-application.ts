@@ -167,6 +167,38 @@ export function createGatewayComposition(): GatewayComposition {
     return request;
   }
 
+  let closed = false;
+  const closeResources = (): void => {
+    if (closed) return;
+    closed = true;
+    const closers: readonly (() => void)[] = [
+      () => store.close(),
+      () => knowledgeStoreFactory.close(),
+      () => knowledgeWorkspaceStore.close(),
+      () => commandReceipts.close(),
+      () => subtaskStore.close(),
+      () => mcpManifestStore.close(),
+      () => extensionManifestStore.close(),
+      () => extensionPlanStore.close(),
+      () => providerProfileStore.close(),
+      () => skillPackStore.close(),
+      () => agentAdapterManifestStore.close(),
+      () => agentAdapterSessionStore.close(),
+      () => agentAdapterMailboxStore.close(),
+      () => scheduleManifestStore.close(),
+      () => scheduledRunStore.close(),
+    ];
+    let closeFailure: unknown;
+    for (const close of closers) {
+      try {
+        close();
+      } catch (error) {
+        closeFailure ??= error;
+      }
+    }
+    if (closeFailure) throw closeFailure;
+  };
+
   return {
     dependencies: {
       runtime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
@@ -174,17 +206,7 @@ export function createGatewayComposition(): GatewayComposition {
       agentAdapters, schedules, defaultKnowledgeWorkspaceId: DEFAULT_KNOWLEDGE_WORKSPACE_ID,
       requests, eventsByRun, approvedActions, createTaskRequest, createEvent,
     },
-    close(): void {
-      store.close();
-      knowledgeStoreFactory.close();
-      knowledgeWorkspaceStore.close();
-      commandReceipts.close();
-      subtaskStore.close();
-      mcpManifestStore.close();
-      extensionManifestStore.close();
-      extensionPlanStore.close();
-      providerProfileStore.close();
-    },
+    close: closeResources,
   };
 }
 

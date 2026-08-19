@@ -1,0 +1,54 @@
+name: Quality Gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  typescript:
+    name: TypeScript architecture, tests, and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run architecture:check
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build --workspace=@awo/workbench
+      - run: npm audit --omit=dev --audit-level=high
+
+  rust:
+    name: Rust supervisor quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - working-directory: crates/process-supervisor
+        run: cargo fmt --check
+      - working-directory: crates/process-supervisor
+        run: cargo check
+      - working-directory: crates/process-supervisor
+        run: cargo test
+      - working-directory: crates/process-supervisor
+        run: cargo clippy -- -D warnings
+
+  python:
+    name: Python sidecar syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m compileall -q sidecars
