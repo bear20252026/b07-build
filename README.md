@@ -64,10 +64,13 @@ Rust process-supervisor ── C3 JSON-RPC / C5 进程管理 ──> sidecars/do
 ## 验证命令
 
 ```bash
-# TypeScript：所有工作区与测试的严格检查
+# TypeScript：所有工作区的严格检查
 npm run typecheck
 
-# TypeScript：协议、权限、预算、DAG、恢复、SQLite、任务服务和 Provider 测试
+# 架构适应度：依赖图、反向依赖、UI/SQLite 边界和 Gateway 尺寸预算
+npm run architecture:check
+
+# TypeScript：架构检查后执行协议、权限、预算、DAG、恢复、SQLite、任务服务和 Provider 测试
 npm run test
 
 # 调度基准：24 个独立节点，比较串行与有限并发
@@ -91,9 +94,10 @@ packages/provider-sdk      模型驱动端口、adapter 与确定性路由
 crates/process-supervisor  Rust 进程监督与任务控制面
 sidecars/document-worker   Python 文档计算 sidecar
 apps/workbench             React 三栏工作台（本地化石墨主题、意图、事件订阅、快照、审批恢复与引用预览）
-apps/runtime-gateway       仅限本地开发会话的 HTTP 桥接；服务端装配策略、审批、DAG、SQLite、知识、扩展、Adapter 与调度 metadata
-packages/knowledge-workflow 本地文档摄取、SQLite 稀疏向量检索、来源引用与可替换存储端口
+apps/runtime-gateway       本地 HTTP 适配器：薄进程入口、显式 composition root、统一 router 与按能力分组的 DTO routes
+packages/knowledge-workflow 本地文档摄取、SQLite 稀疏向量检索、来源引用与可替换存储端口；Skill Pack 实现按模块目录归组
 docs/research              公开资料架构研究与能力映射
+tools                      架构适应度与本地工程检查工具
 reference                  非构建参考资料，绝不在运行时加载或执行
 ```
 

@@ -9,12 +9,15 @@
   ],
   "scripts": {
     "typecheck": "tsc -b tsconfig.base.json",
-    "test": "node --experimental-sqlite --import tsx --test $(find packages apps -path '*test/*.test.ts' -print)",
+    "architecture:dependencies": "depcruise apps packages --config .dependency-cruiser.cjs --output-type err",
+    "architecture:check": "npm run architecture:dependencies && node tools/architecture-check.mjs",
+    "test": "npm run architecture:check && node --experimental-sqlite --import tsx --test $(find packages apps -path '*test/*.test.ts' -print)",
     "benchmark:dag": "node --import tsx packages/agent-runtime/benchmark/dag-scheduler.bench.ts",
     "build": "npm run typecheck"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "dependency-cruiser": "^18.2.0",
     "tsx": "^4.23.12",
     "typescript": "^5.5.4"
   }

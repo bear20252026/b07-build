@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { copyMemoryRecord, type MemoryLedgerStore, type MemoryRecord } from './memory-ledger.js';
+import { copyMemoryRecord, type MemoryLedgerStore, type MemoryRecord } from '../../memory-ledger.js';
 
 interface RecordRow {
   record_json: string;

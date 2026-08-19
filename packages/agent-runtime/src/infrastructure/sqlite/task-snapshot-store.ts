@@ -2,7 +2,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { LocalTaskSnapshot, TaskSnapshotStore } from './recoverable-task-runtime.js';
+import type { LocalTaskSnapshot, TaskSnapshotStore } from '../../recoverable-task-runtime.js';
 
 interface SnapshotRow {
   snapshot_json: string;

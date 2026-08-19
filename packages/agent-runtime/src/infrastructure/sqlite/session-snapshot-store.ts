@@ -5,7 +5,7 @@ import {
   copySessionSnapshot,
   type LocalSessionSnapshot,
   type SessionSnapshotStore,
-} from './session-control-plane.js';
+} from '../../session-control-plane.js';
 
 interface SnapshotRow {
   snapshot_json: string;
