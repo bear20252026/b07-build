@@ -1,22 +1,205 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.local/protocol/task-event.schema.json",
-  "title": "TaskEvent",
-  "description": "唯一事实源：任务/计划/审批/工具调用/产物事件。所有语言共用此 JSON 事件协议 (C3/C6 通道)。",
+  "$id": "https://awo.local/protocol/task-event.schema.json",
+  "title": "AI Work OS TaskEvent",
+  "description": "C3/C6 的唯一事件协议：任务、审批、工具、产物及失败事件均可验证、可关联、可回放。",
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "required": ["protocolVersion", "eventId", "taskId", "runId", "at"],
+      "properties": {
+        "protocolVersion": { "const": "1.0" },
+        "eventId": { "type": "string", "minLength": 1 },
+        "taskId": { "type": "string", "minLength": 1 },
+        "runId": { "type": "string", "minLength": 1 },
+        "at": { "type": "number", "minimum": 0 }
+      }
+    },
+    "risk": { "enum": ["low", "medium", "high"] },
+    "capability": {
+      "enum": [
+        "document.parse",
+        "model.chat",
+        "filesystem.read",
+        "filesystem.write",
+        "network.fetch",
+        "shell.execute",
+        "browser.control"
+      ]
+    },
+    "tool": {
+      "type": "object",
+      "required": ["name", "args", "capability", "risk"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "args": {},
+        "capability": { "$ref": "#/$defs/capability" },
+        "risk": { "$ref": "#/$defs/risk" }
+      },
+      "additionalProperties": false
+    }
+  },
   "oneOf": [
-    { "type": "object", "required": ["type", "taskId", "goal"],
-      "properties": { "type": { "const": "task.created" }, "taskId": { "type": "string" }, "goal": { "type": "string" }, "at": { "type": "number" } } },
-    { "type": "object", "required": ["type", "taskId", "steps"],
-      "properties": { "type": { "const": "plan.proposed" }, "taskId": { "type": "string" }, "steps": { "type": "array" }, "at": { "type": "number" } } },
-    { "type": "object", "required": ["type", "actionId", "risk"],
-      "properties": { "type": { "const": "approval.required" }, "actionId": { "type": "string" }, "risk": { "enum": ["low", "medium", "high"] }, "at": { "type": "number" } } },
-    { "type": "object", "required": ["type", "callId", "tool", "inputHash"],
-      "properties": { "type": { "const": "tool.called" }, "callId": { "type": "string" }, "tool": { "type": "object" }, "inputHash": { "type": "string" }, "at": { "type": "number" } } },
-    { "type": "object", "required": ["type", "callId", "status", "outputRef"],
-      "properties": { "type": { "const": "tool.result" }, "callId": { "type": "string" }, "status": { "enum": ["ok", "error"] }, "outputRef": { "type": "string" }, "at": { "type": "number" } } },
-    { "type": "object", "required": ["type", "artifactId", "mime", "path"],
-      "properties": { "type": { "const": "artifact.created" }, "artifactId": { "type": "string" }, "mime": { "type": "string" }, "path": { "type": "string" }, "at": { "type": "number" } } },
-    { "type": "object", "required": ["type", "taskId", "summaryRef"],
-      "properties": { "type": { "const": "task.completed" }, "taskId": { "type": "string" }, "summaryRef": { "type": "string" }, "at": { "type": "number" } } }
+    {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "goal"],
+          "properties": {
+            "type": { "const": "task.created" },
+            "goal": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "steps"],
+          "properties": {
+            "type": { "const": "plan.proposed" },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "description"],
+                "properties": {
+                  "id": { "type": "string", "minLength": 1 },
+                  "description": { "type": "string", "minLength": 1 },
+                  "risk": { "$ref": "#/$defs/risk" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "actionId", "capability", "risk", "reason"],
+          "properties": {
+            "type": { "const": "approval.required" },
+            "actionId": { "type": "string", "minLength": 1 },
+            "capability": { "$ref": "#/$defs/capability" },
+            "risk": { "$ref": "#/$defs/risk" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "actionId", "decision", "resolvedBy"],
+          "properties": {
+            "type": { "const": "approval.resolved" },
+            "actionId": { "type": "string", "minLength": 1 },
+            "decision": { "enum": ["approved", "rejected"] },
+            "resolvedBy": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "callId", "tool", "inputHash"],
+          "properties": {
+            "type": { "const": "tool.called" },
+            "callId": { "type": "string", "minLength": 1 },
+            "tool": { "$ref": "#/$defs/tool" },
+            "inputHash": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "callId", "status", "outputRef"],
+          "properties": {
+            "type": { "const": "tool.result" },
+            "callId": { "type": "string", "minLength": 1 },
+            "status": { "enum": ["ok", "error"] },
+            "outputRef": { "type": "string", "minLength": 1 },
+            "errorCode": { "type": "string", "minLength": 1 },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "artifactId", "mime", "path"],
+          "properties": {
+            "type": { "const": "artifact.created" },
+            "artifactId": { "type": "string", "minLength": 1 },
+            "mime": { "type": "string", "minLength": 1 },
+            "path": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "summaryRef"],
+          "properties": {
+            "type": { "const": "task.completed" },
+            "summaryRef": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "required": ["type", "code", "message"],
+          "properties": {
+            "type": { "const": "task.failed" },
+            "code": { "type": "string", "minLength": 1 },
+            "message": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    }
   ]
 }

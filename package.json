@@ -1,6 +1,6 @@
 {
   "name": "ai-work-os",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "description": "AI Work OS 积木式 monorepo（pnpm 不可用 → npm workspaces）",
   "workspaces": [
@@ -9,10 +9,12 @@
   ],
   "scripts": {
     "typecheck": "tsc -b tsconfig.base.json",
+    "test": "node --import tsx --test $(find packages -path '*test/*.test.ts' -print)",
     "build": "npm run typecheck"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
     "typescript": "^5.5.4"
   }
 }
