@@ -5,7 +5,22 @@
 > 格式：`## [日期] 变更摘要` → `### 修正（原因→处置）` / `### 新增` / `### 决策`。
 > 每次更正都记录**为什么改**（基线：BASELINE.md v0.1.0）。
 
-## [2026-08-19] v0.1.0 首个冲刺：积木式最小可运行骨架
+## [2026-08-19] v0.2.0 参考资料分离归档 + 产品目标/参考库/框架总纲
+
+### 决策
+- **参考资料与主代码分离**：新增 `reference/` 目录存放外部参考 zip，**不参与**任何 npm/cargo workspace 构建；主代码仍只在 `packages/ crates/ sidecars/ apps/`。
+- **MiMo-Code 镜像策略**：只取上游最新单提交（`git clone --depth 1 --single-branch`），**不追历史**；推送到自建公开仓 `bear20252026/MiMo-Code`（孤儿根提交规避浅克隆推送拒绝）。
+- **Antelope 最小版**：本地暂无源码文件，列入参考清单（REFERENCE.md），待取得后再入 reference/。
+
+### 新增
+- `reference/CoreCoder_7篇源码导读原文归档_20260819.zip`（50K，CoreCoder 7 篇导读原文）
+- `reference/ClaudeCode_静态补全候选_20260818.zip`（27M，Claude Code 静态补全候选）
+- `reference/REFERENCE.md`（参考材料索引 + 使用规则 + 许可证隔离提醒）
+- `docs/产品目标参考代码库与整体框架.md`（产品目标/参考代码库含 Claude Code 7 项工程设计基线 + MiMo-Code + CoreCoder + Antelope/整体积木框架/研发优先级）
+
+### 附注
+- 参考材料使用遵循上游许可证；写新代码走清洁实现（自己的领域模型/命名/测试），不复制非公开代码。
+
 
 ### 决策
 - **pnpm → npm workspaces**：本机未装 pnpm，改用 npm workspaces 串联 `packages/*` 与 `apps/*`，行为等价、零额外安装。
