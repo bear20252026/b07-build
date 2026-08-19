@@ -5,6 +5,32 @@
 > 格式：`## [日期] 变更摘要` → `### 修正（原因→处置）` / `### 新增` / `### 决策`。
 > 每次更正都记录**为什么改**（基线：BASELINE.md v0.1.0）。
 
+## [2026-08-19] v0.19.0 受控扩展平面正式发布
+
+### 决策
+
+- **控制面与执行面持续分离**：Extension、Provider Profile、Skill Pack、外部 Agent Adapter 与 Schedule Manifest 都只描述可审查 metadata；任何登记、审查、启用、批准或调度记录均不加载模块、不启动进程、不读取密钥，也不授予 capability。
+- **统一采用追加式本地 SQLite 账本**：manifest、激活计划、Provider Profile、Skill Pack、Adapter session/mailbox 和 Schedule run 的每次变化均生成连续 revision，并以防御性复制隔离调用方。
+- **高风险默认待审批**：外部 Adapter 的高风险意图与含写入/网络/Shell/浏览器 capability 的 Schedule run 进入 inbox；批准仍需在真正执行时重新通过实时 policy、预算、审批收据和受控工具执行器。
+
+### 新增
+
+- **v0.15.0–v0.15.1**：通用 `ExtensionManifestV1`、来源 digest 核验、状态机、SQLite 账本、确定性激活计划、诊断器和网关只读 metadata 路由。
+- **v0.16.0–v0.16.1**：Rust 受监督 Extension Host 的最小版本化 IPC 生命周期，以及 Provider Profile 的 driver allowlist、数据边界收紧、credential reference 隔离、回滚与撤销。
+- **v0.17.0–v0.17.1**：石墨主题工作台 Extension Center；纯文本 Skill Pack 的候选审查/发布、显式 token 预算、范围检查、撤销验证和独立 knowledge provenance citation。
+- **v0.18.0**：ACP/CLI Agent Adapter manifest、协议版本与能力协商、独立 host/external session、只读意图桥和不可执行审批 mailbox。
+- **v0.19.0**：时区化 Schedule Manifest、模板 digest、独立 `runId`、预算、missed slot 审计与不可执行审批收件箱；网关仅提供显式窗口规划，无后台 timer 或 runner。
+
+### 验证
+
+- TypeScript：`npm run typecheck` ✅；`npm run test` ✅（106/106）；`npm run build --workspace=@awo/workbench` ✅。
+- Rust：`cargo fmt --check && cargo check && cargo test` ✅（9/9）。
+- 本地 HTTP 生命周期：Extension Center、Skill Pack metadata 脱敏、Agent Adapter 能力拒绝与只读桥、Schedule approval inbox 均已在隔离 SQLite 账本下验证；未启动外部 Agent 或后台调度器。
+
+### 后续边界
+
+- 正式执行接合必须逐项设计：Adapter transport 由 Rust Host 监督；approved Schedule run 需要显式 claim 并重走实时 policy、预算、审批与工具执行链；不得将本控制面直接改造成隐式自动执行器。
+
 ## [2026-08-19] v0.2.0 参考资料分离归档 + 产品目标/参考库/框架总纲
 
 ### 决策

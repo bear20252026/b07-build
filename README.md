@@ -1,6 +1,6 @@
 # AI Work OS
 
-> **v0.14.0** — 本地优先、可恢复、受控执行且具备可审查分层记忆的个人 Agent 学习工作系统。
+> **v0.19.0** — 本地优先、可恢复、受控执行且具备受控扩展平面、可审查上下文与审计调度的个人 Agent 学习工作系统。
 
 AI Work OS 采用积木式三语言架构：**Rust** 负责进程监督与任务控制面，**TypeScript** 负责产品编排、策略、可恢复运行时与模型路由，**Python** 负责可替换的重计算 sidecar。工作台只提交意图和订阅事件；它不直接访问快照存储、Provider 密钥或工具实现。
 
@@ -14,6 +14,11 @@ AI Work OS 采用积木式三语言架构：**Rust** 负责进程监督与任务
 | 本地恢复 | `TaskSnapshotStore` 端口、内存实现、SQLite append-only 历史与恢复 | 快照只追加；读取返回防御性副本 |
 | 会话控制 | `LocalSessionControlPlane`、durable/ephemeral/incognito、乐观 `stateVersion`、归档、pin 与 reset | incognito/ephemeral 不进入持久 session store；会话不保存原始 transcript 或工具 payload |
 | 分层记忆 | `MemoryLedger`、candidate/confirmed/retracted 修订、scope/path、来源、信任、过期和独立注入预算 | 记忆不等于权限；仅 confirmed、范围匹配且未过期条目可带引用进入上下文；incognito 禁止持久化 |
+| 受控扩展 | `ExtensionManifestV1`、来源 digest、激活计划、诊断、Rust 监督宿主与只读工作台 Extension Center | manifest 仅为 metadata；登记不加载、不启动、不授予工具权限 |
+| Provider Profile | 追加式配置、driver allowlist、数据边界收紧、credential reference、回滚与撤销 | 只保存引用名，不保存 secret；Profile 只能收紧不能放宽候选集 |
+| Skill Pack | 纯文本 pack、候选审查/发布、来源 digest、显式 token 预算、范围与撤销验证 | 不隐式注入，不索引为普通文档，固定 `canAuthorize: false` |
+| 外部 Agent Adapter | ACP/CLI manifest、握手能力协商、独立 session、只读桥与审批 mailbox | 不启动外部 Agent；未声明能力被审计性拒绝；任何 bridge intent 不可执行 |
+| 审计调度 | 时区化 interval manifest、独立 runId、模板 digest、预算、missed slot 与审批 inbox | 只规划不可执行 run；高风险默认待审批，无后台 timer 或自动 runner |
 | 服务边界 | `LocalTaskRuntimeService` 的 submit / resume / snapshot 入口 | UI、CLI 与后续 HTTP/IPC adapter 可复用同一任务语义 |
 | Rust 控制面 | 进程监督、任务生命周期、心跳、取消边界与调度统计模型 | 控制面不触碰 TypeScript 业务策略 |
 | Provider | OpenAI-compatible、Local OpenAI-compatible、Anthropic Messages 流式 adapter | 按上下文、工具、视觉、成本和数据边界确定性选模 |
@@ -81,12 +86,12 @@ cargo fmt --check && cargo check && cargo test
 
 ```text
 packages/protocol          事件类型、Schema 与验证（唯一事实源）
-packages/agent-runtime     Profile、策略、预算、DAG、任务/会话恢复、快照、Memory Ledger 与任务服务
+packages/agent-runtime     Profile、策略、预算、DAG、任务/会话恢复、快照、Memory Ledger、受控扩展、外部 Adapter、审计调度与任务服务
 packages/provider-sdk      模型驱动端口、adapter 与确定性路由
 crates/process-supervisor  Rust 进程监督与任务控制面
 sidecars/document-worker   Python 文档计算 sidecar
 apps/workbench             React 三栏工作台（本地化石墨主题、意图、事件订阅、快照、审批恢复与引用预览）
-apps/runtime-gateway       仅限本地开发会话的 HTTP 桥接；服务端装配策略、审批、DAG、SQLite 和知识检索
+apps/runtime-gateway       仅限本地开发会话的 HTTP 桥接；服务端装配策略、审批、DAG、SQLite、知识、扩展、Adapter 与调度 metadata
 packages/knowledge-workflow 本地文档摄取、SQLite 稀疏向量检索、来源引用与可替换存储端口
 docs/research              公开资料架构研究与能力映射
 reference                  非构建参考资料，绝不在运行时加载或执行
@@ -94,4 +99,4 @@ reference                  非构建参考资料，绝不在运行时加载或�
 
 ## 下一阶段
 
-v0.14 已建立可审查的 Memory Ledger：候选记忆需显式确认，按用户偏好与其他上下文独立预算选择，并携带来源、范围、信任与过期信息。下一阶段优先实现 Session/Task Control Gateway v1：为 submit、approve、resume 引入幂等键与 snapshot gap refresh；随后实现 Context Assembly/Compaction v2、本地模型 Endpoint Registry、知识工作区范围、只读 Explore/Scout 子任务和受控 MCP Registry。完整优先级与内存管理策略见 `docs/research/next-development-priorities-2026-08-19.md`。UI、领域运行时和 Rust 控制面继续保持隔离。
+v0.19 已完成受控扩展平面：扩展清单与激活诊断、Rust 监督宿主、Provider Profile、只读扩展中心、Skill Pack 治理、外部 Agent 适配和审计调度/审批收件箱均已通过本地 append-only 账本与回归测试落地。下一阶段应将这些**控制面 metadata**与实际受控执行器逐项接合：先实现由 Rust Host 监督的 Adapter transport，再让已批准的 scheduled run 经既有实时 policy、预算、审批收据与 `ControlledToolRunner` claim；不得把 manifest、批准或调度记录直接升级为自动执行权。UI、领域运行时和 Rust 控制面继续保持隔离。

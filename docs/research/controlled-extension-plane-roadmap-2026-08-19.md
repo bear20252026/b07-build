@@ -2,11 +2,11 @@
 
 **作者：Manus AI**  
 **日期：2026-08-19**  
-**适用版本：AI Work OS v0.14.0 + workbench enhancements**
+**适用版本：AI Work OS v0.19.0（受控扩展平面发布归档）**
 
 ## 结论
 
-AI Work OS 已经具备实现插件化的关键可信基底：**能力策略、人工审批、append-only SQLite 快照、会话隔离、Memory Ledger、知识工作区、只读子任务、MCP manifest、健康的本地端点注册表和浏览器安全 DTO 边界**。因此，下一步不应直接接入一个“可随意加载一切”的插件框架，而应建设一个 **Controlled Extension Plane（受控扩展平面）**。
+AI Work OS 已完成受控扩展平面的第一阶段交付：在既有能力策略、人工审批、append-only SQLite、会话隔离、Memory Ledger、知识工作区、只读子任务、MCP manifest、健康端点注册表和浏览器安全 DTO 边界之上，落地了 **Controlled Extension Plane（受控扩展平面）**。
 
 > **目标原则：** 任何业务能力都可以被模块化声明；但任何扩展都不因被发现、安装、登记或启用而自动获得执行、密钥、数据库、网络、Shell、浏览器或审批权限。
 
@@ -16,24 +16,24 @@ AI Work OS 已经具备实现插件化的关键可信基底：**能力策略、�
 
 | 维度 | 当前状态 | 结论 |
 | --- | --- | --- |
-| GitHub 主分支 | `main` 与远程对齐；最新提交为 `57c4304` | **当前仓库是已推送的最新状态**，无本地/远程领先或落后。 |
-| 产品版本 | 根工程 `0.14.0`；workbench `0.6.0` | 版本标记尚未因 P0–P3 和工作台增强提升；下一开发里程碑应提升为 `v0.15.0`。 |
-| 前端生态 | React `19.2.8`、`@lobehub/icons` `5.16.0` | 正式图标组件已接入；直接依赖没有待升级项。 |
-| 回归验证 | TypeScript `78/78`；Rust `6/6`；生产构建和浏览器验证通过 | 当前基线稳定，但尚缺覆盖插件宿主/激活计划的测试层。 |
+| GitHub 主分支 | `main` 已推送至 v0.19.0 发布提交 | 以本次发布前 `git status` 与推送结果为准；不保留本地未提交改动。 |
+| 产品版本 | 根工程 `0.19.0`；workbench `0.6.0` | 产品版本已覆盖 v0.15.0–v0.19.0 受控扩展平面路线。 |
+| 前端生态 | React `19.2.8`、`@lobehub/icons` `5.16.0` | 正式图标组件已接入；Extension Center 使用浏览器安全的只读 Gateway DTO。 |
+| 回归验证 | TypeScript `106/106`；Rust `9/9`；生产构建、浏览器与隔离 HTTP 生命周期验证通过 | Extension、Skill Pack、Adapter 与 Schedule 均已有专项和全量回归覆盖。 |
 | 代码卫生 | 当前扫描未发现 `TODO`、`FIXME` 或 `HACK` | 无显式遗留占位，但仍存在需要主动建设的系统能力。 |
 
 ## 已完成的能力与缺口
 
 | 领域 | 已具备的真实能力 | 仍缺少的能力 | 优先级 |
 | --- | --- | --- | --- |
-| 扩展治理 | MCP 已有 SHA-256 来源摘要、显式 enable/disable/revoke、工具白名单、SQLite 追加历史 | 通用 extension manifest、包/来源 provenance、签名或本地 digest 核验、兼容性规则 | P0 |
-| 激活路径 | MCP 仅登记/审查；任务 Profile 与 CapabilityPolicy 可收紧权限 | 跨类别 activation planner、冲突所有权处理、可解释 `planned/blocked` 原因、runtime inspect | P0 |
-| 运行隔离 | Rust process supervisor、受控任务执行、只读 subtask、MCP 不执行设计 | 插件 host 生命周期、崩溃隔离、资源限制、版本化 ABI、健康检查、停用后的清理 | P1 |
-| 模型生态 | LocalEndpointRegistry 只探测回环健康端点；ModelRouter 有本地优先边界 | provider profile、端点凭据引用、模型目录快照、可回滚切换、协议适配包 | P1 |
-| 工作台 | AionUi 风格三栏、真实快照、白盒控制面、双语、LobeHub 图标、草稿边界 | 扩展管理页、激活计划、健康/错误诊断、审批 inbox、插件可视化 panel contract | P1 |
-| 技能/知识 | 独立工作区、可追溯 citation、Memory Ledger 候选/确认/撤销 | Skill pack 的 metadata、审查/版本管理、上下文注入来源、受控 importer | P2 |
-| Agent 集成 | 只读 Explore/Scout 子任务、DAG、预算与审批 | 外部 CLI/ACP adapter、agent capability handshake、团队 mailbox/task board | P2 |
-| 自动化 | 本地可恢复任务与事件协议 | Schedule manifest、计划审批策略、missed-run/retry 审计、长期运行隔离 | P3 |
+| 扩展治理 | 通用 manifest、来源 SHA-256、状态机、SQLite append-only 账本与 metadata-only discovery | 供应链签名、在线安装与 rollback 仍需在独立供应链设计中实现 | 已完成 |
+| 激活路径 | 确定性 activation planner、Doctor、可解释计划理由与审计 store | 与真实受监督 runtime 执行的 claim/lease 接合 | 已完成（控制面） |
+| 运行隔离 | Rust Extension Host：直接可执行路径、清空继承环境、版本化最小 IPC、启动期限与崩溃回收 | Adapter transport 的生产 runner 集成 | 已完成（Host 基线） |
+| 模型生态 | Provider Profile、凭据引用隔离、driver allowlist、数据边界收紧、回滚/撤销 | catalog 持续同步与凭据提供方 UI | 已完成（控制面） |
+| 工作台 | AionUi 风格三栏、Extension Center、diagnostic/Profile/plan 只读可视化 | 管理操作 UI 与审批 inbox 展示可在后续迭代加入 | 已完成（只读控制面） |
+| 技能/知识 | 纯文本 Skill Pack、候选审查/发布、digest、显式预算/范围、撤销验证与独立 citation | 受控 importer 与用户可编辑 pack UI | 已完成（治理） |
+| Agent 集成 | ACP/CLI manifest、能力协商、独立 session、只读桥与审批 mailbox | Rust Host 驱动的实际协议 transport | 已完成（控制面） |
+| 自动化 | 时区化 Schedule manifest、模板 digest、预算、missed slot、独立 runId、审批 inbox | 经实时 policy/runner claim 的实际定时执行宿主 | 已完成（控制面） |
 
 ## 目标架构
 
@@ -116,19 +116,19 @@ effective = extension declared capability
 | **v0.18.0 — External Agent Adapters** | ACP/CLI handshake、能力协商、独立 session、只读/受审批任务桥接、mailbox | AionUi multi-agent/team；OpenClaw agent harnesses | 第一个 adapter 可在无主机权限升级的前提下启动、观察、终止；不支持的能力必须拒绝而非降级猜测。 |
 | **v0.19.0 — Audited Scheduling** | Schedule manifest、任务模板、time zone、预算、requires approval、missed runs、事件审计 | OpenWorker/AionUi schedule；DeepSeek modes | 默认不自动执行高风险能力；未处理审批进入 inbox；每次 scheduled run 有独立 runId 与预算。 |
 
-## 最重要的三项下一步
+## 发布后的三项执行接合工作
 
-### 1. 先做通用 Extension Manifest 和 Activation Planner
+### 1. 将已批准的计划与受监督执行器显式接合
 
-这是最小而高杠杆的 P0。已有 MCP Registry 已证明 status/revision/source digest/append-only 模式可用。将其抽象为通用扩展机制后，provider、skills、knowledge importer、external agents 和 UI panels 都能复用同一个审查与状态机，而不会出现多个平行的插件体系。
+已批准的 activation plan、Adapter bridge 和 Schedule run 仍是不可执行 metadata。下一阶段应设计显式 claim/lease 协议，将它们逐项送入现有 `ControlledToolRunner`、实时 policy、审批收据和执行预算，且不能通过状态字段直接获得执行权。
 
-### 2. 再做 Rust Supervised Extension Host
+### 2. 由 Rust Host 承担外部 Adapter transport
 
-不要先做 npm/git 在线安装器。先让本地、人工审核的 demo adapter 通过受限 JSON IPC 启动并能被 `doctor` 检测、被预算阻止、被审批暂停。这样可以先验证“执行隔离”而不是早期暴露供应链和密钥攻击面。
+Adapter manifest 的 `connectionRef` 仍不是启动命令。应由 Rust Host 将已核验的本地 adapter reference 映射到清空环境、版本化 IPC、明确启动期限和崩溃回收的 transport；ACP/CLI 握手结果必须继续受 manifest 与实时 policy 约束。
 
-### 3. 最后做 AionUi/LobeHub 风格的 Extension Center
+### 3. 扩展工作台的审批与审计阅读面
 
-工作台应成为可解释的控制面，而不是功能开关集合。优先呈现：扩展状态、来源摘要、声明能力、有效权限、激活原因、健康、崩溃/恢复、最近审计事件和可撤销动作。视觉层可以继续使用 LobeHub Icons、可选 UI primitives 和 AionUi 的信息密度；实际权限必须始终由 Runtime Gateway 决定。
+当前 Extension Center 已展示扩展、诊断、Provider Profile 与激活计划。下一轮可在同一只读信息密度下加入 Skill Pack、Adapter session/mailbox、Schedule run 与审批 inbox 可视化；任何管理动作都应继续通过明确意图、审核者、幂等键和服务端状态机完成。
 
 ## 明确不建议现在做的事
 
