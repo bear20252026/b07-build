@@ -120,3 +120,18 @@
 ### 参考边界
 
 已新增参考能力矩阵，整合 DeepSeek-Harness、OpenWorker、UI-TARS、MiMo-Code、OpenClaw、ClawCode、LobeHub、Chatbox、Cherry Studio、AnythingLLM、Jan、AionUi、OpenCode、AtomCode 与 Claude Code 官方公开资料的高层能力方向。参考资料不进入运行时构建链；所有实现均通过 b07-build 自有协议、端口和测试落地。
+
+
+## [2026-08-19] v0.6.0 Agent Profile 与权限收紧
+
+### 运行时能力
+
+新增 `build`、`plan`、`explore` 三种 Agent Profile。Profile 同时定义工具调用上限、相同调用上限、上下文预算和能力规则，并通过 `ProfiledCapabilityPolicy` 与任意基线策略组合。组合语义是单向收紧：Profile 可以把基线授权升级为审批或拒绝，但不能放宽基线拒绝。由此，Plan 明确拒绝文件写入与 Shell，Build 将写入、网络、Shell 和浏览器操作置于审批门控，Explore 保持严格只读并压低步骤与上下文预算。
+
+### 协议与工作台
+
+`TaskEvent` 新增 `agent.profile.selected` 事件及封闭 JSON Schema。工作台标题栏新增 Build、Plan、Explore 切换器；切换会更新模式标签，并将选择追加至任务活动流。Profile 当前通过事件契约与运行时策略共享同一枚举；真实任务工厂将在下一阶段负责将选中 Profile 装配到 ToolRunner、审批端口、预算器与任务会话。
+
+### 验证
+
+新增 4 项 Profile 策略测试和 2 项 Profile 事件契约测试。完整测试套件现为 22/22 通过；工作台严格 TypeScript 检查通过，浏览器验收确认 Plan 切换会同步更新视觉状态和事件流。

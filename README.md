@@ -8,11 +8,11 @@
 
 | 模块 | 作用 | 验证状态 |
 |---|---|---|
-| `packages/protocol` | 协议唯一事实源：v1.0 `TaskEvent` + JSON Schema + 运行时契约校验（含压缩/预算事件） | ✅ 类型检查 + 契约测试 |
+| `packages/protocol` | 协议唯一事实源：v1.0 `TaskEvent` + JSON Schema + 运行时契约校验（含 Profile/压缩/预算事件） | ✅ 类型检查 + 契约测试 |
 | `crates/process-supervisor` | Rust 子进程监督：拉起/随父自退/退出回收（OpenWorker+AgentForge 式） | ✅ `cargo check` 零警告 |
 | `sidecars/document-worker` | Python FastAPI + token 鉴权 + 纯文档处理（OpenWorker 式） | ✅ 端到端 401/200 通过 |
 | `packages/provider-sdk` | ModelDriver 端口 + OpenAI adapter(SSE) + Router（AgentForge/cc-switch 式） | ✅ `tsc` 零错误 |
-| `packages/agent-runtime` | DAG + 默认拒绝策略 + 审批门控 + 执行预算 + 上下文预算（只经 ToolRunner port 执行） | ✅ 类型检查 + 16 项运行时测试 |
+| `packages/agent-runtime` | DAG + Agent Profile + 默认拒绝策略 + 审批门控 + 执行/上下文预算（只经 ToolRunner port 执行） | ✅ 类型检查 + 22 项运行时测试 |
 | `apps/workbench` | AionUi 对齐三栏工作台：持久 Sider + 任务事件流 + 目标输入 + 常驻 Preview | ✅ Vite 构建 + `tsc` 零错误 |
 
 ## 验证命令（本机已通过）
@@ -36,7 +36,7 @@ apps/workbench           React 三栏工作台（一组件=一作用）
 ```
 
 ## 下一步冲刺
-1. Agent Profile（Build / Plan / Explore）与可收紧的工具权限集
+1. 将 ProfiledCapabilityPolicy 与真实 ToolRunner、审批端口和任务会话组装为运行时工厂
 2. 工作台接入真实任务提交、审批、上下文用量和运行状态，而非当前前端意图演示
 3. Rust↔Python 真实拉起接线（`AWO_SIDECAR_TOKEN` 注入、健康检查、失败回收）
 4. SQLite append-only 事件日志、运行快照与任务回放

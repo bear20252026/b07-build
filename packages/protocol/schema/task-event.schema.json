@@ -60,6 +60,21 @@
         { "$ref": "#/$defs/envelope" },
         {
           "type": "object",
+          "required": ["type", "profileId"],
+          "properties": {
+            "type": { "const": "agent.profile.selected" },
+            "profileId": { "enum": ["build", "plan", "explore"] }
+          }
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
           "required": ["type", "steps"],
           "properties": {
             "type": { "const": "plan.proposed" },

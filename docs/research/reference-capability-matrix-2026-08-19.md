@@ -40,3 +40,7 @@ AionUi 公开镜像的组件路径表明，其工作台以 `Layout`、`Sider`、
 ## 本轮 UI 验收
 
 已在本地 Vite 工作台完成浏览器验收。三栏在桌面视图正常呈现：左栏包含品牌、任务入口、工作区导航与状态；中栏包含 Agent/Context/Runtime 状态、任务目标、事件时间线和输入区；右栏提供常驻预览与切换标签。输入新任务并点击“生成计划”后，UI 立即追加 `task.created` 与 `plan.proposed` 两条领域事件，任务标题与活动计数同步更新。该切片尚为前端意图演示，未连接真实 agent runtime、审批端口或持久化存储。
+
+## Agent Profile 本轮验收
+
+Build、Plan、Explore 三种 Profile 已作为协议枚举、运行时受限策略与工作台可选状态统一落地。运行时测试证明 Profile 只能收紧基线：Plan 拒绝写入和 Shell，Build 将写入、网络、Shell、浏览器操作转入审批，Explore 限制工具调用、重复调用和上下文窗口；任何基线拒绝都不能被 Profile 放宽。浏览器验收确认点击 Plan 后，标题栏高亮、输入区模式标签和任务活动时间线同时更新，并新增通过 JSON Schema 验证的 `agent.profile.selected` 事件。

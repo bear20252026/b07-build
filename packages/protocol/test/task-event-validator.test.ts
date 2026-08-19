@@ -67,3 +67,24 @@ test('拒绝未在协议中声明的顶层字段，防止通道静默漂移', ()
     assert.ok(result.errors.some((error) => error.keyword === 'unevaluatedProperties'));
   }
 });
+
+
+test('接受可回放的 Agent Profile 切换事件', () => {
+  const result = validateTaskEvent({
+    ...base,
+    type: 'agent.profile.selected',
+    profileId: 'plan',
+  });
+
+  assert.equal(result.ok, true);
+});
+
+test('拒绝未定义的 Agent Profile，避免 UI 选择脱离运行时策略', () => {
+  const result = validateTaskEvent({
+    ...base,
+    type: 'agent.profile.selected',
+    profileId: 'unbounded',
+  });
+
+  assert.equal(result.ok, false);
+});
