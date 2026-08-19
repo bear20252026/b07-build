@@ -66,3 +66,117 @@ test('DAG 执行器在触达工具前拒绝存在依赖环的任务图', async (
   );
   assert.equal(calls, 0);
 });
+
+
+const TOOL = {
+  name: 'document.parse',
+  args: {},
+  capability: 'document.parse' as const,
+  risk: 'low' as const,
+};
+
+class ConcurrencyTrackingRunner implements ToolRunner {
+  active = 0;
+  maxActive = 0;
+  readonly finished = new Set<string>();
+
+  async run(node: DAGNode): Promise<{ ok: boolean; outputRef: string }> {
+    this.active += 1;
+    this.maxActive = Math.max(this.maxActive, this.active);
+    await new Promise<void>((resolve) => setTimeout(resolve, 8));
+    this.active -= 1;
+    this.finished.add(node.id);
+    return { ok: true, outputRef: `artifact://${node.id}` };
+  }
+}
+
+test('独立节点使用受控并发执行，且调度统计报告真实最大并发度', async () => {
+  const runner = new ConcurrencyTrackingRunner();
+  let observedMax = 0;
+  const executor = new DAGExecutor(
+    { taskId: 'task-parallel', runId: 'run-parallel' },
+    () => undefined,
+    runner,
+    { maxConcurrency: 2 },
+    (stats) => { observedMax = stats.maxObservedConcurrency; },
+  );
+  const nodes = Array.from({ length: 6 }, (_, index) => ({
+    id: `independent-${index}`,
+    kind: 'tool' as const,
+    tool: TOOL,
+    deps: [],
+  }));
+
+  const stats = await executor.run(nodes);
+
+  assert.equal(runner.maxActive, 2);
+  assert.equal(stats.maxObservedConcurrency, 2);
+  assert.equal(observedMax, 2);
+  assert.equal(stats.completedNodes, 6);
+  assert.equal(stats.failedNodes, 0);
+});
+
+test('后继节点只在全部依赖完成后入队，且并发调度不会扫描无关节点', async () => {
+  const runner = new ConcurrencyTrackingRunner();
+  const executor = new DAGExecutor(
+    { taskId: 'task-deps', runId: 'run-deps' },
+    () => undefined,
+    {
+      async run(node): Promise<{ ok: boolean; outputRef: string }> {
+        if (node.id === 'merge') {
+          assert.equal(runner.finished.has('left'), true);
+          assert.equal(runner.finished.has('right'), true);
+        }
+        return runner.run(node);
+      },
+    },
+    { maxConcurrency: 2 },
+  );
+
+  const stats = await executor.run([
+    { id: 'left', kind: 'tool', tool: TOOL, deps: [] },
+    { id: 'right', kind: 'tool', tool: TOOL, deps: [] },
+    { id: 'merge', kind: 'tool', tool: TOOL, deps: ['left', 'right'] },
+  ]);
+
+  assert.equal(stats.completedNodes, 3);
+  assert.equal(runner.maxActive, 2);
+});
+
+test('DAG 在执行前拒绝重复节点、重复依赖和未知依赖', async () => {
+  const executor = new DAGExecutor(
+    { taskId: 'task-invalid', runId: 'run-invalid' },
+    () => undefined,
+    new SuccessfulRunner(),
+  );
+
+  await assert.rejects(
+    executor.run([
+      { id: 'same', kind: 'tool', tool: TOOL, deps: [] },
+      { id: 'same', kind: 'tool', tool: TOOL, deps: [] },
+    ]),
+    /duplicate DAG node id/,
+  );
+  await assert.rejects(
+    executor.run([{ id: 'repeat', kind: 'tool', tool: TOOL, deps: ['missing', 'missing'] }]),
+    /duplicate dependency/,
+  );
+  await assert.rejects(
+    executor.run([{ id: 'unknown', kind: 'tool', tool: TOOL, deps: ['missing'] }]),
+    /unknown dependency/,
+  );
+});
+
+
+test('DAG 在执行前拒绝空节点标识，避免就绪队列无法推进', async () => {
+  const executor = new DAGExecutor(
+    { taskId: 'task-empty-id', runId: 'run-empty-id' },
+    () => undefined,
+    new SuccessfulRunner(),
+  );
+
+  await assert.rejects(
+    executor.run([{ id: '', kind: 'tool', tool: TOOL, deps: [] }]),
+    /不能为空/,
+  );
+});
