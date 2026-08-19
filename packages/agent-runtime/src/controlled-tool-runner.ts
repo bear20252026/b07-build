@@ -24,6 +24,8 @@ export interface ControlledToolResult {
   outputRef: string;
   errorCode?: string;
   reason?: string;
+  /** 仅表示工具因可恢复的审批/预算门控而未启动，不等同于工具执行失败。 */
+  blocked?: boolean;
 }
 
 export interface ApprovalPort {
@@ -110,6 +112,7 @@ export class ControlledToolRunner {
         outputRef: 'policy://approval-pending',
         errorCode: 'APPROVAL_REQUIRED',
         reason: evaluation.reason,
+        blocked: true,
       };
       this.emit(resultEvent(request, result, 'approval-pending'));
       return result;
@@ -133,6 +136,7 @@ export class ControlledToolRunner {
         outputRef: 'budget://blocked',
         errorCode: budgetDecision.code,
         reason: budgetDecision.reason,
+        blocked: true,
       };
       this.emit(resultEvent(request, result, 'budget-blocked'));
       return result;

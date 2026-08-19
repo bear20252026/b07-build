@@ -20,12 +20,31 @@ export interface DAGNode {
 
 /** 工具执行器端口：消费方只依赖此接口，真实实现可整体替换（积木规则）。 */
 export interface ToolRunner {
-  run(node: DAGNode): Promise<{ ok: boolean; outputRef: string }>;
+  run(node: DAGNode): Promise<{
+    ok: boolean;
+    outputRef: string;
+    /** 因审批或预算门控未执行，不应与工具失败混为一谈。 */
+    blocked?: boolean;
+    errorCode?: string;
+  }>;
+}
+
+export type DAGNodeOutcome = 'ok' | 'failed' | 'blocked';
+
+export interface DAGNodeSettlement {
+  nodeId: string;
+  outcome: DAGNodeOutcome;
 }
 
 export interface DAGExecutionOptions {
   /** 同时运行的独立节点数；固定上限避免 TypeScript 层意外制造无限并发。 */
   maxConcurrency?: number;
+  /** 已安全完成的节点。恢复时会跳过它们，并把它们视为已满足的依赖。 */
+  completedNodeIds?: readonly string[];
+  /** false 时由受控 ToolRunner 自行发出工具事件，避免双重事件流。 */
+  emitToolEvents?: boolean;
+  /** 节点完成或因失败依赖而被阻断时调用，供本地快照持久化。 */
+  onNodeSettled?: (settlement: Readonly<DAGNodeSettlement>) => void;
 }
 
 export interface DAGExecutionStats {
@@ -33,6 +52,7 @@ export interface DAGExecutionStats {
   startedNodes: number;
   completedNodes: number;
   failedNodes: number;
+  blockedNodes: number;
   maxObservedConcurrency: number;
 }
 
@@ -47,7 +67,7 @@ interface CompiledDAG {
 
 interface NodeCompletion {
   nodeId: string;
-  ok: boolean;
+  outcome: DAGNodeOutcome;
 }
 
 const DEFAULT_MAX_CONCURRENCY = 4;
@@ -63,7 +83,7 @@ function resolveMaxConcurrency(options: DAGExecutionOptions): number {
 /**
  * 一次性编译与校验 DAG。后续调度只更新直接后继的入度，避免对 pending 集合进行重复全量扫描。
  */
-function compileDAG(nodes: readonly DAGNode[]): CompiledDAG {
+function compileDAG(nodes: readonly DAGNode[], completedNodeIds: ReadonlySet<string>): CompiledDAG {
   const nodesById = new Map<string, DAGNode>();
   const dependents = new Map<string, string[]>();
   const remainingDependencies = new Map<string, number>();
@@ -73,6 +93,11 @@ function compileDAG(nodes: readonly DAGNode[]): CompiledDAG {
     if (nodesById.has(node.id)) throw new Error(`duplicate DAG node id: ${node.id}`);
     nodesById.set(node.id, node);
     dependents.set(node.id, []);
+  }
+  for (const completedNodeId of completedNodeIds) {
+    if (!nodesById.has(completedNodeId)) {
+      throw new Error(`completed node ${completedNodeId} 不属于当前 DAG`);
+    }
   }
 
   for (const node of nodes) {
@@ -86,11 +111,15 @@ function compileDAG(nodes: readonly DAGNode[]): CompiledDAG {
       }
       dependents.get(dependency)?.push(node.id);
     }
-    remainingDependencies.set(node.id, node.deps.length);
+    remainingDependencies.set(
+      node.id,
+      node.deps.filter((dependency) => !completedNodeIds.has(dependency)).length,
+    );
   }
 
-  // Kahn 校验保持 O(V+E)；若没有零入度节点且图非空，则一定包含环。
-  const checkInDegree = new Map(remainingDependencies);
+  // Kahn 校验保持 O(V+E)；验证必须使用完整原图，恢复跳过不应隐藏原始环。
+  const checkInDegree = new Map<string, number>();
+  for (const node of nodes) checkInDegree.set(node.id, node.deps.length);
   const validationReady = nodes.filter((node) => checkInDegree.get(node.id) === 0).map((node) => node.id);
   let validated = 0;
   for (let cursor = 0; cursor < validationReady.length; cursor += 1) {
@@ -108,7 +137,9 @@ function compileDAG(nodes: readonly DAGNode[]): CompiledDAG {
     nodesById,
     dependents,
     remainingDependencies,
-    initialReady: nodes.filter((node) => node.deps.length === 0).map((node) => node.id),
+    initialReady: nodes
+      .filter((node) => !completedNodeIds.has(node.id) && (remainingDependencies.get(node.id) ?? 0) === 0)
+      .map((node) => node.id),
   };
 }
 
@@ -120,28 +151,33 @@ function compileDAG(nodes: readonly DAGNode[]): CompiledDAG {
  */
 export class DAGExecutor {
   private readonly maxConcurrency: number;
+  private readonly emitToolEvents: boolean;
 
   constructor(
     private readonly context: DAGRunContext,
     private readonly emit: Emit,
     private readonly runner: ToolRunner,
-    options: DAGExecutionOptions = {},
+    private readonly options: DAGExecutionOptions = {},
     private readonly observe?: ObserveDAGExecution,
   ) {
     this.maxConcurrency = resolveMaxConcurrency(options);
+    this.emitToolEvents = options.emitToolEvents ?? true;
   }
 
   async run(nodes: readonly DAGNode[]): Promise<DAGExecutionStats> {
-    const compiled = compileDAG(nodes);
+    const restoredCompleted = new Set(this.options.completedNodeIds ?? []);
+    const compiled = compileDAG(nodes, restoredCompleted);
     const stats: DAGExecutionStats = {
       totalNodes: nodes.length,
       startedNodes: 0,
-      completedNodes: 0,
+      completedNodes: restoredCompleted.size,
       failedNodes: 0,
+      blockedNodes: 0,
       maxObservedConcurrency: 0,
     };
     const ready = [...compiled.initialReady];
     const active = new Map<string, Promise<NodeCompletion>>();
+    const failedUpstreams = new Set<string>();
 
     const launch = (nodeId: string): void => {
       const node = compiled.nodesById.get(nodeId);
@@ -152,74 +188,95 @@ export class DAGExecutor {
       stats.maxObservedConcurrency = Math.max(stats.maxObservedConcurrency, active.size);
     };
 
+    /** 失败会沿依赖边传播为 blocked，保证每个非恢复节点都能到达终态或运行队列。 */
+    const releaseDependents = (nodeId: string, upstreamOk: boolean): void => {
+      for (const dependent of compiled.dependents.get(nodeId) ?? []) {
+        const remaining = (compiled.remainingDependencies.get(dependent) ?? 0) - 1;
+        compiled.remainingDependencies.set(dependent, remaining);
+        if (!upstreamOk) failedUpstreams.add(dependent);
+        if (remaining !== 0) continue;
+        if (failedUpstreams.has(dependent)) {
+          stats.blockedNodes += 1;
+          this.options.onNodeSettled?.({ nodeId: dependent, outcome: 'blocked' });
+          releaseDependents(dependent, false);
+        } else {
+          ready.push(dependent);
+        }
+      }
+    };
+
     while (ready.length > 0 || active.size > 0) {
       while (ready.length > 0 && active.size < this.maxConcurrency) {
         const nodeId = ready.shift();
-        if (nodeId) launch(nodeId);
+        if (nodeId !== undefined) launch(nodeId);
       }
       if (active.size === 0) break;
 
       const completed = await Promise.race(active.values());
       active.delete(completed.nodeId);
       stats.completedNodes += 1;
-      if (!completed.ok) stats.failedNodes += 1;
+      if (completed.outcome === 'failed') stats.failedNodes += 1;
+      if (completed.outcome === 'blocked') stats.blockedNodes += 1;
+      this.options.onNodeSettled?.({ nodeId: completed.nodeId, outcome: completed.outcome });
 
-      for (const dependent of compiled.dependents.get(completed.nodeId) ?? []) {
-        const remaining = (compiled.remainingDependencies.get(dependent) ?? 0) - 1;
-        compiled.remainingDependencies.set(dependent, remaining);
-        if (remaining === 0) ready.push(dependent);
-      }
+      releaseDependents(completed.nodeId, completed.outcome === 'ok');
     }
 
     this.observe?.(Object.freeze({ ...stats }));
     return stats;
   }
 
-  private async executeNode(node: DAGNode): Promise<{ ok: boolean }> {
+  private async executeNode(node: DAGNode): Promise<{ outcome: DAGNodeOutcome }> {
     const at = this.context.now?.() ?? Date.now();
-    this.emit({
-      protocolVersion: TASK_EVENT_PROTOCOL_VERSION,
-      eventId: `${this.context.runId}:${node.id}:called`,
-      type: 'tool.called',
-      taskId: this.context.taskId,
-      runId: this.context.runId,
-      callId: node.id,
-      tool: node.tool,
-      inputHash: node.idempotencyKey ?? node.id,
-      at,
-    });
+    if (this.emitToolEvents) {
+      this.emit({
+        protocolVersion: TASK_EVENT_PROTOCOL_VERSION,
+        eventId: `${this.context.runId}:${node.id}:called`,
+        type: 'tool.called',
+        taskId: this.context.taskId,
+        runId: this.context.runId,
+        callId: node.id,
+        tool: node.tool,
+        inputHash: node.idempotencyKey ?? node.id,
+        at,
+      });
+    }
 
     try {
       const result = await this.runner.run(node);
-      this.emit({
-        protocolVersion: TASK_EVENT_PROTOCOL_VERSION,
-        eventId: `${this.context.runId}:${node.id}:result`,
-        type: 'tool.result',
-        taskId: this.context.taskId,
-        runId: this.context.runId,
-        callId: node.id,
-        status: result.ok ? 'ok' : 'error',
-        outputRef: result.outputRef,
-        errorCode: result.ok ? undefined : 'TOOL_FAILED',
-        at: this.context.now?.() ?? Date.now(),
-      });
-      return { ok: result.ok };
+      if (this.emitToolEvents) {
+        this.emit({
+          protocolVersion: TASK_EVENT_PROTOCOL_VERSION,
+          eventId: `${this.context.runId}:${node.id}:result`,
+          type: 'tool.result',
+          taskId: this.context.taskId,
+          runId: this.context.runId,
+          callId: node.id,
+          status: result.ok ? 'ok' : 'error',
+          outputRef: result.outputRef,
+          errorCode: result.ok ? undefined : result.errorCode ?? 'TOOL_FAILED',
+          at: this.context.now?.() ?? Date.now(),
+        });
+      }
+      return { outcome: result.ok ? 'ok' : result.blocked ? 'blocked' : 'failed' };
     } catch (error) {
       const reason = error instanceof Error ? error.message : '未知工具执行异常';
-      this.emit({
-        protocolVersion: TASK_EVENT_PROTOCOL_VERSION,
-        eventId: `${this.context.runId}:${node.id}:result`,
-        type: 'tool.result',
-        taskId: this.context.taskId,
-        runId: this.context.runId,
-        callId: node.id,
-        status: 'error',
-        outputRef: 'runtime://tool-threw',
-        errorCode: 'TOOL_FAILED',
-        reason,
-        at: this.context.now?.() ?? Date.now(),
-      });
-      return { ok: false };
+      if (this.emitToolEvents) {
+        this.emit({
+          protocolVersion: TASK_EVENT_PROTOCOL_VERSION,
+          eventId: `${this.context.runId}:${node.id}:result`,
+          type: 'tool.result',
+          taskId: this.context.taskId,
+          runId: this.context.runId,
+          callId: node.id,
+          status: 'error',
+          outputRef: 'runtime://tool-threw',
+          errorCode: 'TOOL_FAILED',
+          reason,
+          at: this.context.now?.() ?? Date.now(),
+        });
+      }
+      return { outcome: 'failed' };
     }
   }
 }

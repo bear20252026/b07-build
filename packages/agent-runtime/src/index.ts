@@ -5,3 +5,4 @@ export * from './agent-profile.js';
 export * from './controlled-tool-runner.js';
 export * from './context-budgeter.js';
 export * from './execution-budget.js';
+export * from './recoverable-task-runtime.js';

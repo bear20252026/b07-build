@@ -1,6 +1,6 @@
 {
   "name": "@awo/agent-runtime",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "AI Work OS - DAG 执行器（一个包=一类作用：执行语义，不碰窗口/DB）",
   "type": "module",
   "main": "src/index.ts",

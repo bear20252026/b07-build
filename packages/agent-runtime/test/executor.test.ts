@@ -180,3 +180,33 @@ test('DAG 在执行前拒绝空节点标识，避免就绪队列无法推进', a
     /不能为空/,
   );
 });
+
+
+test('失败节点会级联阻断所有后继，避免可恢复 DAG 遗留悬空节点', async () => {
+  const calls: string[] = [];
+  const settlements: string[] = [];
+  const executor = new DAGExecutor(
+    { taskId: 'task-blocked', runId: 'run-blocked' },
+    () => undefined,
+    {
+      async run(node): Promise<{ ok: boolean; outputRef: string }> {
+        calls.push(node.id);
+        return { ok: node.id !== 'root', outputRef: `artifact://${node.id}` };
+      },
+    },
+    {
+      onNodeSettled: ({ nodeId, outcome }) => settlements.push(`${nodeId}:${outcome}`),
+    },
+  );
+
+  const stats = await executor.run([
+    { id: 'root', kind: 'tool', tool: TOOL, deps: [] },
+    { id: 'middle', kind: 'tool', tool: TOOL, deps: ['root'] },
+    { id: 'leaf', kind: 'tool', tool: TOOL, deps: ['middle'] },
+  ]);
+
+  assert.deepEqual(calls, ['root']);
+  assert.equal(stats.failedNodes, 1);
+  assert.equal(stats.blockedNodes, 2);
+  assert.deepEqual(settlements, ['root:failed', 'middle:blocked', 'leaf:blocked']);
+});
