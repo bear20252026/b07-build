@@ -34,7 +34,7 @@ test('HTTP 客户端仅发送意图并返回经验证的任务快照', async () 
     const value = await new HttpWorkbenchTaskClient('/api/tasks').submit({ goal: '生成可恢复计划', profileId: 'build' });
     assert.equal(url, '/api/tasks');
     assert.equal(init?.method, 'POST');
-    assert.deepEqual(JSON.parse(String(init?.body)), { goal: '生成可恢复计划', profileId: 'build' });
+    assert.deepEqual(JSON.parse(String(init?.body)), { schemaVersion: 1, goal: '生成可恢复计划', profileId: 'build' });
     assert.equal(value.status, 'blocked');
   } finally {
     globalThis.fetch = originalFetch;

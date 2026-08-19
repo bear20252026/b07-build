@@ -1,12 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
-import type { AgentProfileId } from '@awo/protocol';
+import { decodeTaskSubmitIntentV1 } from '@awo/protocol';
 import { readJsonBody, sendJson } from '../boundary.js';
 import type { GatewayRoute } from '../route-contract.js';
-
-function isProfileId(value: unknown): value is AgentProfileId {
-  return value === 'build' || value === 'plan' || value === 'explore';
-}
 
 function isReadOnlySubtaskRole(value: unknown): value is 'explore' | 'scout' {
   return value === 'explore' || value === 'scout';
@@ -27,20 +23,23 @@ function idempotencyKey(request: IncomingMessage): string | undefined {
 
 /** 任务 intent HTTP 适配器；所有执行仍经既有 Profile、Policy、审批与预算链路。 */
 export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, segments, dependencies }) => {
-  const { runtime, commandReceipts, requests, eventsByRun, approvedActions, readOnlySubtasks, createTaskRequest, createEvent } = dependencies;
+  const { runtime, commandReceipts, requests, eventsByRun, approvedActions, readOnlySubtasks, runTrajectory, createTaskRequest, createEvent } = dependencies;
   if (request.method === 'POST' && url.pathname === '/api/tasks') {
-    const body = await readJsonBody(request) as { goal?: unknown; profileId?: unknown };
-    const key = idempotencyKey(request);
-    if (typeof body.goal !== 'string' || !body.goal.trim() || !isProfileId(body.profileId)) {
-      sendJson(response, 400, { error: 'goal 和 profileId 必须有效' });
+    const body = await readJsonBody(request);
+    let intent;
+    try {
+      intent = decodeTaskSubmitIntentV1(body);
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : '任务提交 contract 无效' });
       return true;
     }
+    const key = idempotencyKey(request);
     if (!key) {
       sendJson(response, 400, { error: '任务提交必须提供 Idempotency-Key' });
       return true;
     }
-    const goal = body.goal.trim();
-    const fingerprint = commandFingerprint('submit', { goal, profileId: body.profileId });
+    const goal = intent.goal;
+    const fingerprint = commandFingerprint('submit', { goal, profileId: intent.profileId });
     const existing = commandReceipts.get('submit', key);
     const claimed = commandReceipts.claim(existing ?? {
       schemaVersion: 1,
@@ -50,7 +49,7 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
       taskId: `task-${randomUUID()}`,
       runId: `run-${randomUUID()}`,
       goal,
-      profileId: body.profileId,
+      profileId: intent.profileId,
       acceptedAt: Date.now(),
     });
     if (claimed.receipt.fingerprint !== fingerprint) {
@@ -86,6 +85,12 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
   if (request.method === 'GET' && operation === 'events') {
     const events = eventsByRun.get(key);
     if (!events) sendJson(response, 404, { error: '当前本地网关没有此任务的事件流' });
+    else sendJson(response, 200, events);
+    return true;
+  }
+  if (request.method === 'GET' && operation === 'trajectory') {
+    const events = runTrajectory.list(taskId, runId);
+    if (events.length === 0) sendJson(response, 404, { error: '当前本地网关没有此任务的运行轨迹' });
     else sendJson(response, 200, events);
     return true;
   }
@@ -171,7 +176,9 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
       return true;
     }
     approvedActions.add(`${runId}:${nodeId}`);
-    eventsByRun.get(key)?.push(createEvent('approval.resolved', taskId, runId, { actionId: `${runId}:${nodeId}`, decision: 'approved', resolvedBy: 'local-user' }));
+    const approvalEvent = createEvent('approval.resolved', taskId, runId, { actionId: `${runId}:${nodeId}`, decision: 'approved', resolvedBy: 'local-user' });
+    eventsByRun.get(key)?.push(approvalEvent);
+    runTrajectory.recordTaskEvent(approvalEvent, 'approval');
     const snapshot = await runtime.resume(runtimeRequest);
     commandReceipts.complete('approve', commandKey, snapshot, Date.now());
     sendJson(response, 200, snapshot);

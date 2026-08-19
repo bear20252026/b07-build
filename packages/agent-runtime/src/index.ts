@@ -20,3 +20,4 @@ export * from './extension-activation.js';
 export * from './agent-adapter.js';
 export * from './audited-scheduler.js';
 export * from './task-runtime-service.js';
+export * from './run-trajectory.js';

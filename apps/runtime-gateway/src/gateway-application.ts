@@ -13,6 +13,7 @@ import {
   McpRegistry,
   ReadOnlySubtaskService,
   RuleBasedCapabilityPolicy,
+  RunTrajectoryLedger,
   SqliteAdapterApprovalMailboxStore,
   SqliteAgentAdapterManifestStore,
   SqliteAgentAdapterSessionStore,
@@ -22,6 +23,7 @@ import {
   SqliteScheduleManifestStore,
   SqliteScheduledRunStore,
   SqliteSubtaskSnapshotStore,
+  SqliteRunTrajectoryStore,
   SqliteTaskCommandReceiptStore,
   SqliteTaskSnapshotStore,
   type DAGNode,
@@ -104,6 +106,7 @@ export function createGatewayComposition(): GatewayComposition {
   const agentAdapterMailboxPath = resolve(process.env.AWO_AGENT_ADAPTER_MAILBOX_DB ?? '.awo/agent-adapter-mailbox.sqlite');
   const scheduleManifestPath = resolve(process.env.AWO_SCHEDULE_MANIFEST_DB ?? '.awo/audited-schedules.sqlite');
   const scheduleRunPath = resolve(process.env.AWO_SCHEDULE_RUN_DB ?? '.awo/audited-schedule-runs.sqlite');
+  const runTrajectoryPath = resolve(process.env.AWO_RUN_TRAJECTORY_DB ?? '.awo/run-trajectories.sqlite');
 
   const store = new SqliteTaskSnapshotStore(snapshotPath);
   const knowledgeWorkspaceStore = new SqliteKnowledgeWorkspaceStore(knowledgeWorkspacePath);
@@ -128,6 +131,8 @@ export function createGatewayComposition(): GatewayComposition {
   const scheduleManifestStore = new SqliteScheduleManifestStore(scheduleManifestPath);
   const scheduledRunStore = new SqliteScheduledRunStore(scheduleRunPath);
   const schedules = new AuditedScheduleControlPlane(scheduleManifestStore, scheduledRunStore);
+  const runTrajectoryStore = new SqliteRunTrajectoryStore(runTrajectoryPath);
+  const runTrajectory = new RunTrajectoryLedger(runTrajectoryStore);
 
   if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
     knowledgeWorkspaces.create({
@@ -151,17 +156,24 @@ export function createGatewayComposition(): GatewayComposition {
 
   function createTaskRequest(goal: string, profileId: AgentProfileId, identity: { taskId: string; runId: string }): TaskRuntimeRequest {
     const { taskId, runId } = identity;
-    const events: TaskEvent[] = eventsByRun.get(runKey(taskId, runId)) ?? [
+    const existingEvents = eventsByRun.get(runKey(taskId, runId));
+    const events: TaskEvent[] = existingEvents ?? [
       createEvent('task.created', taskId, runId, { goal }),
       createEvent('agent.profile.selected', taskId, runId, { profileId }),
       createEvent('plan.proposed', taskId, runId, { steps: createTaskNodes(profileId).map((node) => ({ id: node.id, description: node.tool.name, risk: node.tool.risk })) }),
     ];
+    if (!existingEvents) {
+      for (const event of events) runTrajectory.recordTaskEvent(event, 'gateway.intent');
+    }
     const request: TaskRuntimeRequest = {
       taskId, runId, goal, profileId, nodes: createTaskNodes(profileId),
       baselinePolicy: new RuleBasedCapabilityPolicy(BASELINE_RULES),
       approvals: new InMemoryApprovalPort(approvedActions),
       runner: { async run(node) { return { ok: true, outputRef: `local://task/${taskId}/${node.id}` }; } },
-      emit(nextEvent) { events.push(nextEvent); },
+      emit(nextEvent) {
+        events.push(nextEvent);
+        runTrajectory.recordTaskEvent(nextEvent, 'task-runtime');
+      },
     };
     eventsByRun.set(runKey(taskId, runId), events);
     return request;
@@ -187,6 +199,7 @@ export function createGatewayComposition(): GatewayComposition {
       () => agentAdapterMailboxStore.close(),
       () => scheduleManifestStore.close(),
       () => scheduledRunStore.close(),
+      () => runTrajectoryStore.close(),
     ];
     let closeFailure: unknown;
     for (const close of closers) {
@@ -203,7 +216,7 @@ export function createGatewayComposition(): GatewayComposition {
     dependencies: {
       runtime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
       extensionActivationPlanner, extensionDoctor, providerProfiles, knowledgeWorkspaces, skillPacks,
-      agentAdapters, schedules, defaultKnowledgeWorkspaceId: DEFAULT_KNOWLEDGE_WORKSPACE_ID,
+      agentAdapters, schedules, runTrajectory, defaultKnowledgeWorkspaceId: DEFAULT_KNOWLEDGE_WORKSPACE_ID,
       requests, eventsByRun, approvedActions, createTaskRequest, createEvent,
     },
     close: closeResources,
@@ -211,6 +224,8 @@ export function createGatewayComposition(): GatewayComposition {
 }
 
 export interface LocalGatewayApplication {
+  /** 仅在绑定 loopback port 后 resolve；对外不暴露 server、socket 或执行能力。 */
+  readonly ready: Promise<number>;
   close(): void;
 }
 
@@ -218,10 +233,22 @@ export interface LocalGatewayApplication {
 export function startLocalGateway(port = PORT): LocalGatewayApplication {
   const composition = createGatewayComposition();
   const server = createServer((request, response) => { void handleGatewayRequest(request, response, composition.dependencies); });
-  server.listen(port, '127.0.0.1', () => {
-    console.log(`AI Work OS runtime gateway listening on http://127.0.0.1:${port}`);
+  const ready = new Promise<number>((resolvePort, reject) => {
+    const onError = (error: Error): void => reject(error);
+    server.once('error', onError);
+    server.listen(port, '127.0.0.1', () => {
+      server.off('error', onError);
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        reject(new Error('Gateway 未返回 TCP 监听地址'));
+        return;
+      }
+      console.log(`AI Work OS runtime gateway listening on http://127.0.0.1:${address.port}`);
+      resolvePort(address.port);
+    });
   });
   return {
+    ready,
     close(): void {
       server.close(() => composition.close());
     },

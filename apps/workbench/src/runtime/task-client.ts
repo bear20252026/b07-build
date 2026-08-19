@@ -66,7 +66,7 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
   async submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot> {
     return this.request('', {
       method: 'POST',
-      body: JSON.stringify(intent),
+      body: JSON.stringify({ schemaVersion: 1, ...intent }),
       headers: { 'idempotency-key': createIdempotencyKey('submit') },
     });
   }

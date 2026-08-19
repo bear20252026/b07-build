@@ -6,6 +6,7 @@ import type {
   ExtensionRegistry,
   McpRegistry,
   ReadOnlySubtaskService,
+  RunTrajectoryLedger,
   SqliteExtensionPlanStore,
   SqliteTaskCommandReceiptStore,
   LocalTaskRuntimeService,
@@ -30,6 +31,7 @@ export interface GatewayDependencies {
   readonly skillPacks: SkillPackRegistry;
   readonly agentAdapters: AgentAdapterControlPlane;
   readonly schedules: AuditedScheduleControlPlane;
+  readonly runTrajectory: RunTrajectoryLedger;
   readonly defaultKnowledgeWorkspaceId: string;
   readonly requests: Map<string, TaskRuntimeRequest>;
   readonly eventsByRun: Map<string, TaskEvent[]>;
