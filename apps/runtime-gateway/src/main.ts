@@ -32,9 +32,13 @@ import {
 } from '@awo/provider-sdk';
 import {
   KnowledgeWorkspaceService,
+  SkillPackRegistry,
   SqliteKnowledgeWorkspaceStore,
+  SqliteSkillPackStore,
   SqliteWorkspaceKnowledgeStoreFactory,
+  type RegisterSkillPackCandidateRequest,
   type SessionPersistenceMode,
+  type SkillPackManifestV1,
 } from '@awo/knowledge-workflow';
 
 const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318);
@@ -47,6 +51,7 @@ const MCP_MANIFEST_PATH = resolve(process.env.AWO_MCP_MANIFEST_DB ?? '.awo/mcp-m
 const EXTENSION_MANIFEST_PATH = resolve(process.env.AWO_EXTENSION_MANIFEST_DB ?? '.awo/extension-manifests.sqlite');
 const EXTENSION_PLAN_PATH = resolve(process.env.AWO_EXTENSION_PLAN_DB ?? '.awo/extension-plans.sqlite');
 const PROVIDER_PROFILE_PATH = resolve(process.env.AWO_PROVIDER_PROFILE_DB ?? '.awo/provider-profiles.sqlite');
+const SKILL_PACK_PATH = resolve(process.env.AWO_SKILL_PACK_DB ?? '.awo/skill-packs.sqlite');
 const store = new SqliteTaskSnapshotStore(SNAPSHOT_PATH);
 const knowledgeWorkspaceStore = new SqliteKnowledgeWorkspaceStore(KNOWLEDGE_WORKSPACE_PATH);
 const knowledgeStoreFactory = new SqliteWorkspaceKnowledgeStoreFactory(KNOWLEDGE_WORKSPACE_DIR);
@@ -61,6 +66,8 @@ const extensionRegistry = new ExtensionRegistry(extensionManifestStore);
 const extensionPlanStore = new SqliteExtensionPlanStore(EXTENSION_PLAN_PATH);
 const providerProfileStore = new SqliteProviderProfileStore(PROVIDER_PROFILE_PATH);
 const providerProfiles = new ProviderProfileRegistry(providerProfileStore);
+const skillPackStore = new SqliteSkillPackStore(SKILL_PACK_PATH);
+const skillPacks = new SkillPackRegistry(skillPackStore);
 const DEFAULT_KNOWLEDGE_WORKSPACE_ID = 'default-local';
 if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
   knowledgeWorkspaces.create({
@@ -199,6 +206,12 @@ function send(response: ServerResponse, status: number, body?: unknown): void {
   response.end(body === undefined ? undefined : JSON.stringify(body));
 }
 
+/** 浏览器控制面只读展示审计 metadata；Skill Pack 正文仅能由服务器在显式上下文装配时消费。 */
+function skillPackSummary(manifest: SkillPackManifestV1): Omit<SkillPackManifestV1, 'content'> {
+  const { content: _content, ...summary } = manifest;
+  return summary;
+}
+
 function jsonBody(request: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -232,6 +245,63 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
   const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
   try {
+    if (request.method === 'GET' && url.pathname === '/api/skills/packs') {
+      send(response, 200, skillPacks.list().map(skillPackSummary));
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/skills/packs') {
+      const body = await jsonBody(request) as Record<string, unknown>;
+      if (
+        typeof body.id !== 'string' || typeof body.version !== 'string' || typeof body.displayName !== 'string'
+        || !body.source || typeof body.content !== 'string'
+        || (body.estimatedTokens !== undefined && (!Number.isSafeInteger(body.estimatedTokens) || typeof body.estimatedTokens !== 'number'))
+        || (body.maxInjectionTokens !== undefined && (!Number.isSafeInteger(body.maxInjectionTokens) || typeof body.maxInjectionTokens !== 'number'))
+        || (body.note !== undefined && typeof body.note !== 'string')
+      ) {
+        send(response, 400, { error: 'Skill Pack 候选必须提供 id、version、displayName、source 与纯文本 content；token 预算和 note 可选' });
+        return;
+      }
+      try {
+        send(response, 201, skillPackSummary(skillPacks.registerCandidate({
+          ...(body as unknown as Omit<RegisterSkillPackCandidateRequest, 'at'>), at: Date.now(),
+        })));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Skill Pack 候选无效' });
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && segments[0] === 'api' && segments[1] === 'skills' && segments[2] === 'packs' && segments[3] && segments[4] && segments.length === 5) {
+      const operation = segments[4];
+      if (operation !== 'review' && operation !== 'publish' && operation !== 'disable' && operation !== 'revoke') {
+        send(response, 404, { error: 'Skill Pack 操作必须是 review、publish、disable 或 revoke' });
+        return;
+      }
+      const body = await jsonBody(request) as { reviewedBy?: unknown; verifiedDigest?: unknown; note?: unknown };
+      if (
+        typeof body.reviewedBy !== 'string' || (body.note !== undefined && typeof body.note !== 'string')
+        || (operation === 'publish' && typeof body.verifiedDigest !== 'string')
+      ) {
+        send(response, 400, { error: operation === 'publish' ? 'Skill Pack 发布必须提供 reviewedBy 与 verifiedDigest' : 'Skill Pack 状态变更必须提供 reviewedBy' });
+        return;
+      }
+      try {
+        const at = Date.now();
+        const manifest = operation === 'review'
+          ? skillPacks.review(segments[3], body.reviewedBy, at, body.note)
+          : operation === 'publish'
+            ? skillPacks.publish(segments[3], body.verifiedDigest as string, body.reviewedBy, at, body.note)
+            : operation === 'disable'
+              ? skillPacks.disable(segments[3], body.reviewedBy, at, body.note)
+              : skillPacks.revoke(segments[3], body.reviewedBy, at, body.note);
+        send(response, 200, skillPackSummary(manifest));
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Skill Pack 状态变更无效' });
+      }
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/providers/profiles') {
       send(response, 200, providerProfiles.list());
       return;

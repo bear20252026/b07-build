@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { InMemoryKnowledgeStore } from './in-memory-knowledge-store.js';
 import { LocalKnowledgeWorkflow } from './local-knowledge-workflow.js';
 import { SqliteVectorKnowledgeStore } from './sqlite-vector-knowledge-store.js';
+import type { SkillPackContextInjection } from './skill-pack.js';
 import type {
   KnowledgeChunk,
   KnowledgeCitation,
@@ -54,6 +55,31 @@ export interface WorkspaceKnowledgeIngestRequest {
 export interface WorkspaceKnowledgeCitation extends KnowledgeCitation {
   workspaceId: string;
   reason: 'focused_retrieval' | 'full_context';
+}
+
+/**
+ * Skill Pack 上下文不是知识文档检索结果；它必须保留独立、可撤销的来源标注，供 UI 与审计日志解释。
+ */
+export interface WorkspaceSkillPackCitation {
+  kind: 'skill-pack';
+  workspaceId: string;
+  packId: string;
+  packRevision: number;
+  version: string;
+  displayName: string;
+  sourceType: string;
+  sourceLocator: string;
+  sourceDigest: string;
+  estimatedTokens: number;
+  canAuthorize: false;
+  canGrantCapabilities: false;
+  revocation: Readonly<{ packId: string; verifyAtUse: true }>;
+}
+
+export interface SkillPackCitationRequest {
+  workspaceId: string;
+  persistence: SessionPersistenceMode;
+  injection: SkillPackContextInjection;
 }
 
 export interface WorkspaceKnowledgeResult {
@@ -404,6 +430,36 @@ export class KnowledgeWorkspaceService {
     const chunk = store.chunks().find((candidate) => candidate.id === request.chunkId && candidate.documentId === request.documentId);
     if (!chunk) throw new Error('citation 不属于指定工作区文档');
     return citation(request.workspaceId, chunk, 'focused_retrieval');
+  }
+
+  /**
+   * 将已由 Skill Pack Registry 审查的显式注入记录为独立 citation。它不索引文本、不会解析指令，更不会把内容当作权限。
+   * 真实模型调用前仍必须由 Registry.assertInjectionCurrent() 重新验证撤销状态。
+   */
+  citeSkillPackContext(request: SkillPackCitationRequest): WorkspaceSkillPackCitation {
+    this.assertPersistentKnowledgeAccess(request.workspaceId, request.persistence);
+    const injection = request.injection;
+    if (injection.kind !== 'skill-pack' || injection.canAuthorize || injection.canGrantCapabilities || !injection.revocation.verifyAtUse) {
+      throw new Error('Skill Pack injection 违反不可授权的 citation 契约');
+    }
+    assertIdentifier(injection.packId, 'injection.packId');
+    assertPositiveInteger(injection.packRevision, 'injection.packRevision');
+    assertPositiveInteger(injection.estimatedTokens, 'injection.estimatedTokens');
+    return {
+      kind: 'skill-pack',
+      workspaceId: request.workspaceId,
+      packId: injection.packId,
+      packRevision: injection.packRevision,
+      version: injection.version,
+      displayName: injection.displayName,
+      sourceType: injection.source.type,
+      sourceLocator: injection.source.locator,
+      sourceDigest: injection.source.digest,
+      estimatedTokens: injection.estimatedTokens,
+      canAuthorize: false,
+      canGrantCapabilities: false,
+      revocation: { ...injection.revocation },
+    };
   }
 
   private indexFor(workspaceId: string): { store: KnowledgeStore; workflow: LocalKnowledgeWorkflow } {

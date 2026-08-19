@@ -8,6 +8,11 @@ export {
   SqliteWorkspaceKnowledgeStoreFactory,
 } from './knowledge-workspace.js';
 export { SqliteVectorKnowledgeStore } from './sqlite-vector-knowledge-store.js';
+export {
+  InMemorySkillPackStore,
+  SkillPackRegistry,
+  SqliteSkillPackStore,
+} from './skill-pack.js';
 export type { KnowledgeIngestRequest } from './local-knowledge-workflow.js';
 export type {
   CitationPreviewRequest,
@@ -20,13 +25,30 @@ export type {
   KnowledgeWorkspaceStore,
   RetrievalPlan,
   SessionPersistenceMode,
+  SkillPackCitationRequest,
   WorkspaceKnowledgeCitation,
+  WorkspaceSkillPackCitation,
   WorkspaceKnowledgeIngestRequest,
   WorkspaceKnowledgeResult,
   WorkspaceKnowledgeStoreFactory,
   WorkspaceRetrievalRequest,
   WorkspaceRetrievalResult,
 } from './knowledge-workspace.js';
+export type {
+  RegisterSkillPackCandidateRequest,
+  SkillPackContextInjection,
+  SkillPackInjectionPlan,
+  SkillPackInjectionPolicy,
+  SkillPackInjectionRequest,
+  SkillPackManifestV1,
+  SkillPackOmission,
+  SkillPackOmissionReason,
+  SkillPackScope,
+  SkillPackSource,
+  SkillPackSourceType,
+  SkillPackStatus,
+  SkillPackStore,
+} from './skill-pack.js';
 export type {
   KnowledgeChunk,
   KnowledgeChunkMatch,
