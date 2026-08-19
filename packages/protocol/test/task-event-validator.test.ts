@@ -88,3 +88,22 @@ test('拒绝未定义的 Agent Profile，避免 UI 选择脱离运行时策略',
 
   assert.equal(result.ok, false);
 });
+
+test('接受脱敏的执行权限选择事件，但拒绝夹带管理员租约 metadata', () => {
+  const accepted = validateTaskEvent({
+    ...base,
+    type: 'execution.authority.selected',
+    authorityMode: 'automate',
+  });
+  assert.equal(accepted.ok, true);
+
+  const rejected = validateTaskEvent({
+    ...base,
+    type: 'execution.authority.selected',
+    authorityMode: 'admin',
+    administratorLease: { operatorId: 'owner', allowedCapabilities: ['shell.execute'] },
+  });
+  assert.equal(rejected.ok, false);
+  const invalidMode = validateTaskEvent({ ...base, type: 'execution.authority.selected', authorityMode: 'unbounded' });
+  assert.equal(invalidMode.ok, false);
+});

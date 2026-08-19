@@ -58,6 +58,8 @@ function metadataForTaskEvent(event: TaskEvent): Readonly<Record<string, RunTraj
       return { goalDigest: digest(event.goal) };
     case 'agent.profile.selected':
       return { profileId: event.profileId };
+    case 'execution.authority.selected':
+      return { authorityMode: event.authorityMode };
     case 'plan.proposed':
       return {
         stepCount: event.steps.length,

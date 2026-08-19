@@ -1,5 +1,5 @@
 // 一个文件=一种作用：本地可恢复任务运行时工厂；只编排既有端口，不实现 DB、UI 或具体工具。
-import type { AgentProfileId, CapabilityPolicy } from '@awo/protocol';
+import type { AgentProfileId, CapabilityPolicy, ExecutionAuthorityMode } from '@awo/protocol';
 import { getAgentProfile, ProfiledCapabilityPolicy } from './agent-profile.js';
 import { ControlledToolRunner, type ApprovalPort } from './controlled-tool-runner.js';
 import {
@@ -11,6 +11,7 @@ import {
   type ToolRunner,
 } from './executor.js';
 import { InMemoryExecutionBudget } from './execution-budget.js';
+import { AdministratorAuthorityLedger, AuthorityCapabilityPolicy } from './execution-authority.js';
 
 export type TaskRunStatus = 'created' | 'running' | 'blocked' | 'completed' | 'failed';
 
@@ -19,6 +20,8 @@ export interface LocalTaskSnapshot {
   taskId: string;
   runId: string;
   profileId: AgentProfileId;
+  /** 新快照始终写入；旧版 SQLite 快照缺失时运行时安全回退 review。 */
+  authorityMode?: ExecutionAuthorityMode;
   status: TaskRunStatus;
   nodeOutcomes: Readonly<Record<string, DAGNodeOutcome>>;
   stats?: Readonly<DAGExecutionStats>;
@@ -58,6 +61,9 @@ export interface RecoverableTaskRequest {
   taskId: string;
   runId: string;
   profileId: AgentProfileId;
+  /** 缺省安全回退为 review；新 Gateway contract 始终显式写入。 */
+  authorityMode?: ExecutionAuthorityMode;
+  administratorLeases?: AdministratorAuthorityLedger;
   nodes: readonly DAGNode[];
   baselinePolicy: CapabilityPolicy;
   approvals: ApprovalPort;
@@ -80,6 +86,10 @@ export class RecoverableTaskRuntime {
     const now = this.request.now ?? Date.now;
     const profile = getAgentProfile(this.request.profileId);
     const existing = this.snapshots.load(this.request.taskId, this.request.runId);
+    const authorityMode = existing?.authorityMode ?? this.request.authorityMode ?? 'review';
+    if (existing?.authorityMode && this.request.authorityMode && existing.authorityMode !== this.request.authorityMode) {
+      throw new Error('恢复任务不得变更原始执行权限');
+    }
     const nodeOutcomes: Record<string, DAGNodeOutcome> = { ...(existing?.nodeOutcomes ?? {}) };
     for (const [nodeId, outcome] of Object.entries(nodeOutcomes)) {
       if (outcome !== 'ok') delete nodeOutcomes[nodeId];
@@ -90,6 +100,7 @@ export class RecoverableTaskRuntime {
       taskId: this.request.taskId,
       runId: this.request.runId,
       profileId: this.request.profileId,
+      authorityMode,
       status: 'running',
       nodeOutcomes,
       stats: undefined,
@@ -98,7 +109,12 @@ export class RecoverableTaskRuntime {
     };
     this.snapshots.save(snapshot);
 
-    const policy = new ProfiledCapabilityPolicy(profile, this.request.baselinePolicy);
+    const policy = new AuthorityCapabilityPolicy(
+      authorityMode,
+      new ProfiledCapabilityPolicy(profile, this.request.baselinePolicy),
+      this.request.administratorLeases,
+      now,
+    );
     const controlledRunner = new ControlledToolRunner(
       policy,
       this.request.approvals,

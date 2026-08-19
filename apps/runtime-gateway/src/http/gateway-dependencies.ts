@@ -1,4 +1,5 @@
 import type {
+  AdministratorAuthorityLedger,
   AgentAdapterControlPlane,
   AuditedScheduleControlPlane,
   ExtensionActivationPlanner,
@@ -33,10 +34,16 @@ export interface GatewayDependencies {
   readonly agentAdapters: AgentAdapterControlPlane;
   readonly schedules: AuditedScheduleControlPlane;
   readonly runTrajectory: RunTrajectoryLedger;
+  readonly administratorLeases: AdministratorAuthorityLedger;
   readonly defaultKnowledgeWorkspaceId: string;
   readonly requests: Map<string, TaskRuntimeRequest>;
   readonly eventsByRun: Map<string, TaskEvent[]>;
   readonly approvedActions: Set<string>;
-  readonly createTaskRequest: (goal: string, profileId: import('@awo/protocol').AgentProfileId, identity: { taskId: string; runId: string }) => TaskRuntimeRequest;
+  readonly createTaskRequest: (
+    goal: string,
+    profileId: import('@awo/protocol').AgentProfileId,
+    authorityMode: import('@awo/protocol').ExecutionAuthorityMode,
+    identity: { taskId: string; runId: string },
+  ) => TaskRuntimeRequest;
   readonly createEvent: (type: TaskEvent['type'], taskId: string, runId: string, payload: Record<string, unknown>) => TaskEvent;
 }

@@ -80,3 +80,14 @@ test('SQLite Run Trajectory 账本按 run/sequence 保持可重开审查和防�
   reopenedStore.close();
   rmSync(directory, { recursive: true, force: true });
 });
+
+test('Run Trajectory 对执行权限选择仅投影 authorityMode，不携带管理员租约数据', () => {
+  const ledger = new RunTrajectoryLedger(new InMemoryRunTrajectoryStore());
+  const trajectory = ledger.recordTaskEvent({
+    protocolVersion: '1.0', eventId: 'event-authority-1', taskId: 'task-1', runId: 'run-1', at: 12,
+    type: 'execution.authority.selected', authorityMode: 'automate',
+  }, 'gateway.intent');
+  assert.deepEqual(trajectory.attributes, { authorityMode: 'automate' });
+  assert.equal(trajectory.canReplaySideEffects, false);
+  assert.equal(JSON.stringify(trajectory).includes('lease'), false);
+});

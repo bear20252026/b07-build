@@ -1,4 +1,4 @@
-import { isTaskEvent, type AgentProfileId, type TaskEvent } from '@awo/protocol';
+import { isTaskEvent, type AgentProfileId, type ExecutionAuthorityMode, type TaskEvent } from '@awo/protocol';
 
 export type WorkbenchTaskStatus = 'created' | 'running' | 'blocked' | 'completed' | 'failed';
 export type WorkbenchNodeOutcome = 'ok' | 'failed' | 'blocked';
@@ -8,6 +8,7 @@ export interface WorkbenchTaskSnapshot {
   taskId: string;
   runId: string;
   profileId: AgentProfileId;
+  authorityMode?: ExecutionAuthorityMode;
   status: WorkbenchTaskStatus;
   nodeOutcomes: Readonly<Record<string, WorkbenchNodeOutcome>>;
   stats?: Readonly<{
@@ -22,9 +23,12 @@ export interface WorkbenchTaskSnapshot {
   updatedAt: number;
 }
 
+export type WorkbenchAuthorityMode = Exclude<ExecutionAuthorityMode, 'admin'>;
+
 export interface WorkbenchTaskIntent {
   goal: string;
   profileId: AgentProfileId;
+  authorityMode: WorkbenchAuthorityMode;
 }
 
 export interface WorkbenchLocalModelHealth {
@@ -103,7 +107,7 @@ function assertTrajectoryEvent(value: unknown): asserts value is WorkbenchRunTra
 function assertSnapshot(value: unknown): asserts value is WorkbenchTaskSnapshot {
   if (!value || typeof value !== 'object') throw new Error('任务服务返回了无效快照');
   const snapshot = value as Partial<WorkbenchTaskSnapshot>;
-  if (snapshot.schemaVersion !== 1 || typeof snapshot.taskId !== 'string' || typeof snapshot.runId !== 'string') {
+  if (snapshot.schemaVersion !== 1 || typeof snapshot.taskId !== 'string' || typeof snapshot.runId !== 'string' || (snapshot.authorityMode !== undefined && !['plan', 'review', 'automate', 'admin'].includes(String(snapshot.authorityMode)))) {
     throw new Error('任务服务返回了不兼容的快照版本');
   }
   if (!['created', 'running', 'blocked', 'completed', 'failed'].includes(String(snapshot.status))) {

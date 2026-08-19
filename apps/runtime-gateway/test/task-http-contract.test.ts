@@ -22,6 +22,7 @@ const DATABASE_VARIABLES = [
   'AWO_SCHEDULE_MANIFEST_DB',
   'AWO_SCHEDULE_RUN_DB',
   'AWO_RUN_TRAJECTORY_DB',
+  'AWO_ADMINISTRATOR_LEASE_DB',
 ] as const;
 
 async function withGateway<T>(run: (baseUrl: string) => Promise<T>): Promise<T> {
@@ -54,6 +55,21 @@ test('Gateway 强制 Task Submit HTTP v1，并提供脱敏且只读的 run traje
     assert.deepEqual(await localHealth.json(), []);
     const prohibitedLocalModelWrite = await fetch(`${baseUrl}/api/local-models/health`, { method: 'POST' });
     assert.equal(prohibitedLocalModelWrite.status, 404);
+
+    const automated = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': 'authority-automate-accepted' },
+      body: JSON.stringify({ schemaVersion: 1, goal: '受控自动完成本地任务', profileId: 'build', authorityMode: 'automate' }),
+    });
+    assert.equal(automated.status, 201);
+    assert.equal((await automated.json() as { authorityMode?: string }).authorityMode, 'automate');
+
+    const rejectedAdmin = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': 'authority-admin-rejected' },
+      body: JSON.stringify({ schemaVersion: 1, goal: '不可信 HTTP 不得签发管理员租约', profileId: 'build', authorityMode: 'admin', administratorLease: { operatorId: 'owner-local', allowedCapabilities: ['filesystem.write'], reason: 'maintenance' } }),
+    });
+    assert.equal(rejectedAdmin.status, 403);
 
     const missingVersion = await fetch(`${baseUrl}/api/tasks`, {
       method: 'POST',

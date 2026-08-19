@@ -10,6 +10,7 @@ import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
 import {
   HttpWorkbenchTaskClient,
+  type WorkbenchAuthorityMode,
   type WorkbenchLocalModelHealth,
   type WorkbenchTaskSnapshot,
   type WorkbenchRunTrajectoryEvent,
@@ -29,6 +30,8 @@ function eventPresentation(event: TaskEvent, messages: Translation): { title: st
       const profile = profileUi(messages)[event.profileId];
       return { ...messages.event.profile(profile.label, profile.description), tone: 'success' };
     }
+    case 'execution.authority.selected':
+      return { ...messages.event.authority(messages.authority.mode[event.authorityMode].label), tone: 'success' };
     case 'plan.proposed':
       return { ...messages.event.plan(event.steps.length), tone: '' };
     case 'approval.required':
@@ -67,6 +70,7 @@ export function App() {
   const [draft, setDraft] = useState('');
   const [activeGoal, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
+  const [authorityMode, setAuthorityMode] = useState<WorkbenchAuthorityMode>('review');
   const [pending, setPending] = useState(false);
   const [serviceError, setServiceError] = useState<string>();
   const { messages } = useLocale();
@@ -98,7 +102,7 @@ export function App() {
     setPending(true);
     setServiceError(undefined);
     try {
-      const nextSnapshot = await taskClient.submit({ goal, profileId: activeProfile });
+      const nextSnapshot = await taskClient.submit({ goal, profileId: activeProfile, authorityMode });
       await hydrate(nextSnapshot);
       setActiveGoal(goal);
       setDraft('');
@@ -177,6 +181,7 @@ export function App() {
                 <span className="capability-badge">{messages.task.leastPrivilege}</span>
                 <span className="capability-badge">{messages.task.sqliteSnapshot}</span>
                 <span className="capability-badge">{profile.label} Profile</span>
+                <span className="capability-badge">{messages.authority.mode[authorityMode].label}</span>
               </div>
             </div>
             {serviceError && <div className="runtime-error" role="alert">{messages.common.local}: {serviceError}</div>}
@@ -184,7 +189,7 @@ export function App() {
               <div>
                 <div className="snapshot-eyebrow">{messages.task.runtimeSnapshot}</div>
                 <strong>{snapshot ? statusLabel(snapshot.status, messages) : messages.task.noTask}</strong>
-                <span>{snapshot ? messages.task.attempt(snapshot.attempt, Object.keys(snapshot.nodeOutcomes).length) : messages.task.noTaskDescription}</span>
+                <span>{snapshot ? `${messages.task.attempt(snapshot.attempt, Object.keys(snapshot.nodeOutcomes).length)} · ${messages.authority.mode[snapshot.authorityMode ?? 'review'].label}` : messages.task.noTaskDescription}</span>
               </div>
               {snapshot && (
                 <div className="snapshot-actions">
@@ -241,7 +246,13 @@ export function App() {
           <div className="composer-footer">
             <span className="composer-hint">{messages.task.composerHint}</span>
             <div className="composer-actions">
-              <span className="composer-mode">{profile.label} Profile</span>
+              <label className="authority-select">
+                <span>{messages.authority.selectLabel}</span>
+                <select aria-label={messages.authority.selectAria} onChange={(event) => setAuthorityMode(event.target.value as WorkbenchAuthorityMode)} value={authorityMode}>
+                  {(['plan', 'review', 'automate'] as const).map((mode) => <option key={mode} value={mode}>{messages.authority.mode[mode].label}</option>)}
+                </select>
+              </label>
+              <span className="composer-mode" title={messages.authority.mode[authorityMode].description}>{profile.label} · {messages.authority.mode[authorityMode].label}</span>
               <button className="composer-submit" disabled={!draft.trim() || pending} onClick={() => void submitIntent()} type="button">
                 {pending ? messages.task.submitting : messages.task.submit}
               </button>

@@ -39,7 +39,14 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
       return true;
     }
     const goal = intent.goal;
-    const fingerprint = commandFingerprint('submit', { goal, profileId: intent.profileId });
+    const administratorLeaseDigest = intent.administratorLease
+      ? createHash('sha256').update(JSON.stringify({
+        operatorId: intent.administratorLease.operatorId,
+        allowedCapabilities: [...intent.administratorLease.allowedCapabilities].sort(),
+        reason: intent.administratorLease.reason,
+      })).digest('hex')
+      : 'none';
+    const fingerprint = commandFingerprint('submit', { goal, profileId: intent.profileId, authorityMode: intent.authorityMode, administratorLeaseDigest });
     const existing = commandReceipts.get('submit', key);
     const claimed = commandReceipts.claim(existing ?? {
       schemaVersion: 1,
@@ -50,6 +57,7 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
       runId: `run-${randomUUID()}`,
       goal,
       profileId: intent.profileId,
+      authorityMode: intent.authorityMode,
       acceptedAt: Date.now(),
     });
     if (claimed.receipt.fingerprint !== fingerprint) {
@@ -60,7 +68,18 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
       sendJson(response, 200, claimed.receipt.snapshot);
       return true;
     }
-    const runtimeRequest = createTaskRequest(claimed.receipt.goal, claimed.receipt.profileId, { taskId: claimed.receipt.taskId, runId: claimed.receipt.runId });
+    if (intent.authorityMode === 'admin') {
+      // Browser/loopback HTTP 没有可验证的本地操作者身份时，绝不把 body 当作管理员凭据。
+      // 领域层已具备租约验证；只有未来经过可信桌面宿主认证的 issuer 才能签发租约。
+      sendJson(response, 403, { error: '当前 Gateway 未配置可信本地管理员租约签发器；Admin Authority 默认关闭' });
+      return true;
+    }
+    const runtimeRequest = createTaskRequest(
+      claimed.receipt.goal,
+      claimed.receipt.profileId,
+      claimed.receipt.authorityMode ?? 'review',
+      { taskId: claimed.receipt.taskId, runId: claimed.receipt.runId },
+    );
     requests.set(runKey(runtimeRequest.taskId, runtimeRequest.runId), runtimeRequest);
     const snapshot = await runtime.submit(runtimeRequest);
     commandReceipts.complete('submit', key, snapshot, Date.now());
@@ -149,7 +168,7 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
       return true;
     }
     const fingerprint = commandFingerprint('resume', { taskId, runId });
-    const claimed = commandReceipts.claim({ schemaVersion: 1, command: 'resume', idempotencyKey: commandKey, fingerprint, taskId, runId, goal: runtimeRequest.goal, profileId: runtimeRequest.profileId, acceptedAt: Date.now() });
+    const claimed = commandReceipts.claim({ schemaVersion: 1, command: 'resume', idempotencyKey: commandKey, fingerprint, taskId, runId, goal: runtimeRequest.goal, profileId: runtimeRequest.profileId, authorityMode: runtimeRequest.authorityMode ?? 'review', acceptedAt: Date.now() });
     if (claimed.kind === 'replayed' && claimed.receipt.snapshot) {
       sendJson(response, 200, claimed.receipt.snapshot);
       return true;
@@ -170,7 +189,7 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
       return true;
     }
     const fingerprint = commandFingerprint('approve', { taskId, runId, nodeId });
-    const claimed = commandReceipts.claim({ schemaVersion: 1, command: 'approve', idempotencyKey: commandKey, fingerprint, taskId, runId, nodeId, goal: runtimeRequest.goal, profileId: runtimeRequest.profileId, acceptedAt: Date.now() });
+    const claimed = commandReceipts.claim({ schemaVersion: 1, command: 'approve', idempotencyKey: commandKey, fingerprint, taskId, runId, nodeId, goal: runtimeRequest.goal, profileId: runtimeRequest.profileId, authorityMode: runtimeRequest.authorityMode ?? 'review', acceptedAt: Date.now() });
     if (claimed.kind === 'replayed' && claimed.receipt.snapshot) {
       sendJson(response, 200, claimed.receipt.snapshot);
       return true;

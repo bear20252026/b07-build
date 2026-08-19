@@ -310,3 +310,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .local-model-error { margin: 10px 0 0; padding-top: 8px; color: var(--danger); font-size: 10px; line-height: 1.45; border-top: 1px solid var(--border); }
 .local-model-note { padding-top: 10px; border-top: 1px solid var(--border); }
 @media (max-width: 620px) { .local-model-heading, .local-model-item-heading { align-items: flex-start; flex-direction: column; } .local-model-meta { grid-template-columns: 1fr; } }
+
+.authority-select { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; white-space: nowrap; }
+.authority-select select { min-height: 28px; padding: 0 24px 0 8px; color: var(--text-strong); font-size: 10px; font-weight: 650; border: 1px solid var(--border-strong); border-radius: 7px; outline: none; background: var(--panel); }
+.authority-select select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+@media (max-width: 620px) { .authority-select > span { display: none; } }

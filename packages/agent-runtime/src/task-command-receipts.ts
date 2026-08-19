@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { AgentProfileId } from '@awo/protocol';
+import type { AgentProfileId, ExecutionAuthorityMode } from '@awo/protocol';
 import type { LocalTaskSnapshot } from './recoverable-task-runtime.js';
 
 export type TaskCommand = 'submit' | 'resume' | 'approve';
@@ -19,6 +19,8 @@ export interface TaskCommandReceipt {
   runId: string;
   goal: string;
   profileId: AgentProfileId;
+  /** 新回执始终记录；旧回执缺省安全回退为 review。 */
+  authorityMode?: ExecutionAuthorityMode;
   nodeId?: string;
   acceptedAt: number;
   completedAt?: number;
@@ -52,6 +54,7 @@ function validate(receipt: TaskCommandReceipt): void {
   assertSafeKey(receipt.runId, 'runId');
   if (!receipt.goal.trim()) throw new Error('receipt goal 不能为空');
   if (!['build', 'plan', 'explore'].includes(receipt.profileId)) throw new Error('receipt profileId 无效');
+  if (receipt.authorityMode !== undefined && !['plan', 'review', 'automate', 'admin'].includes(receipt.authorityMode)) throw new Error('receipt authorityMode 无效');
   if (!receipt.fingerprint || receipt.fingerprint.length > 128) throw new Error('receipt fingerprint 无效');
   if (!Number.isSafeInteger(receipt.acceptedAt) || receipt.acceptedAt < 0) throw new Error('receipt acceptedAt 无效');
   if (receipt.nodeId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(receipt.nodeId)) {

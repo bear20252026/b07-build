@@ -109,3 +109,34 @@ test('Plan Profile 的拒绝会在快照中保留 failed 终态，而不会触�
   assert.deepEqual(snapshot.nodeOutcomes, { write: 'failed' });
   assert.deepEqual(runner.calls, []);
 });
+
+test('Authority Mode 将 plan 收紧为只读，并允许 automate 在既有 Profile 边界内免除逐步审批', async () => {
+  const planRunner = new TrackingRunner();
+  const planSnapshot = await new RecoverableTaskRuntime({
+    taskId: 'task-authority-plan', runId: 'run-authority-plan', profileId: 'build', authorityMode: 'plan', nodes: [{ ...nodes[1], deps: [] }],
+    baselinePolicy: new RuleBasedCapabilityPolicy(policies), approvals: new InMemoryApprovalPort(), runner: planRunner, emit: () => undefined, now: () => 300,
+  }, new InMemoryTaskSnapshotStore()).run();
+  assert.equal(planSnapshot.status, 'failed');
+  assert.deepEqual(planRunner.calls, []);
+
+  const automateRunner = new TrackingRunner();
+  const automateSnapshot = await new RecoverableTaskRuntime({
+    taskId: 'task-authority-auto', runId: 'run-authority-auto', profileId: 'build', authorityMode: 'automate', nodes: [{ ...nodes[1], deps: [] }],
+    baselinePolicy: new RuleBasedCapabilityPolicy(policies), approvals: new InMemoryApprovalPort(), runner: automateRunner, emit: () => undefined, now: () => 301,
+  }, new InMemoryTaskSnapshotStore()).run();
+  assert.equal(automateSnapshot.status, 'completed');
+  assert.equal(automateSnapshot.authorityMode, 'automate');
+  assert.deepEqual(automateRunner.calls, ['write']);
+});
+
+test('恢复任务锁定原始 Authority Mode，拒绝通过 resume 提升权限', async () => {
+  const snapshots = new InMemoryTaskSnapshotStore();
+  await new RecoverableTaskRuntime({
+    taskId: 'task-authority-resume', runId: 'run-authority-resume', profileId: 'build', authorityMode: 'review', nodes: [{ ...nodes[1], deps: [] }],
+    baselinePolicy: new RuleBasedCapabilityPolicy(policies), approvals: new InMemoryApprovalPort(), runner: new TrackingRunner(), emit: () => undefined, now: () => 400,
+  }, snapshots).run();
+  await assert.rejects(() => new RecoverableTaskRuntime({
+    taskId: 'task-authority-resume', runId: 'run-authority-resume', profileId: 'build', authorityMode: 'automate', nodes: [{ ...nodes[1], deps: [] }],
+    baselinePolicy: new RuleBasedCapabilityPolicy(policies), approvals: new InMemoryApprovalPort(), runner: new TrackingRunner(), emit: () => undefined, now: () => 401,
+  }, snapshots).run(), /不得变更/);
+});

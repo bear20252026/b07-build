@@ -81,9 +81,18 @@ export const catalog = {
     localModels: {
       aria: '本地模型健康', eyebrow: 'LOCAL MODEL OBSERVABILITY', title: '本地模型健康', count: (count: number) => `${count} 个已登记端点`, loading: '正在读取本地健康 metadata…', empty: '尚未登记本地模型端点。端点必须经受控配置后才会出现在此处。', configuredModel: '配置模型', checkedAt: '检查时间', discovered: '已发现模型', notChecked: '尚未检查', none: '无', offline: '操作者离线', status: { unknown: '未知', healthy: '健康', unhealthy: '不可用' }, note: '此卡片只读取回环端点的脱敏健康摘要；不会探测、连接、启动模型，不会修改 Provider Profile 或读取密钥。',
     },
+    authority: {
+      selectLabel: '执行权限', selectAria: '选择本次任务的执行权限', mode: {
+        plan: { label: '只计划', description: '只允许模型、文档和只读工作区检查；高影响能力会被拒绝。' },
+        review: { label: '每步审批', description: '高影响动作必须逐步进入审批收件箱。' },
+        automate: { label: '受控自动完成', description: '仅在已声明能力、Profile、预算和工作区边界内免除逐步审批。' },
+        admin: { label: '管理员租约', description: '仅可信桌面宿主可签发短时、任务绑定、可撤销的管理员租约；浏览器不能启用。' },
+      },
+    },
     event: {
       created: (goal: string) => ({ title: '任务已创建', detail: goal }),
       profile: (label: string, description: string) => ({ title: 'Agent Profile 已选择', detail: `${label} · ${description}` }),
+      authority: (label: string) => ({ title: '执行权限已选择', detail: `${label} · 它不覆盖拒绝策略、预算、审计或宿主边界` }),
       plan: (steps: number) => ({ title: '执行计划已生成', detail: `${steps} 个受控步骤已交给本地运行时` }),
       approvalRequired: (capability: string, reason: string) => ({ title: '需要人工审批', detail: `${capability} · ${reason}` }),
       approvalResolved: (approved: boolean, actionId: string, resolvedBy: string) => ({ title: approved ? '审批已通过' : '审批被拒绝', detail: `操作 ${actionId} 由 ${resolvedBy} 处理` }),
@@ -165,9 +174,18 @@ export const catalog = {
     localModels: {
       aria: 'Local model health', eyebrow: 'LOCAL MODEL OBSERVABILITY', title: 'Local model health', count: (count: number) => `${count} registered endpoints`, loading: 'Reading local health metadata…', empty: 'No local model endpoint is registered. An endpoint appears here only after controlled configuration.', configuredModel: 'Configured model', checkedAt: 'Checked', discovered: 'Discovered models', notChecked: 'Not checked', none: 'None', offline: 'Operator offline', status: { unknown: 'Unknown', healthy: 'Healthy', unhealthy: 'Unavailable' }, note: 'This card only reads redacted health summaries for loopback endpoints. It cannot probe, connect, or start a model; it cannot alter Provider Profiles or read secrets.',
     },
+    authority: {
+      selectLabel: 'Execution authority', selectAria: 'Select execution authority for this task', mode: {
+        plan: { label: 'Plan only', description: 'Allows only model, document, and read-only workspace inspection; high-impact capabilities are denied.' },
+        review: { label: 'Review each step', description: 'Every high-impact action enters the approval inbox.' },
+        automate: { label: 'Controlled automation', description: 'Skips per-step approval only within declared capabilities, Profile, budget, and workspace boundaries.' },
+        admin: { label: 'Administrator lease', description: 'Only a trusted desktop host may issue a short-lived, task-bound, revocable administrator lease; browsers cannot enable it.' },
+      },
+    },
     event: {
       created: (goal: string) => ({ title: 'Task created', detail: goal }),
       profile: (label: string, description: string) => ({ title: 'Agent Profile selected', detail: `${label} · ${description}` }),
+      authority: (label: string) => ({ title: 'Execution authority selected', detail: `${label} · It does not override deny policy, budgets, audit, or host boundaries` }),
       plan: (steps: number) => ({ title: 'Execution plan created', detail: `${steps} controlled steps sent to the local runtime` }),
       approvalRequired: (capability: string, reason: string) => ({ title: 'Human approval required', detail: `${capability} · ${reason}` }),
       approvalResolved: (approved: boolean, actionId: string, resolvedBy: string) => ({ title: approved ? 'Approval granted' : 'Approval rejected', detail: `Action ${actionId} handled by ${resolvedBy}` }),

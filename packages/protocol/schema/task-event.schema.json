@@ -75,6 +75,21 @@
         { "$ref": "#/$defs/envelope" },
         {
           "type": "object",
+          "required": ["type", "authorityMode"],
+          "properties": {
+            "type": { "const": "execution.authority.selected" },
+            "authorityMode": { "enum": ["plan", "review", "automate", "admin"] }
+          }
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
           "required": ["type", "steps"],
           "properties": {
             "type": { "const": "plan.proposed" },

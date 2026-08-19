@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import type { AgentProfileId, CapabilityPolicyRule, TaskEvent } from '@awo/protocol';
 import {
+  AdministratorAuthorityLedger,
   AgentAdapterControlPlane,
   AuditedScheduleControlPlane,
   ExtensionActivationPlanner,
@@ -15,6 +16,7 @@ import {
   RuleBasedCapabilityPolicy,
   RunTrajectoryLedger,
   SqliteAdapterApprovalMailboxStore,
+  SqliteAdministratorLeaseStore,
   SqliteAgentAdapterManifestStore,
   SqliteAgentAdapterSessionStore,
   SqliteExtensionManifestStore,
@@ -107,6 +109,7 @@ export function createGatewayComposition(): GatewayComposition {
   const scheduleManifestPath = resolve(process.env.AWO_SCHEDULE_MANIFEST_DB ?? '.awo/audited-schedules.sqlite');
   const scheduleRunPath = resolve(process.env.AWO_SCHEDULE_RUN_DB ?? '.awo/audited-schedule-runs.sqlite');
   const runTrajectoryPath = resolve(process.env.AWO_RUN_TRAJECTORY_DB ?? '.awo/run-trajectories.sqlite');
+  const administratorLeasePath = resolve(process.env.AWO_ADMINISTRATOR_LEASE_DB ?? '.awo/administrator-leases.sqlite');
 
   const store = new SqliteTaskSnapshotStore(snapshotPath);
   const knowledgeWorkspaceStore = new SqliteKnowledgeWorkspaceStore(knowledgeWorkspacePath);
@@ -134,6 +137,8 @@ export function createGatewayComposition(): GatewayComposition {
   const schedules = new AuditedScheduleControlPlane(scheduleManifestStore, scheduledRunStore);
   const runTrajectoryStore = new SqliteRunTrajectoryStore(runTrajectoryPath);
   const runTrajectory = new RunTrajectoryLedger(runTrajectoryStore);
+  const administratorLeaseStore = new SqliteAdministratorLeaseStore(administratorLeasePath);
+  const administratorLeases = new AdministratorAuthorityLedger(administratorLeaseStore);
 
   if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
     knowledgeWorkspaces.create({
@@ -155,19 +160,20 @@ export function createGatewayComposition(): GatewayComposition {
     return { protocolVersion: '1.0', eventId: `gateway:${runId}:${type}:${randomUUID()}`, taskId, runId, at: Date.now(), type, ...payload } as TaskEvent;
   }
 
-  function createTaskRequest(goal: string, profileId: AgentProfileId, identity: { taskId: string; runId: string }): TaskRuntimeRequest {
+  function createTaskRequest(goal: string, profileId: AgentProfileId, authorityMode: import('@awo/protocol').ExecutionAuthorityMode, identity: { taskId: string; runId: string }): TaskRuntimeRequest {
     const { taskId, runId } = identity;
     const existingEvents = eventsByRun.get(runKey(taskId, runId));
     const events: TaskEvent[] = existingEvents ?? [
       createEvent('task.created', taskId, runId, { goal }),
       createEvent('agent.profile.selected', taskId, runId, { profileId }),
+      createEvent('execution.authority.selected', taskId, runId, { authorityMode }),
       createEvent('plan.proposed', taskId, runId, { steps: createTaskNodes(profileId).map((node) => ({ id: node.id, description: node.tool.name, risk: node.tool.risk })) }),
     ];
     if (!existingEvents) {
       for (const event of events) runTrajectory.recordTaskEvent(event, 'gateway.intent');
     }
     const request: TaskRuntimeRequest = {
-      taskId, runId, goal, profileId, nodes: createTaskNodes(profileId),
+      taskId, runId, goal, profileId, authorityMode, administratorLeases, nodes: createTaskNodes(profileId),
       baselinePolicy: new RuleBasedCapabilityPolicy(BASELINE_RULES),
       approvals: new InMemoryApprovalPort(approvedActions),
       runner: { async run(node) { return { ok: true, outputRef: `local://task/${taskId}/${node.id}` }; } },
@@ -201,6 +207,7 @@ export function createGatewayComposition(): GatewayComposition {
       () => scheduleManifestStore.close(),
       () => scheduledRunStore.close(),
       () => runTrajectoryStore.close(),
+      () => administratorLeaseStore.close(),
     ];
     let closeFailure: unknown;
     for (const close of closers) {
@@ -217,7 +224,7 @@ export function createGatewayComposition(): GatewayComposition {
     dependencies: {
       runtime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
       extensionActivationPlanner, extensionDoctor, providerProfiles, localModelHealth, knowledgeWorkspaces, skillPacks,
-      agentAdapters, schedules, runTrajectory, defaultKnowledgeWorkspaceId: DEFAULT_KNOWLEDGE_WORKSPACE_ID,
+      agentAdapters, schedules, runTrajectory, administratorLeases, defaultKnowledgeWorkspaceId: DEFAULT_KNOWLEDGE_WORKSPACE_ID,
       requests, eventsByRun, approvedActions, createTaskRequest, createEvent,
     },
     close: closeResources,

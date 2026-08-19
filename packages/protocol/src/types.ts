@@ -8,6 +8,8 @@ export type ToolStatus = 'ok' | 'error';
 export type ApprovalDecision = 'approved' | 'rejected';
 export type CapabilityDecision = 'allow' | 'require_approval' | 'deny';
 export type AgentProfileId = 'build' | 'plan' | 'explore';
+/** 单次任务的执行授权姿态；它不替代 Agent Profile、Capability Policy、预算或宿主安全边界。 */
+export type ExecutionAuthorityMode = 'plan' | 'review' | 'automate' | 'admin';
 
 /**
  * 功能能力是授权的最小单位。新增能力必须先在此处声明，不能以任意字符串绕过策略层。
@@ -79,6 +81,12 @@ export interface TaskCreatedEvent extends EventEnvelope {
 export interface AgentProfileSelectedEvent extends EventEnvelope {
   type: 'agent.profile.selected';
   profileId: AgentProfileId;
+}
+
+/** 任务选择的审批姿态，仅用于审计；它不构成管理员租约或任何执行凭据。 */
+export interface ExecutionAuthoritySelectedEvent extends EventEnvelope {
+  type: 'execution.authority.selected';
+  authorityMode: ExecutionAuthorityMode;
 }
 
 export interface PlanProposedEvent extends EventEnvelope {
@@ -158,6 +166,7 @@ export interface ExecutionBlockedEvent extends EventEnvelope {
 export type TaskEvent =
   | TaskCreatedEvent
   | AgentProfileSelectedEvent
+  | ExecutionAuthoritySelectedEvent
   | PlanProposedEvent
   | ApprovalRequiredEvent
   | ApprovalResolvedEvent
