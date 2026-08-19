@@ -27,6 +27,19 @@ export interface WorkbenchTaskIntent {
   profileId: AgentProfileId;
 }
 
+export interface WorkbenchRunTrajectoryEvent {
+  schemaVersion: 1;
+  trajectoryEventId: string;
+  taskId: string;
+  runId: string;
+  sequence: number;
+  at: number;
+  source: 'task-runtime' | 'gateway.intent' | 'approval';
+  kind: string;
+  attributes: Readonly<Record<string, string | number | boolean>>;
+  canReplaySideEffects: false;
+}
+
 /**
  * 浏览器端的唯一运行时入口。该接口故意不暴露节点、工具、审批许可或数据库操作；
  * 它们必须由本地服务端在可信边界内装配。
@@ -44,6 +57,15 @@ export interface WorkbenchTaskClient {
   approve(taskId: string, runId: string, nodeId: string): Promise<WorkbenchTaskSnapshot>;
   snapshot(taskId: string, runId: string): Promise<WorkbenchTaskSnapshot | undefined>;
   events(taskId: string, runId: string): Promise<readonly TaskEvent[]>;
+  trajectory(taskId: string, runId: string): Promise<readonly WorkbenchRunTrajectoryEvent[]>;
+}
+
+function assertTrajectoryEvent(value: unknown): asserts value is WorkbenchRunTrajectoryEvent {
+  if (!value || typeof value !== 'object') throw new Error('运行轨迹包含无效事件');
+  const event = value as Partial<WorkbenchRunTrajectoryEvent>;
+  if (event.schemaVersion !== 1 || typeof event.trajectoryEventId !== 'string' || typeof event.taskId !== 'string' || typeof event.runId !== 'string' || typeof event.sequence !== 'number' || !Number.isSafeInteger(event.sequence) || event.sequence < 1 || typeof event.at !== 'number' || !Number.isSafeInteger(event.at) || !['task-runtime', 'gateway.intent', 'approval'].includes(String(event.source)) || typeof event.kind !== 'string' || !event.attributes || typeof event.attributes !== 'object' || event.canReplaySideEffects !== false) {
+    throw new Error('运行轨迹返回了不兼容的 metadata contract');
+  }
 }
 
 function assertSnapshot(value: unknown): asserts value is WorkbenchTaskSnapshot {
@@ -95,6 +117,17 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
       throw new Error('任务服务返回了无效事件流');
     }
     return payload;
+  }
+
+  async trajectory(taskId: string, runId: string): Promise<readonly WorkbenchRunTrajectoryEvent[]> {
+    const response = await fetch(`${this.baseUrl}/${encodeURIComponent(taskId)}/${encodeURIComponent(runId)}/trajectory`, {
+      headers: { accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(await response.text() || `运行轨迹请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    if (!Array.isArray(payload)) throw new Error('运行轨迹返回了无效列表');
+    payload.forEach(assertTrajectoryEvent);
+    return [...payload].sort((left, right) => left.sequence - right.sequence);
   }
 
   async snapshot(taskId: string, runId: string): Promise<WorkbenchTaskSnapshot | undefined> {

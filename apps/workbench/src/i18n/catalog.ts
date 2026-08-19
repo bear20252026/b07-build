@@ -75,6 +75,9 @@ export const catalog = {
       compactionCount: (count: number) => `${count} 次压缩记录`,
       note: '这些指标只读取任务快照和事件流；它们不会批准工具、修改记忆或触发 MCP。',
     },
+    trajectory: {
+      aria: '运行轨迹', eyebrow: 'APPEND-ONLY TRAJECTORY', title: '运行轨迹', count: (count: number) => `${count} 条 metadata 记录`, empty: '提交任务后，此处会显示按来源、顺序与风险脱敏的只读运行轨迹。', source: '来源', sequence: '序列', cannotReplay: '轨迹只用于审计和解释，不能重放副作用或授予执行权。',
+    },
     event: {
       created: (goal: string) => ({ title: '任务已创建', detail: goal }),
       profile: (label: string, description: string) => ({ title: 'Agent Profile 已选择', detail: `${label} · ${description}` }),
@@ -152,6 +155,9 @@ export const catalog = {
       gateCount: (blocked: number, approvals: number) => `${blocked} blocked · ${approvals} approval requests`,
       compactionCount: (count: number) => `${count} compaction records`,
       note: 'These indicators only read task snapshots and event streams; they cannot approve tools, alter memory, or run MCP.',
+    },
+    trajectory: {
+      aria: 'Run trajectory', eyebrow: 'APPEND-ONLY TRAJECTORY', title: 'Run trajectory', count: (count: number) => `${count} metadata records`, empty: 'Submit a task to display a read-only run trajectory with source, order, and redacted risk metadata.', source: 'Source', sequence: 'Sequence', cannotReplay: 'Trajectory is for audit and explanation only; it cannot replay side effects or grant execution.',
     },
     event: {
       created: (goal: string) => ({ title: 'Task created', detail: goal }),

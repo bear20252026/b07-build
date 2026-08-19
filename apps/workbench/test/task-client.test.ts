@@ -57,3 +57,30 @@ test('读取快照时保留 404 为缺失语义，并拒绝未知快照版本', 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('运行轨迹客户端只读取经验证的不可执行 metadata 并按 sequence 排序', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => Response.json([
+    { schemaVersion: 1, trajectoryEventId: 'trajectory-2', taskId: 'task-1', runId: 'run-1', sequence: 2, at: 2, source: 'task-runtime', kind: 'task.completed', attributes: { completed: true }, canReplaySideEffects: false },
+    { schemaVersion: 1, trajectoryEventId: 'trajectory-1', taskId: 'task-1', runId: 'run-1', sequence: 1, at: 1, source: 'gateway.intent', kind: 'task.created', attributes: { goalDigest: 'abc' }, canReplaySideEffects: false },
+  ])) as typeof fetch;
+  try {
+    const trajectory = await new HttpWorkbenchTaskClient().trajectory('task-1', 'run-1');
+    assert.deepEqual(trajectory.map((event) => event.sequence), [1, 2]);
+    assert.equal(trajectory.every((event) => event.canReplaySideEffects === false), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('运行轨迹客户端拒绝可执行或未声明来源的 payload', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => Response.json([
+    { schemaVersion: 1, trajectoryEventId: 'trajectory-unsafe', taskId: 'task-1', runId: 'run-1', sequence: 1, at: 1, source: 'untrusted', kind: 'task.created', attributes: {}, canReplaySideEffects: true },
+  ])) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().trajectory('task-1', 'run-1'), /不兼容/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

@@ -3,12 +3,14 @@ import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider } from './components/layout/Sider';
 import { ControlPlaneInsights } from './components/observability/ControlPlaneInsights';
 import { ExtensionCenter } from './components/observability/ExtensionCenter';
+import { TrajectoryBoard } from './components/observability/TrajectoryBoard';
 import { PreviewPanel } from './components/preview/PreviewPanel';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
 import {
   HttpWorkbenchTaskClient,
   type WorkbenchTaskSnapshot,
+  type WorkbenchRunTrajectoryEvent,
 } from './runtime/task-client';
 
 const taskClient = new HttpWorkbenchTaskClient();
@@ -55,6 +57,7 @@ function statusLabel(status: WorkbenchTaskSnapshot['status'] | undefined, messag
 
 export function App() {
   const [events, setEvents] = useState<readonly TaskEvent[]>([]);
+  const [trajectory, setTrajectory] = useState<readonly WorkbenchRunTrajectoryEvent[]>([]);
   const [snapshot, setSnapshot] = useState<WorkbenchTaskSnapshot>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
@@ -68,9 +71,13 @@ export function App() {
   const blockedNodeId = snapshot && Object.entries(snapshot.nodeOutcomes).find(([, outcome]) => outcome === 'blocked')?.[0];
 
   const hydrate = async (nextSnapshot: WorkbenchTaskSnapshot): Promise<void> => {
-    const nextEvents = await taskClient.events(nextSnapshot.taskId, nextSnapshot.runId);
+    const [nextEvents, nextTrajectory] = await Promise.all([
+      taskClient.events(nextSnapshot.taskId, nextSnapshot.runId),
+      taskClient.trajectory(nextSnapshot.taskId, nextSnapshot.runId),
+    ]);
     setSnapshot(nextSnapshot);
     setEvents(nextEvents);
+    setTrajectory(nextTrajectory);
   };
 
   const submitIntent = async (): Promise<void> => {
@@ -183,6 +190,7 @@ export function App() {
               )}
             </section>
             <ControlPlaneInsights events={events} snapshot={snapshot} />
+            <TrajectoryBoard events={trajectory} messages={messages} />
             <ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} />
             <section className="event-section">
               <div className="section-heading">
