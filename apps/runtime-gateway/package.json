@@ -6,6 +6,7 @@
   "description": "AI Work OS - 本地任务运行时 HTTP 网关（开发会话桥接）",
   "dependencies": {
     "@awo/agent-runtime": "^0.8.0",
+    "@awo/knowledge-workflow": "^0.2.0",
     "@awo/protocol": "^0.6.0"
   },
   "scripts": {

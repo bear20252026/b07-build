@@ -4,6 +4,7 @@ import type {
   KnowledgeDocument,
   KnowledgeSearchResult,
   KnowledgeStore,
+  SearchableKnowledgeStore,
 } from './types.js';
 
 export interface KnowledgeIngestRequest {
@@ -52,6 +53,10 @@ function makeChunks(document: KnowledgeDocument, maxCharacters: number): readonl
   }));
 }
 
+function isSearchableKnowledgeStore(store: KnowledgeStore): store is SearchableKnowledgeStore {
+  return 'searchChunks' in store && typeof (store as Partial<SearchableKnowledgeStore>).searchChunks === 'function';
+}
+
 function citation(chunk: KnowledgeChunk): KnowledgeCitation {
   return {
     documentId: chunk.documentId,
@@ -83,6 +88,9 @@ export class LocalKnowledgeWorkflow {
     if (!Number.isInteger(limit) || limit < 1) throw new Error('limit 必须是正整数');
     const terms = normalizedTerms(query);
     if (terms.length === 0) return [];
+    if (isSearchableKnowledgeStore(this.store)) {
+      return this.store.searchChunks(query, limit).map(({ chunk, score }) => ({ chunk, score, citation: citation(chunk) }));
+    }
     const matches = this.store.chunks().flatMap((chunk) => {
       const lower = chunk.text.toLocaleLowerCase();
       const score = terms.reduce((total, term) => total + (lower.includes(term) ? 1 : 0), 0);

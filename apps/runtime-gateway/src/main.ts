@@ -10,10 +10,14 @@ import {
   type DAGNode,
   type TaskRuntimeRequest,
 } from '@awo/agent-runtime';
+import { LocalKnowledgeWorkflow, SqliteVectorKnowledgeStore } from '@awo/knowledge-workflow';
 
 const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318);
 const SNAPSHOT_PATH = resolve(process.env.AWO_SNAPSHOT_DB ?? '.awo/task-snapshots.sqlite');
+const KNOWLEDGE_PATH = resolve(process.env.AWO_KNOWLEDGE_DB ?? '.awo/knowledge-vectors.sqlite');
 const store = new SqliteTaskSnapshotStore(SNAPSHOT_PATH);
+const knowledgeStore = new SqliteVectorKnowledgeStore(KNOWLEDGE_PATH);
+const knowledgeWorkflow = new LocalKnowledgeWorkflow(knowledgeStore);
 const runtime = new LocalTaskRuntimeService(store);
 const requests = new Map<string, TaskRuntimeRequest>();
 const eventsByRun = new Map<string, TaskEvent[]>();
@@ -149,6 +153,36 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
   const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
   try {
+    if (request.method === 'POST' && url.pathname === '/api/knowledge/documents') {
+      const body = await jsonBody(request) as {
+        id?: unknown; title?: unknown; sourceUri?: unknown; text?: unknown; updatedAt?: unknown;
+      };
+      if (
+        typeof body.id !== 'string' || typeof body.title !== 'string' || typeof body.sourceUri !== 'string'
+        || typeof body.text !== 'string' || !body.id.trim() || !body.title.trim() || !body.sourceUri.trim() || !body.text.trim()
+      ) {
+        send(response, 400, { error: '知识文档必须具有非空 id、title、sourceUri 与 text' });
+        return;
+      }
+      const chunks = knowledgeWorkflow.ingest({
+        document: {
+          id: body.id.trim(), title: body.title.trim(), sourceUri: body.sourceUri.trim(), text: body.text.trim(),
+          updatedAt: typeof body.updatedAt === 'number' ? body.updatedAt : Date.now(),
+        },
+      });
+      send(response, 201, { documentId: body.id.trim(), chunks: chunks.length });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/knowledge/search') {
+      const query = url.searchParams.get('q') ?? '';
+      const requestedLimit = Number(url.searchParams.get('limit') ?? 5);
+      const limit = Number.isInteger(requestedLimit) && requestedLimit >= 1 && requestedLimit <= 20 ? requestedLimit : 5;
+      const results = knowledgeWorkflow.search(query, limit).map((result) => ({ ...result.citation, score: result.score }));
+      send(response, 200, results);
+      return;
+    }
+
     if (request.method === 'POST' && url.pathname === '/api/tasks') {
       const body = await jsonBody(request) as { goal?: unknown; profileId?: unknown };
       if (typeof body.goal !== 'string' || !body.goal.trim() || !isProfileId(body.profileId)) {
@@ -213,7 +247,10 @@ server.listen(PORT, '127.0.0.1', () => {
 });
 
 function shutdown(): void {
-  server.close(() => store.close());
+  server.close(() => {
+    store.close();
+    knowledgeStore.close();
+  });
 }
 process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);

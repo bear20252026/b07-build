@@ -258,3 +258,41 @@ DAG 执行器新增已完成节点恢复入口、节点终态观测及 `emitTool
 - 开发网关的请求元数据仅保留在进程内；SQLite 已保存快照，但进程重启后恢复完整请求仍需桌面壳安全保存已授权任务定义，绝不从浏览器重建工具参数。
 - Rust IPC 当前是已测试的 JSON 消息契约；真实 JSON-RPC/文件监听 adapter、心跳发送和取消回传将在桌面控制面阶段实现。
 - 本地知识流程当前为可验证词法基线；SQLite FTS/向量 Store、受控文档解析任务、检索事件与工作台引用预览将沿既有端口扩展。
+
+
+## [2026-08-19] v0.11.0 SQLite 本地向量检索与可追溯引用预览
+
+### 决策
+
+- **适配当前 Node SQLite 能力而不降级产品边界**：运行时探测表明 Node 内置 `node:sqlite` 不包含 FTS5 模块。根据既定“SQLite FTS 或向量存储”目标，采用无需 SQLite 扩展的 SQLite 稀疏向量适配器，而非引入原生 addon 或在 UI 内构造索引。
+- **向量保持可解释、可替换且本地化**：`SqliteVectorKnowledgeStore` 以普通 SQLite 表保存确定性词项/汉字二元组的归一化稀疏向量，并使用 cosine 相似度排序。它不声称为语义 embedding；后续 dense embedding、sqlite-vec 或 FTS5 adapter 可复用 `SearchableKnowledgeStore`。
+- **引用预览只消费服务端 DTO**：工作台右栏新增“引用”标签。浏览器只发送查询并校验 `{documentId, chunkId, sourceUri, title, excerpt, score}`；文档摄取、SQLite 写入和向量计算留在回环网关。
+
+### 新增
+
+- `packages/knowledge-workflow/src/sqlite-vector-knowledge-store.ts`：SQLite WAL、文档/分块/向量三表事务替换、持久化稀疏向量、中文单字与二元组、英文词项及稳定 cosine 排序。
+- `SearchableKnowledgeStore` 与 `KnowledgeChunkMatch`：让领域工作流优先调用索引 adapter，并保留内存存储的确定性词法回退。
+- 本地网关知识接口：`POST /api/knowledge/documents` 摄取已解析文本；`GET /api/knowledge/search` 返回有来源、有片段、有分数的只读引用 DTO。
+- 工作台 `CitationPreview`、`HttpKnowledgeSearchClient` 与“引用”标签：展示本地知识搜索、匹配数、相关度、片段和来源 URI。
+- `docs/validation/knowledge-citation-preview-2026-08-19.md`：网关与浏览器端到端引用预览验收记录。
+
+### 修正
+
+- **初始 SQLite FTS5 实现无法运行**：当前 Node 内置 SQLite 返回 `no such module: fts5`，导致 3 项 FTS 测试失败。
+  → 处置：删除不可用的 FTS5 实现，改为 SQLite 稀疏向量 adapter；重建持久化、替换、排序、来源和特殊字符查询测试。此路径无需新增原生依赖。
+
+### 验证
+
+| 检查 | 结果 |
+|---|---|
+| `npm run typecheck` | 通过 |
+| `npm run test` | 48/48 通过 |
+| `npm run build --workspace=@awo/workbench` | 通过 |
+| 回环知识接口 | 摄取 1 个本地文档分块后，查询 `SQLite 引用预览` 返回来源、片段与相似度分数 |
+| 浏览器验收 | 右侧“引用”标签显示标题、得分 0.33、文本片段与 `file:///docs/knowledge-runtime.md` 来源链接 |
+
+### 后续边界
+
+- 向量当前是可解释的稀疏词元向量，不等同于语义 embedding，也没有跨文档重排序模型。
+- 开发网关本身不执行受控 `document.parse`；生产摄取必须让文档解析由现有 Profile、能力策略、审批、预算和事件链启动，再调用知识存储端口。
+- 本地 `file://` 引用由宿主环境决定是否可打开；工作台只展示 URI，不绕过桌面壳的文件访问策略。

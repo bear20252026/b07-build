@@ -29,6 +29,19 @@ export interface KnowledgeSearchResult {
   citation: KnowledgeCitation;
 }
 
+/** 索引适配器向工作流返回的原始命中；引用仍由领域层统一构造。 */
+export interface KnowledgeChunkMatch {
+  chunk: KnowledgeChunk;
+  score: number;
+}
+
+/**
+ * 可选索引能力。`KnowledgeStore` 仍可只提供内存遍历；具备 FTS/向量索引的 adapter 可实现此端口。
+ */
+export interface SearchableKnowledgeStore extends KnowledgeStore {
+  searchChunks(query: string, limit: number): readonly KnowledgeChunkMatch[];
+}
+
 /**
  * 本地知识存储端口。实现可采用内存、SQLite FTS、向量库或远程索引，但工作流只依赖该最小集合。
  */

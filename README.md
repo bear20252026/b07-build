@@ -1,6 +1,6 @@
 # AI Work OS
 
-> **v0.10.0** — 本地优先、可恢复、受控执行的个人 Agent 工作系统。
+> **v0.11.0** — 本地优先、可恢复、受控执行的个人 Agent 工作系统。
 
 AI Work OS 采用积木式三语言架构：**Rust** 负责进程监督与任务控制面，**TypeScript** 负责产品编排、策略、可恢复运行时与模型路由，**Python** 负责可替换的重计算 sidecar。工作台只提交意图和订阅事件；它不直接访问快照存储、Provider 密钥或工具实现。
 
@@ -16,7 +16,7 @@ AI Work OS 采用积木式三语言架构：**Rust** 负责进程监督与任务
 | Rust 控制面 | 进程监督、任务生命周期、心跳、取消边界与调度统计模型 | 控制面不触碰 TypeScript 业务策略 |
 | Provider | OpenAI-compatible、Local OpenAI-compatible、Anthropic Messages 流式 adapter | 按上下文、工具、视觉、成本和数据边界确定性选模 |
 | 跨语言控制 | Rust `SchedulerStatsMessage` v1 的严格 JSON 编解码与控制面投影 | 拒绝未知字段、错误版本、标识冲突和非法统计 |
-| 本地知识 | 纯领域层文档摄取、确定性分块、词法检索、来源引用与可替换 Store 端口 | 不调用网络或模型；结果必有来源 URI 和 chunk 引用 |
+| 本地知识 | SQLite 持久化稀疏向量、确定性分块、相似度检索、来源引用与可替换 Store 端口 | 不调用网络或模型；Node SQLite 无 FTS5 时仍能本地运行；结果必有来源 URI 和 chunk 引用 |
 | 工作台 | AionUi 风格三栏界面、Profile 切换、真实任务事件、SQLite 快照、审批与恢复按钮 | UI 仅提交目标/Profile 并消费验证后的 DTO；不接触工具、密钥或数据库 |
 
 ## 架构与通道
@@ -83,13 +83,13 @@ packages/agent-runtime     Profile、策略、预算、DAG、恢复、快照与�
 packages/provider-sdk      模型驱动端口、adapter 与确定性路由
 crates/process-supervisor  Rust 进程监督与任务控制面
 sidecars/document-worker   Python 文档计算 sidecar
-apps/workbench             React 三栏工作台（意图、事件订阅、快照与审批恢复）
-apps/runtime-gateway       仅限本地开发会话的 HTTP 桥接；服务端装配策略、审批、DAG 和 SQLite
-packages/knowledge-workflow 本地文档摄取、检索、来源引用与可替换存储端口
+apps/workbench             React 三栏工作台（意图、事件订阅、快照、审批恢复与引用预览）
+apps/runtime-gateway       仅限本地开发会话的 HTTP 桥接；服务端装配策略、审批、DAG、SQLite 和知识检索
+packages/knowledge-workflow 本地文档摄取、SQLite 稀疏向量检索、来源引用与可替换存储端口
 docs/research              公开资料架构研究与能力映射
 reference                  非构建参考资料，绝不在运行时加载或执行
 ```
 
 ## 下一阶段
 
-下一阶段将把现有 JSON 调度统计契约装配为真实的 JSON-RPC 或文件 IPC adapter，并把开发会话网关替换为桌面壳的 C1/C3 adapter。知识工作流将增加 SQLite FTS/向量索引 adapter、受控 `document.parse` 摄取动作与引用回传事件；在这些 adapter 到位前，UI、领域运行时和 Rust 控制面继续保持隔离。
+下一阶段将把现有 JSON 调度统计契约装配为真实的 JSON-RPC 或文件 IPC adapter，并把开发会话网关替换为桌面壳的 C1/C3 adapter。知识工作流已具备 SQLite 稀疏向量 adapter 与引用预览；后续将增加受控 `document.parse` 摄取动作、事件化引用回传，以及可选 dense embedding 或 sqlite-vec adapter。UI、领域运行时和 Rust 控制面继续保持隔离。

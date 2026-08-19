@@ -1,15 +1,19 @@
-// 一个文件=一种作用：宿主级持久产物预览（AionUi PreviewPanel/PreviewTabs 的独立实现）。
 import { useState } from 'react';
+import { CitationPreview } from './CitationPreview';
+import { HttpKnowledgeSearchClient, type CitationPreview as Citation } from '../../runtime/knowledge-client';
 
-type ViewKey = 'markdown' | 'html' | 'diff';
+type ViewKey = 'markdown' | 'html' | 'diff' | 'citations';
+
+const knowledgeClient = new HttpKnowledgeSearchClient();
 
 const TABS: { key: ViewKey; label: string }[] = [
   { key: 'markdown', label: '交付说明' },
   { key: 'html', label: '预览' },
   { key: 'diff', label: '变更' },
+  { key: 'citations', label: '引用' },
 ];
 
-const COPY: Record<ViewKey, { title: string; description: string }> = {
+const COPY: Record<Exclude<ViewKey, 'citations'>, { title: string; description: string }> = {
   markdown: {
     title: '任务产物将在这里持续更新',
     description: '运行时完成事件、产物引用和可编辑 Markdown 将通过 C6 事件流投递到此面板。',
@@ -26,7 +30,23 @@ const COPY: Record<ViewKey, { title: string; description: string }> = {
 
 export function PreviewPanel() {
   const [active, setActive] = useState<ViewKey>('markdown');
-  const copy = COPY[active];
+  const [query, setQuery] = useState('');
+  const [citations, setCitations] = useState<readonly Citation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const searchKnowledge = async (): Promise<void> => {
+    if (!query.trim() || loading) return;
+    setLoading(true);
+    setError(undefined);
+    try {
+      setCitations(await knowledgeClient.search(query));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '本地知识检索失败');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <aside className="preview-panel" aria-label="产物预览">
@@ -35,7 +55,7 @@ export function PreviewPanel() {
           <div className="preview-title">交付预览</div>
           <div className="preview-subtitle">宿主级持久视图</div>
         </div>
-        <span className="status-chip"><span className="status-dot" />同步</span>
+        <span className="status-chip"><span className="status-dot" />本地</span>
       </header>
       <div className="preview-tabs" role="tablist" aria-label="预览类型">
         {TABS.map((tab) => (
@@ -51,17 +71,28 @@ export function PreviewPanel() {
           </button>
         ))}
       </div>
-      <section className="preview-canvas">
-        <div className="preview-artifact-type">{active} artifact</div>
-        <h2>{copy.title}</h2>
-        <p>{copy.description}</p>
-        <div className="preview-lines" aria-hidden="true">
-          <div className="preview-line" />
-          <div className="preview-line short" />
-          <div className="preview-line" />
-          <div className="preview-line short" />
-        </div>
-      </section>
+      {active === 'citations' ? (
+        <CitationPreview
+          citations={citations}
+          error={error}
+          loading={loading}
+          onQueryChange={setQuery}
+          onSearch={() => void searchKnowledge()}
+          query={query}
+        />
+      ) : (
+        <section className="preview-canvas">
+          <div className="preview-artifact-type">{active} artifact</div>
+          <h2>{COPY[active].title}</h2>
+          <p>{COPY[active].description}</p>
+          <div className="preview-lines" aria-hidden="true">
+            <div className="preview-line" />
+            <div className="preview-line short" />
+            <div className="preview-line" />
+            <div className="preview-line short" />
+          </div>
+        </section>
+      )}
     </aside>
   );
 }
