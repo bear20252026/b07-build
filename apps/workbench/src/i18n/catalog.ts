@@ -81,6 +81,9 @@ export const catalog = {
     localModels: {
       aria: '本地模型健康', eyebrow: 'LOCAL MODEL OBSERVABILITY', title: '本地模型健康', count: (count: number) => `${count} 个已登记端点`, loading: '正在读取本地健康 metadata…', empty: '尚未登记本地模型端点。端点必须经受控配置后才会出现在此处。', configuredModel: '配置模型', checkedAt: '检查时间', discovered: '已发现模型', notChecked: '尚未检查', none: '无', offline: '操作者离线', status: { unknown: '未知', healthy: '健康', unhealthy: '不可用' }, note: '此卡片只读取回环端点的脱敏健康摘要；不会探测、连接、启动模型，不会修改 Provider Profile 或读取密钥。',
     },
+    diagnostics: {
+      aria: '控制面诊断', eyebrow: 'COLD-PATH CONTROL PLANE', title: '控制面诊断', loading: '正在读取受控组件 metadata…', empty: '当前没有已登记的插件、Provider 或可信桌面宿主。', extensions: '扩展', skillPacks: 'Skill Pack', providers: 'Provider', localModels: '本地模型', trustedIssuers: '可信桌面宿主', issuerRequired: '管理员租约需要可信桌面宿主', note: '此卡片只汇总已持久化的脱敏 metadata；不会加载插件、探测端点、签发租约、执行命令或读取凭据。', findings: (count: number) => `${count} 项诊断`, issuerCount: (count: number) => `${count} 个已登记宿主`,
+    },
     authority: {
       selectLabel: '执行权限', selectAria: '选择本次任务的执行权限', mode: {
         plan: { label: '只计划', description: '只允许模型、文档和只读工作区检查；高影响能力会被拒绝。' },
@@ -173,6 +176,9 @@ export const catalog = {
     },
     localModels: {
       aria: 'Local model health', eyebrow: 'LOCAL MODEL OBSERVABILITY', title: 'Local model health', count: (count: number) => `${count} registered endpoints`, loading: 'Reading local health metadata…', empty: 'No local model endpoint is registered. An endpoint appears here only after controlled configuration.', configuredModel: 'Configured model', checkedAt: 'Checked', discovered: 'Discovered models', notChecked: 'Not checked', none: 'None', offline: 'Operator offline', status: { unknown: 'Unknown', healthy: 'Healthy', unhealthy: 'Unavailable' }, note: 'This card only reads redacted health summaries for loopback endpoints. It cannot probe, connect, or start a model; it cannot alter Provider Profiles or read secrets.',
+    },
+    diagnostics: {
+      aria: 'Control plane diagnostics', eyebrow: 'COLD-PATH CONTROL PLANE', title: 'Control plane diagnostics', loading: 'Reading controlled component metadata…', empty: 'No plugin, Provider, or trusted desktop host is registered yet.', extensions: 'Extensions', skillPacks: 'Skill Packs', providers: 'Providers', localModels: 'Local models', trustedIssuers: 'Trusted desktop hosts', issuerRequired: 'Administrator leases require a trusted desktop host', note: 'This card only aggregates persisted, redacted metadata. It cannot load plugins, probe endpoints, issue leases, run commands, or read credentials.', findings: (count: number) => `${count} findings`, issuerCount: (count: number) => `${count} registered hosts`,
     },
     authority: {
       selectLabel: 'Execution authority', selectAria: 'Select execution authority for this task', mode: {

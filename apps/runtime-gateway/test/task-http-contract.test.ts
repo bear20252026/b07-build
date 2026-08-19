@@ -23,6 +23,7 @@ const DATABASE_VARIABLES = [
   'AWO_SCHEDULE_RUN_DB',
   'AWO_RUN_TRAJECTORY_DB',
   'AWO_ADMINISTRATOR_LEASE_DB',
+  'AWO_TRUSTED_DESKTOP_ISSUER_DB',
 ] as const;
 
 async function withGateway<T>(run: (baseUrl: string) => Promise<T>): Promise<T> {
@@ -55,6 +56,18 @@ test('Gateway 强制 Task Submit HTTP v1，并提供脱敏且只读的 run traje
     assert.deepEqual(await localHealth.json(), []);
     const prohibitedLocalModelWrite = await fetch(`${baseUrl}/api/local-models/health`, { method: 'POST' });
     assert.equal(prohibitedLocalModelWrite.status, 404);
+
+    const diagnostics = await fetch(`${baseUrl}/api/control-plane/diagnostics`);
+    assert.equal(diagnostics.status, 200);
+    const diagnosticReport = await diagnostics.json() as { canExecute: boolean; authority: { adminIssuance: string; browserCanIssue: boolean }; extensions: unknown[]; skillPacks: unknown[]; providers: unknown[]; trustedDesktopIssuers: unknown[] };
+    assert.equal(diagnosticReport.canExecute, false);
+    assert.deepEqual(diagnosticReport.authority, { adminIssuance: 'trusted-desktop-host-required', browserCanIssue: false, canExecute: false });
+    assert.deepEqual(diagnosticReport.extensions, []);
+    assert.deepEqual(diagnosticReport.skillPacks, []);
+    assert.deepEqual(diagnosticReport.providers, []);
+    assert.deepEqual(diagnosticReport.trustedDesktopIssuers, []);
+    const prohibitedDiagnosticWrite = await fetch(`${baseUrl}/api/control-plane/diagnostics`, { method: 'POST' });
+    assert.equal(prohibitedDiagnosticWrite.status, 404);
 
     const automated = await fetch(`${baseUrl}/api/tasks`, {
       method: 'POST',

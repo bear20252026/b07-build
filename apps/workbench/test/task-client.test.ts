@@ -112,3 +112,33 @@ test('本地模型健康客户端仅读取脱敏摘要、按 endpoint ID 排序�
     globalThis.fetch = originalFetch;
   }
 });
+
+test('控制面诊断客户端只读取冷路径脱敏报告，并拒绝敏感或可执行字段', async () => {
+  const originalFetch = globalThis.fetch;
+  let url = '';
+  const report = {
+    schemaVersion: 1, generatedAt: 1, canExecute: false,
+    authority: { adminIssuance: 'trusted-desktop-host-required', browserCanIssue: false, canExecute: false },
+    extensions: [{ id: 'extension-1', kind: 'tool-adapter', status: 'reviewed', revision: 1, dataBoundary: 'local-only', declaredCapabilities: ['filesystem.read'], findings: [{ severity: 'info', code: 'REVIEW_REQUIRED' }], canExecute: false }],
+    skillPacks: [{ id: 'skill-1', status: 'published', revision: 1, version: '1.0.0', estimatedTokens: 100, canAuthorize: false, canGrantCapabilities: false }],
+    providers: [{ id: 'provider-1', status: 'active', revision: 1, dataBoundary: 'local-only', driverIds: ['local-openai'] }],
+    localModels: [{ id: 'model-1', configuredModelId: 'model', offline: false, healthStatus: 'healthy', checkedAt: 1, modelIds: ['model'] }],
+    trustedDesktopIssuers: [{ issuerId: 'host-1', displayName: 'Local Host', platform: 'windows', status: 'trusted', revision: 2, canExecute: false }],
+  };
+  globalThis.fetch = (async (nextUrl) => { url = String(nextUrl); return Response.json(report); }) as typeof fetch;
+  try {
+    const value = await new HttpWorkbenchTaskClient().controlPlaneDiagnostics();
+    assert.equal(url, '/api/control-plane/diagnostics');
+    assert.equal(value.authority.browserCanIssue, false);
+    assert.equal(value.extensions[0].canExecute, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = (async () => Response.json({ ...report, providers: [{ ...report.providers[0], endpointUrl: 'http://127.0.0.1:11434' }] })) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().controlPlaneDiagnostics(), /未声明或敏感/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

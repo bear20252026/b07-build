@@ -46,6 +46,18 @@ export interface WorkbenchLocalModelHealth {
   }>;
 }
 
+export interface WorkbenchControlPlaneDiagnostics {
+  schemaVersion: 1;
+  generatedAt: number;
+  authority: Readonly<{ adminIssuance: 'trusted-desktop-host-required'; browserCanIssue: false; canExecute: false }>;
+  extensions: readonly Readonly<{ id: string; kind: string; status: string; revision: number; dataBoundary: string; declaredCapabilities: readonly string[]; findings: readonly Readonly<{ severity: 'info' | 'warning'; code: string }>[]; canExecute: false }> [];
+  skillPacks: readonly Readonly<{ id: string; status: string; revision: number; version: string; estimatedTokens: number; canAuthorize: false; canGrantCapabilities: false }> [];
+  providers: readonly Readonly<{ id: string; status: string; revision: number; dataBoundary: string; driverIds: readonly string[] }> [];
+  localModels: readonly Readonly<{ id: string; configuredModelId: string; offline: boolean; healthStatus: 'unknown' | 'healthy' | 'unhealthy'; checkedAt?: number; modelIds: readonly string[] }> [];
+  trustedDesktopIssuers: readonly Readonly<{ issuerId: string; displayName: string; platform: string; status: string; revision: number; canExecute: false }> [];
+  canExecute: false;
+}
+
 export interface WorkbenchRunTrajectoryEvent {
   schemaVersion: 1;
   trajectoryEventId: string;
@@ -78,6 +90,7 @@ export interface WorkbenchTaskClient {
   events(taskId: string, runId: string): Promise<readonly TaskEvent[]>;
   trajectory(taskId: string, runId: string): Promise<readonly WorkbenchRunTrajectoryEvent[]>;
   localModelHealth(): Promise<readonly WorkbenchLocalModelHealth[]>;
+  controlPlaneDiagnostics(): Promise<WorkbenchControlPlaneDiagnostics>;
 }
 
 function assertLocalModelHealth(value: unknown): asserts value is WorkbenchLocalModelHealth {
@@ -94,6 +107,46 @@ function assertLocalModelHealth(value: unknown): asserts value is WorkbenchLocal
     || (health.probeMethod !== undefined && health.probeMethod !== 'HEAD' && health.probeMethod !== 'GET')
     || (health.error !== undefined && typeof health.error !== 'string')
   ) throw new Error('本地模型健康摘要返回了不兼容的 metadata contract');
+}
+
+function isSafeMetadataArray(value: unknown): value is readonly Record<string, unknown>[] {
+  return Array.isArray(value) && value.every((item) => Boolean(item) && typeof item === 'object' && !Array.isArray(item));
+}
+
+function assertControlPlaneDiagnostics(value: unknown): asserts value is WorkbenchControlPlaneDiagnostics {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('控制面诊断无效');
+  const report = value as Record<string, unknown>;
+  if (
+    Object.keys(report).some((key) => !['schemaVersion', 'generatedAt', 'authority', 'extensions', 'skillPacks', 'providers', 'localModels', 'trustedDesktopIssuers', 'canExecute'].includes(key))
+    || report.schemaVersion !== 1 || !Number.isSafeInteger(report.generatedAt) || report.canExecute !== false
+    || !report.authority || typeof report.authority !== 'object' || Array.isArray(report.authority)
+    || Object.keys(report.authority as object).some((key) => !['adminIssuance', 'browserCanIssue', 'canExecute'].includes(key))
+    || (report.authority as Record<string, unknown>).adminIssuance !== 'trusted-desktop-host-required'
+    || (report.authority as Record<string, unknown>).browserCanIssue !== false || (report.authority as Record<string, unknown>).canExecute !== false
+    || !isSafeMetadataArray(report.extensions) || !isSafeMetadataArray(report.skillPacks) || !isSafeMetadataArray(report.providers)
+    || !isSafeMetadataArray(report.localModels) || !isSafeMetadataArray(report.trustedDesktopIssuers)
+  ) throw new Error('控制面诊断返回了不兼容或可执行的 metadata contract');
+  const safeStringArray = (candidate: unknown): boolean => Array.isArray(candidate) && candidate.every((item) => typeof item === 'string');
+  for (const extension of report.extensions) {
+    if (Object.keys(extension).some((key) => !['id', 'kind', 'status', 'revision', 'dataBoundary', 'declaredCapabilities', 'findings', 'canExecute'].includes(key))
+      || typeof extension.id !== 'string' || typeof extension.kind !== 'string' || typeof extension.status !== 'string' || !Number.isSafeInteger(extension.revision)
+      || typeof extension.dataBoundary !== 'string' || !safeStringArray(extension.declaredCapabilities) || !isSafeMetadataArray(extension.findings) || extension.canExecute !== false
+      || extension.findings.some((finding) => Object.keys(finding).some((key) => !['severity', 'code'].includes(key)) || !['info', 'warning'].includes(String(finding.severity)) || typeof finding.code !== 'string')) throw new Error('Extension 诊断包含未声明或敏感字段');
+  }
+  for (const skill of report.skillPacks) {
+    if (Object.keys(skill).some((key) => !['id', 'status', 'revision', 'version', 'estimatedTokens', 'canAuthorize', 'canGrantCapabilities'].includes(key))
+      || typeof skill.id !== 'string' || typeof skill.status !== 'string' || !Number.isSafeInteger(skill.revision) || typeof skill.version !== 'string'
+      || !Number.isSafeInteger(skill.estimatedTokens) || skill.canAuthorize !== false || skill.canGrantCapabilities !== false) throw new Error('Skill Pack 诊断包含未声明或可授权字段');
+  }
+  for (const provider of report.providers) {
+    if (Object.keys(provider).some((key) => !['id', 'status', 'revision', 'dataBoundary', 'driverIds'].includes(key)) || typeof provider.id !== 'string' || typeof provider.status !== 'string' || !Number.isSafeInteger(provider.revision) || typeof provider.dataBoundary !== 'string' || !safeStringArray(provider.driverIds)) throw new Error('Provider 诊断包含未声明或敏感字段');
+  }
+  for (const model of report.localModels) {
+    if (Object.keys(model).some((key) => !['id', 'configuredModelId', 'offline', 'healthStatus', 'checkedAt', 'modelIds'].includes(key)) || typeof model.id !== 'string' || typeof model.configuredModelId !== 'string' || typeof model.offline !== 'boolean' || !['unknown', 'healthy', 'unhealthy'].includes(String(model.healthStatus)) || (model.checkedAt !== undefined && !Number.isSafeInteger(model.checkedAt)) || !safeStringArray(model.modelIds)) throw new Error('本地模型诊断包含未声明或敏感字段');
+  }
+  for (const issuer of report.trustedDesktopIssuers) {
+    if (Object.keys(issuer).some((key) => !['issuerId', 'displayName', 'platform', 'status', 'revision', 'canExecute'].includes(key)) || typeof issuer.issuerId !== 'string' || typeof issuer.displayName !== 'string' || typeof issuer.platform !== 'string' || typeof issuer.status !== 'string' || !Number.isSafeInteger(issuer.revision) || issuer.canExecute !== false) throw new Error('可信桌面 issuer 诊断包含未声明或可执行字段');
+  }
 }
 
 function assertTrajectoryEvent(value: unknown): asserts value is WorkbenchRunTrajectoryEvent {
@@ -122,6 +175,7 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
   constructor(
     private readonly baseUrl = '/api/tasks',
     private readonly localModelHealthUrl = '/api/local-models/health',
+    private readonly controlPlaneDiagnosticUrl = '/api/control-plane/diagnostics',
   ) {}
 
   async submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot> {
@@ -176,6 +230,14 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     if (!Array.isArray(payload)) throw new Error('本地模型健康返回了无效列表');
     payload.forEach(assertLocalModelHealth);
     return [...payload].sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  async controlPlaneDiagnostics(): Promise<WorkbenchControlPlaneDiagnostics> {
+    const response = await fetch(this.controlPlaneDiagnosticUrl, { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(await response.text() || `控制面诊断请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertControlPlaneDiagnostics(payload);
+    return payload;
   }
 
   async snapshot(taskId: string, runId: string): Promise<WorkbenchTaskSnapshot | undefined> {

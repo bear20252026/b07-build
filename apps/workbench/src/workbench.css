@@ -315,3 +315,17 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .authority-select select { min-height: 28px; padding: 0 24px 0 8px; color: var(--text-strong); font-size: 10px; font-weight: 650; border: 1px solid var(--border-strong); border-radius: 7px; outline: none; background: var(--panel); }
 .authority-select select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 @media (max-width: 620px) { .authority-select > span { display: none; } }
+
+.control-diagnostics-board { margin-top: 18px; padding: 18px; border: 1px solid var(--border); border-radius: 16px; background: color-mix(in srgb, var(--panel) 94%, var(--accent-soft)); }
+.diagnostics-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.diagnostics-heading span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; }
+.diagnostics-heading h2 { margin: 4px 0 0; color: var(--text-strong); font-size: 16px; letter-spacing: -0.02em; }
+.diagnostics-count { min-width: 30px; padding: 4px 8px; color: var(--muted-strong); font-size: 12px; text-align: center; border-radius: 999px; background: var(--panel-muted); }
+.diagnostics-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.diagnostics-grid article { min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: 11px; background: var(--panel); }
+.diagnostics-grid span, .diagnostics-grid small { display: block; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.diagnostics-grid strong { display: block; margin: 5px 0; color: var(--text-strong); font-size: 20px; }
+.diagnostics-empty, .diagnostics-note, .diagnostics-authority { color: var(--muted); font-size: 12px; line-height: 1.55; }
+.diagnostics-authority { margin: 14px 0 0; color: var(--warning); }
+.diagnostics-note { margin: 6px 0 0; }
+@media (max-width: 760px) { .diagnostics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

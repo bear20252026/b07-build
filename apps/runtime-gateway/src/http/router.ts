@@ -3,6 +3,7 @@ import { createHttpRequestContext, errorStatus, sendJson } from './boundary.js';
 import type { GatewayDependencies } from './gateway-dependencies.js';
 import type { GatewayRoute } from './route-contract.js';
 import { handleAgentAdapterRoutes } from './routes/agent-adapters.js';
+import { handleControlPlaneDiagnosticRoutes } from './routes/control-plane-diagnostics.js';
 import { handleExtensionRoutes } from './routes/extensions.js';
 import { handleKnowledgeRoutes } from './routes/knowledge.js';
 import { handleLocalModelRoutes } from './routes/local-models.js';
@@ -15,6 +16,7 @@ import { handleTaskRoutes } from './routes/tasks.js';
  * 每个 handler 处理后返回 true，未匹配时将请求交给下一条显式管道。
  */
 const ROUTE_PIPELINE: readonly GatewayRoute[] = [
+  handleControlPlaneDiagnosticRoutes,
   handleScheduleRoutes,
   handleAgentAdapterRoutes,
   handleLocalModelRoutes,

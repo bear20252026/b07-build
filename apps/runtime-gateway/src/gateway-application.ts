@@ -28,6 +28,8 @@ import {
   SqliteRunTrajectoryStore,
   SqliteTaskCommandReceiptStore,
   SqliteTaskSnapshotStore,
+  SqliteTrustedDesktopIssuerStore,
+  TrustedDesktopIssuerRegistry,
   type DAGNode,
   type TaskRuntimeRequest,
 } from '@awo/agent-runtime';
@@ -40,6 +42,7 @@ import {
 } from '@awo/knowledge-workflow';
 import { LocalModelHealthRegistry, ProviderProfileRegistry, SqliteProviderProfileStore } from '@awo/provider-sdk';
 import type { GatewayDependencies } from './http/gateway-dependencies.js';
+import { createControlPlaneDiagnosticReport } from './control-plane-diagnostics.js';
 import { handleGatewayRequest } from './http/router.js';
 
 const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318);
@@ -110,6 +113,7 @@ export function createGatewayComposition(): GatewayComposition {
   const scheduleRunPath = resolve(process.env.AWO_SCHEDULE_RUN_DB ?? '.awo/audited-schedule-runs.sqlite');
   const runTrajectoryPath = resolve(process.env.AWO_RUN_TRAJECTORY_DB ?? '.awo/run-trajectories.sqlite');
   const administratorLeasePath = resolve(process.env.AWO_ADMINISTRATOR_LEASE_DB ?? '.awo/administrator-leases.sqlite');
+  const trustedDesktopIssuerPath = resolve(process.env.AWO_TRUSTED_DESKTOP_ISSUER_DB ?? '.awo/trusted-desktop-issuers.sqlite');
 
   const store = new SqliteTaskSnapshotStore(snapshotPath);
   const knowledgeWorkspaceStore = new SqliteKnowledgeWorkspaceStore(knowledgeWorkspacePath);
@@ -139,6 +143,8 @@ export function createGatewayComposition(): GatewayComposition {
   const runTrajectory = new RunTrajectoryLedger(runTrajectoryStore);
   const administratorLeaseStore = new SqliteAdministratorLeaseStore(administratorLeasePath);
   const administratorLeases = new AdministratorAuthorityLedger(administratorLeaseStore);
+  const trustedDesktopIssuerStore = new SqliteTrustedDesktopIssuerStore(trustedDesktopIssuerPath);
+  const trustedDesktopIssuers = new TrustedDesktopIssuerRegistry(trustedDesktopIssuerStore);
 
   if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
     knowledgeWorkspaces.create({
@@ -208,6 +214,7 @@ export function createGatewayComposition(): GatewayComposition {
       () => scheduledRunStore.close(),
       () => runTrajectoryStore.close(),
       () => administratorLeaseStore.close(),
+      () => trustedDesktopIssuerStore.close(),
     ];
     let closeFailure: unknown;
     for (const close of closers) {
@@ -224,7 +231,16 @@ export function createGatewayComposition(): GatewayComposition {
     dependencies: {
       runtime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
       extensionActivationPlanner, extensionDoctor, providerProfiles, localModelHealth, knowledgeWorkspaces, skillPacks,
-      agentAdapters, schedules, runTrajectory, administratorLeases, defaultKnowledgeWorkspaceId: DEFAULT_KNOWLEDGE_WORKSPACE_ID,
+      agentAdapters, schedules, runTrajectory, administratorLeases, trustedDesktopIssuers,
+      controlPlaneDiagnostics: () => createControlPlaneDiagnosticReport({
+        extensions: extensionRegistry,
+        extensionDoctor,
+        skillPacks,
+        providerProfiles,
+        localModels: localModelHealth,
+        trustedDesktopIssuers,
+      }),
+      defaultKnowledgeWorkspaceId: DEFAULT_KNOWLEDGE_WORKSPACE_ID,
       requests, eventsByRun, approvedActions, createTaskRequest, createEvent,
     },
     close: closeResources,

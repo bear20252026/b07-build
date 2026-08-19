@@ -12,10 +12,12 @@ import type {
   SqliteTaskCommandReceiptStore,
   LocalTaskRuntimeService,
   TaskRuntimeRequest,
+  TrustedDesktopIssuerRegistry,
 } from '@awo/agent-runtime';
 import type { KnowledgeWorkspaceService, SkillPackRegistry } from '@awo/knowledge-workflow';
 import type { LocalModelHealthRegistry, ProviderProfileRegistry } from '@awo/provider-sdk';
 import type { TaskEvent } from '@awo/protocol';
+import type { ControlPlaneDiagnosticReportV1 } from '../control-plane-diagnostics.js';
 
 /** Gateway route 使用的组合对象；只能由 composition root 创建并注入。 */
 export interface GatewayDependencies {
@@ -35,6 +37,8 @@ export interface GatewayDependencies {
   readonly schedules: AuditedScheduleControlPlane;
   readonly runTrajectory: RunTrajectoryLedger;
   readonly administratorLeases: AdministratorAuthorityLedger;
+  readonly trustedDesktopIssuers: TrustedDesktopIssuerRegistry;
+  readonly controlPlaneDiagnostics: () => ControlPlaneDiagnosticReportV1;
   readonly defaultKnowledgeWorkspaceId: string;
   readonly requests: Map<string, TaskRuntimeRequest>;
   readonly eventsByRun: Map<string, TaskEvent[]>;
