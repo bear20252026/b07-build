@@ -8,6 +8,12 @@ pub struct SidecarSupervisor {
     child: Mutex<Option<Child>>,
 }
 
+impl Default for SidecarSupervisor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SidecarSupervisor {
     pub fn new() -> Self {
         Self {
