@@ -1,0 +1,7 @@
+# sidecars/document-worker/requirements.txt —— 一个文件=一个作用：依赖清单
+fastapi>=0.115
+uvicorn>=0.30
+# 文档解析（按需启用）：
+# pdfplumber>=0.11
+# python-docx>=1.1
+# mammoth>=1.8

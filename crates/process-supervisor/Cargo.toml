@@ -1,0 +1,7 @@
+[package]
+name = "process-supervisor"
+version = "0.1.0"
+edition = "2021"
+description = "AI Work OS - 子进程监督：拉起/回收 Python sidecar（一个 crate=一类作用，无业务逻辑）"
+
+[dependencies]

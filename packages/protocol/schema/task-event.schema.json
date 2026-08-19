@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/protocol/task-event.schema.json",
+  "title": "TaskEvent",
+  "description": "唯一事实源：任务/计划/审批/工具调用/产物事件。所有语言共用此 JSON 事件协议 (C3/C6 通道)。",
+  "oneOf": [
+    { "type": "object", "required": ["type", "taskId", "goal"],
+      "properties": { "type": { "const": "task.created" }, "taskId": { "type": "string" }, "goal": { "type": "string" }, "at": { "type": "number" } } },
+    { "type": "object", "required": ["type", "taskId", "steps"],
+      "properties": { "type": { "const": "plan.proposed" }, "taskId": { "type": "string" }, "steps": { "type": "array" }, "at": { "type": "number" } } },
+    { "type": "object", "required": ["type", "actionId", "risk"],
+      "properties": { "type": { "const": "approval.required" }, "actionId": { "type": "string" }, "risk": { "enum": ["low", "medium", "high"] }, "at": { "type": "number" } } },
+    { "type": "object", "required": ["type", "callId", "tool", "inputHash"],
+      "properties": { "type": { "const": "tool.called" }, "callId": { "type": "string" }, "tool": { "type": "object" }, "inputHash": { "type": "string" }, "at": { "type": "number" } } },
+    { "type": "object", "required": ["type", "callId", "status", "outputRef"],
+      "properties": { "type": { "const": "tool.result" }, "callId": { "type": "string" }, "status": { "enum": ["ok", "error"] }, "outputRef": { "type": "string" }, "at": { "type": "number" } } },
+    { "type": "object", "required": ["type", "artifactId", "mime", "path"],
+      "properties": { "type": { "const": "artifact.created" }, "artifactId": { "type": "string" }, "mime": { "type": "string" }, "path": { "type": "string" }, "at": { "type": "number" } } },
+    { "type": "object", "required": ["type", "taskId", "summaryRef"],
+      "properties": { "type": { "const": "task.completed" }, "taskId": { "type": "string" }, "summaryRef": { "type": "string" }, "at": { "type": "number" } } }
+  ]
+}

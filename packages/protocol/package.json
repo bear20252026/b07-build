@@ -1,0 +1,10 @@
+{
+  "name": "@awo/protocol",
+  "version": "0.1.0",
+  "description": "AI Work OS 协议唯一事实源：TaskEvent 类型 + JSON Schema（一包=一作用）",
+  "type": "module",
+  "main": "src/types.ts",
+  "types": "src/types.ts",
+  "exports": { ".": "./src/types.ts" },
+  "files": ["src", "schema"]
+}
