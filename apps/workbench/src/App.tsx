@@ -35,7 +35,20 @@ export function App() {
         </section>
         <PreviewPanel />
         <footer style={{ padding: 8, borderTop: '1px solid #e5e7eb' }}>
-          <button onClick={() => pushEvent({ type: 'plan.proposed', taskId: 'T1', steps: [{ id: 's1', description: '研究' }], at: Date.now() })}>
+          <button
+            onClick={() => {
+              const at = Date.now();
+              pushEvent({
+                protocolVersion: '1.0',
+                eventId: `demo-plan-${at}`,
+                type: 'plan.proposed',
+                taskId: 'T1',
+                runId: 'demo-run-1',
+                steps: [{ id: 's1', description: '研究', risk: 'low' }],
+                at,
+              });
+            }}
+          >
             发一条计划事件
           </button>
         </footer>

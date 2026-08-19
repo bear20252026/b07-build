@@ -1,6 +1,33 @@
-// packages/protocol/src/types.ts —— 一文件=一作用：只声明协议类型，不放逻辑
+// 一个文件=一种作用：AI Work OS 跨语言事件与能力策略类型（C3/C6 的唯一事实源）。
+
+export const TASK_EVENT_PROTOCOL_VERSION = '1.0' as const;
+
+export type TaskEventProtocolVersion = typeof TASK_EVENT_PROTOCOL_VERSION;
 export type RiskLevel = 'low' | 'medium' | 'high';
 export type ToolStatus = 'ok' | 'error';
+export type ApprovalDecision = 'approved' | 'rejected';
+export type CapabilityDecision = 'allow' | 'require_approval' | 'deny';
+
+/**
+ * 功能能力是授权的最小单位。新增能力必须先在此处声明，不能以任意字符串绕过策略层。
+ */
+export type Capability =
+  | 'document.parse'
+  | 'model.chat'
+  | 'filesystem.read'
+  | 'filesystem.write'
+  | 'network.fetch'
+  | 'shell.execute'
+  | 'browser.control';
+
+/** 每条事件都必须携带的可回放/可审计上下文。 */
+export interface EventEnvelope {
+  protocolVersion: TaskEventProtocolVersion;
+  eventId: string;
+  taskId: string;
+  runId: string;
+  at: number;
+}
 
 export interface PlanStep {
   id: string;
@@ -8,16 +35,111 @@ export interface PlanStep {
   risk?: RiskLevel;
 }
 
-export type TaskEvent =
-  | { type: 'task.created'; taskId: string; goal: string; at: number }
-  | { type: 'plan.proposed'; taskId: string; steps: PlanStep[]; at: number }
-  | { type: 'approval.required'; actionId: string; risk: RiskLevel; at: number }
-  | { type: 'tool.called'; callId: string; tool: ToolRef; inputHash: string; at: number }
-  | { type: 'tool.result'; callId: string; status: ToolStatus; outputRef: string; at: number }
-  | { type: 'artifact.created'; artifactId: string; mime: string; path: string; at: number }
-  | { type: 'task.completed'; taskId: string; summaryRef: string; at: number };
-
+/**
+ * 工具引用同时声明能力与风险；执行器只根据该显式声明请求授权，不能猜测工具行为。
+ */
 export interface ToolRef {
   name: string;
   args: unknown;
+  capability: Capability;
+  risk: RiskLevel;
+}
+
+/**
+ * 一条规则只表达一种能力的决策。缺失规则时由策略实现默认拒绝。
+ * risk 未指定表示该能力的全部风险等级均匹配。
+ */
+export interface CapabilityPolicyRule {
+  capability: Capability;
+  decision: CapabilityDecision;
+  risk?: RiskLevel;
+  reason: string;
+}
+
+export interface CapabilityRequest {
+  capability: Capability;
+  risk: RiskLevel;
+  taskId: string;
+  runId: string;
+  actionId: string;
+}
+
+export interface CapabilityEvaluation {
+  decision: CapabilityDecision;
+  reason: string;
+}
+
+export interface TaskCreatedEvent extends EventEnvelope {
+  type: 'task.created';
+  goal: string;
+}
+
+export interface PlanProposedEvent extends EventEnvelope {
+  type: 'plan.proposed';
+  steps: PlanStep[];
+}
+
+export interface ApprovalRequiredEvent extends EventEnvelope {
+  type: 'approval.required';
+  actionId: string;
+  capability: Capability;
+  risk: RiskLevel;
+  reason: string;
+}
+
+export interface ApprovalResolvedEvent extends EventEnvelope {
+  type: 'approval.resolved';
+  actionId: string;
+  decision: ApprovalDecision;
+  resolvedBy: string;
+}
+
+export interface ToolCalledEvent extends EventEnvelope {
+  type: 'tool.called';
+  callId: string;
+  tool: ToolRef;
+  inputHash: string;
+}
+
+export interface ToolResultEvent extends EventEnvelope {
+  type: 'tool.result';
+  callId: string;
+  status: ToolStatus;
+  outputRef: string;
+  errorCode?: string;
+  reason?: string;
+}
+
+export interface ArtifactCreatedEvent extends EventEnvelope {
+  type: 'artifact.created';
+  artifactId: string;
+  mime: string;
+  path: string;
+}
+
+export interface TaskCompletedEvent extends EventEnvelope {
+  type: 'task.completed';
+  summaryRef: string;
+}
+
+export interface TaskFailedEvent extends EventEnvelope {
+  type: 'task.failed';
+  code: string;
+  message: string;
+}
+
+export type TaskEvent =
+  | TaskCreatedEvent
+  | PlanProposedEvent
+  | ApprovalRequiredEvent
+  | ApprovalResolvedEvent
+  | ToolCalledEvent
+  | ToolResultEvent
+  | ArtifactCreatedEvent
+  | TaskCompletedEvent
+  | TaskFailedEvent;
+
+/** C4 端口：所有能力策略实现都必须遵守这一稳定接口。 */
+export interface CapabilityPolicy {
+  evaluate(request: CapabilityRequest): CapabilityEvaluation;
 }

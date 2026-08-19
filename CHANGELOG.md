@@ -47,3 +47,34 @@
 ### 附注
 - 代码/文档均按《积木架构铁律》：一文件一职责、靠渠道通信、替换实现只换 adapter 不换 port。
 - UI 组件参照 AionUi（Layout/Sider/MessageThinking/PreviewPanel/BrowserViewer），已核证真实组件命名。
+
+
+## [2026-08-19] v0.3.0 可信执行链基础：可验证事件 + 默认拒绝 + 审批门控
+
+### 决策
+- **事件信封升级为 v1.0**：所有 `TaskEvent` 强制携带 `protocolVersion`、`eventId`、`taskId`、`runId` 与时间戳，作为 C3/C6 事件关联、回放和审计的最小前提。
+- **能力策略默认拒绝**：未声明的 capability/risk 组合一律产生 `CAPABILITY_DENIED`，不得触达底层 `ToolRunner`；需要审批的规则只在明确批准后执行。
+- **运行时校验作为通道入口**：`packages/protocol` 用 JSON Schema 提供 `validateTaskEvent()` / `isTaskEvent()`，用于校验来自 UI、进程、sidecar 或事件日志的未知输入。
+
+### 新增
+- `packages/protocol/src/task-event-validator.ts`：TaskEvent JSON Schema 运行时校验器与结构化错误输出。
+- `packages/protocol/src/index.ts`：协议包唯一公共入口，导出类型与校验端口。
+- `packages/agent-runtime/src/capability-policy.ts`：C4 `RuleBasedCapabilityPolicy` 适配器，精确风险规则优先、缺失规则默认拒绝。
+- `packages/agent-runtime/src/controlled-tool-runner.ts`：策略→审批→工具端口的受控执行器，发出拒绝、审批、调用与结果事件。
+- 协议、DAG 与受控执行链共 9 个自动化测试；根 `npm test` 统一执行。
+- 工作台开发依赖升级至 Vite 8 / React 插件 6，消除原有开发服务器的高危依赖告警。
+
+### 修正
+- **原 DAG 事件未包含可回放信封字段**。
+  → 处置：`DAGExecutor` 新增 `DAGRunContext`，所有工具调用/结果事件均带 v1.0 envelope 和稳定 `eventId`。
+- **JSON Schema 组合规则会将基础信封字段误判为额外字段**。
+  → 处置：调整组合规则，保留对事件类型、必填字段、风险级别和 capability 枚举的严格校验。
+
+### 验证
+- `npm run typecheck` ✅
+- `npm test` ✅（9/9）
+- `npm run typecheck --workspace=@awo/workbench` ✅
+- `npm audit --audit-level=high` ✅（0 vulnerabilities）
+
+### 后续边界
+- 本版本提供运行时策略门控基础，不替代 Rust 控制面中的密钥存储、OS 权限、进程隔离或事件持久化；这些能力将在后续经 C1/C2/C3 通道接入。
