@@ -14,7 +14,11 @@ import {
   SqliteMcpManifestStore,
   ExtensionRegistry,
   SqliteExtensionManifestStore,
+  ExtensionActivationPlanner,
+  ExtensionDoctor,
+  SqliteExtensionPlanStore,
   type DiscoverExtensionRequest,
+  type ExtensionActivationTarget,
   type McpConnection,
   type McpToolManifest,
   type DAGNode,
@@ -35,6 +39,7 @@ const RECEIPT_PATH = resolve(process.env.AWO_RECEIPT_DB ?? '.awo/task-command-re
 const SUBTASK_PATH = resolve(process.env.AWO_SUBTASK_DB ?? '.awo/read-only-subtasks.sqlite');
 const MCP_MANIFEST_PATH = resolve(process.env.AWO_MCP_MANIFEST_DB ?? '.awo/mcp-manifests.sqlite');
 const EXTENSION_MANIFEST_PATH = resolve(process.env.AWO_EXTENSION_MANIFEST_DB ?? '.awo/extension-manifests.sqlite');
+const EXTENSION_PLAN_PATH = resolve(process.env.AWO_EXTENSION_PLAN_DB ?? '.awo/extension-plans.sqlite');
 const store = new SqliteTaskSnapshotStore(SNAPSHOT_PATH);
 const knowledgeWorkspaceStore = new SqliteKnowledgeWorkspaceStore(KNOWLEDGE_WORKSPACE_PATH);
 const knowledgeStoreFactory = new SqliteWorkspaceKnowledgeStoreFactory(KNOWLEDGE_WORKSPACE_DIR);
@@ -46,6 +51,7 @@ const mcpManifestStore = new SqliteMcpManifestStore(MCP_MANIFEST_PATH);
 const mcpRegistry = new McpRegistry(mcpManifestStore);
 const extensionManifestStore = new SqliteExtensionManifestStore(EXTENSION_MANIFEST_PATH);
 const extensionRegistry = new ExtensionRegistry(extensionManifestStore);
+const extensionPlanStore = new SqliteExtensionPlanStore(EXTENSION_PLAN_PATH);
 const DEFAULT_KNOWLEDGE_WORKSPACE_ID = 'default-local';
 if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
   knowledgeWorkspaces.create({
@@ -69,6 +75,12 @@ const BASELINE_RULES: readonly CapabilityPolicyRule[] = [
   { capability: 'shell.execute', decision: 'require_approval', reason: 'Shell 执行必须经本地审批' },
   { capability: 'browser.control', decision: 'require_approval', reason: '浏览器控制必须经本地审批' },
 ];
+const extensionActivationPlanner = new ExtensionActivationPlanner(
+  extensionRegistry,
+  new RuleBasedCapabilityPolicy(BASELINE_RULES),
+  extensionPlanStore,
+);
+const extensionDoctor = new ExtensionDoctor(extensionRegistry);
 
 function runKey(taskId: string, runId: string): string {
   return `${taskId}:${runId}`;
@@ -211,6 +223,37 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
   const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
   try {
+    if (request.method === 'GET' && url.pathname === '/api/extensions/doctor') {
+      send(response, 200, extensionDoctor.inspect());
+      return;
+    }
+
+    if (request.method === 'GET' && segments[0] === 'api' && segments[1] === 'extensions' && segments[2] === 'plans' && segments[3] && segments[4] && segments.length === 5) {
+      send(response, 200, extensionPlanStore.list(segments[3], segments[4]));
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/extensions/plans') {
+      const body = await jsonBody(request) as { taskId?: unknown; runId?: unknown; target?: unknown; planId?: unknown };
+      if (typeof body.taskId !== 'string' || typeof body.runId !== 'string' || !body.target || typeof body.target !== 'object' || (body.planId !== undefined && typeof body.planId !== 'string')) {
+        send(response, 400, { error: 'extension plan 必须提供 taskId、runId、target，planId 只能为字符串' });
+        return;
+      }
+      try {
+        const plan = extensionActivationPlanner.plan({
+          taskId: body.taskId,
+          runId: body.runId,
+          target: body.target as ExtensionActivationTarget,
+          planId: body.planId as string | undefined,
+          at: Date.now(),
+        });
+        send(response, 201, plan);
+      } catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'extension plan 无效' });
+      }
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/extensions') {
       send(response, 200, extensionRegistry.list());
       return;
@@ -641,6 +684,7 @@ function shutdown(): void {
     subtaskStore.close();
     mcpManifestStore.close();
     extensionManifestStore.close();
+    extensionPlanStore.close();
   });
 }
 process.once('SIGINT', shutdown);
