@@ -1,6 +1,7 @@
 :root {
-  /* macOS / iOS：英文优先 San Francisco，中文由系统优先回落到苹方；不打包任何 Apple 字体文件。 */
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Helvetica, "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+  /* 性能优先：不请求、不解码、不打包字体资源。Apple 平台由 -apple-system 提供 San Francisco 与苹方。 */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Helvetica, "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+  font-family: var(--font-ui);
   font-synthesis: none;
   font-kerning: normal;
   -webkit-font-smoothing: antialiased;
