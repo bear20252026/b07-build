@@ -10,7 +10,7 @@
 | 文件 | 大小 | 来源 | 用途 |
 |---|---|---|---|
 | `CoreCoder_7篇源码导读原文归档_20260819.zip` | 50K | 账号2 解压自桌面 zip，对照 he-yufeng/CoreCoder 真仓库 | 7 篇源码导读原文（agent/llm/context/session/cli 全解析）——Agent 编排/上下文治理参考 |
-| `ClaudeCode_静态补全候选_20260818.zip` | 27M | 账号2 本地下载的 Claude Code 静态补全候选 | Claude Code 源码基线静态补全——工具/Hook 链/Agentic Loop/子代理/工作树隔离参考 |
+| `ClaudeCode_静态补全候选_20260818.zip` | 27M | 账号2 本地收集的静态补全候选（2026-08-18） | 静态补全候选——工具/Hook 链/Agentic Loop/子代理/工作树隔离参考 |
 
 ## 外部参考代码库（在线，未本地化）
 
@@ -18,7 +18,7 @@
 |---|---|---|
 | https://github.com/he-yufeng/CoreCoder | Agent loop/上下文压缩/工具契约的 TS 参考 | 已读 7 篇导读；必要时 clone 对照 |
 | https://github.com/XiaomiMiMo/MiMo-Code | 小米开源编码 Agent 参考 | 已镜像最新版至 bear20252026/MiMo-Code（单提交快照，见台账） |
-| Claude Code 源码基线（社区泄露镜像） | 7 项工程设计基线（见 docs/《产品目标·参考代码库·整体框架》） | 工具执行/Hook 链、query.ts Agentic Loop、AgentTool 子代理、函数式工具组合、MCP 隔离、会话/任务/工作树隔离、CLI/TUI 分层 |
+| 编码 Agent 源码基线（静态补全候选） | 7 项工程设计基线（见 docs/《产品目标·参考代码库·整体框架》） | 工具执行/Hook 链、query.ts Agentic Loop、AgentTool 子代理、函数式工具组合、MCP 隔离、会话/任务/工作树隔离、CLI/TUI 分层 |
 | Antelope 泄露源码的最小可实践缩小版（社区重建） | 最小可实践模型的缩小版源码参考 | 本地暂无文件；列入参考清单，后续如取得源码再入本目录 |
 
 ## 使用规则

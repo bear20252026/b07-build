@@ -14,7 +14,7 @@
 
 ### 新增
 - `reference/CoreCoder_7篇源码导读原文归档_20260819.zip`（50K，CoreCoder 7 篇导读原文）
-- `reference/ClaudeCode_静态补全候选_20260818.zip`（27M，Claude Code 静态补全候选）
+- `reference/ClaudeCode_静态补全候选_20260818.zip`（27M，静态补全候选）
 - `reference/REFERENCE.md`（参考材料索引 + 使用规则 + 许可证隔离提醒）
 - `docs/产品目标参考代码库与整体框架.md`（产品目标/参考代码库含 Claude Code 7 项工程设计基线 + MiMo-Code + CoreCoder + Antelope/整体积木框架/研发优先级）
 
