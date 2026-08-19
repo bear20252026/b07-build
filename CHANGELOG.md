@@ -355,3 +355,30 @@ DAG 执行器新增已完成节点恢复入口、节点终态观测及 `emitTool
 | `npm run typecheck` | 通过 |
 | `npm run test` | 53/53 通过 |
 | v0.13 后续重点 | Session/Task Control Gateway v1、幂等收据、snapshot gap refresh、只读子任务与 Runtime Preset Manifest |
+
+
+## [2026-08-19] v0.14.0 分层记忆账本与上下文治理
+
+### 记忆与检索研究
+
+本版本研究并记录了 OpenClaw 的分层记忆、压缩前保存、隔离 recall，以及 Open WebUI 的记忆类型、范围、独立注入预算和可审查删除模式。[1] [2] 新增 `docs/research/memory-compaction-retrieval-notes-2026-08-19.md` 与 `docs/research/next-development-priorities-2026-08-19.md`，将可靠控制协议、Memory Ledger、上下文压缩、本地模型、知识工作区、只读子任务和 MCP 注册表按依赖关系排序。
+
+### Memory Ledger v1
+
+| 能力 | 已实现边界 |
+|---|---|
+| 领域契约 | `MemoryRecord`、`MemoryScope`、`MemoryProvenance`、`MemoryKind` 与 `MemoryStatus`；每条记录有来源、信任、范围、过期和 token 估计。 |
+| 审查状态 | 新记录默认为 `candidate`；只有显式 `confirm()` 的记录才可进入上下文。`retract()` 与 `supersede()` 通过 revision 追加修订。 |
+| 隐私与隔离 | `incognito` session 禁止写入或修订持久记忆；agent、workspace、可选 session scope 与过期条件均在选择前过滤。 |
+| 上下文治理 | preference 与其他记忆使用独立 token 预算；每个选择结果包含分数、原因和 provenance，同时硬编码 `canAuthorize: false`。 |
+| 本地持久化 | `SqliteMemoryLedgerStore` 使用 WAL + append-only revision；保留 `history()` 以支持用户审查、诊断与未来回放。 |
+
+### 验证
+
+| 检查 | 结果 |
+|---|---|
+| `npm run typecheck` | 通过 |
+| `npm run test` | 57/57 通过 |
+
+[1]: https://docs.openclaw.ai/concepts/memory "OpenClaw Memory overview"
+[2]: https://docs.openwebui.com/features/chat-conversations/memory/ "Open WebUI Memory & Personalization"

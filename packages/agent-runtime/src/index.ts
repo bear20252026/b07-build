@@ -9,4 +9,6 @@ export * from './recoverable-task-runtime.js';
 export * from './sqlite-task-snapshot-store.js';
 export * from './session-control-plane.js';
 export * from './sqlite-session-snapshot-store.js';
+export * from './memory-ledger.js';
+export * from './sqlite-memory-ledger-store.js';
 export * from './task-runtime-service.js';
