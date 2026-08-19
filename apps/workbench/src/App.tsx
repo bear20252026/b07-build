@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider } from './components/layout/Sider';
+import { ControlPlaneInsights } from './components/observability/ControlPlaneInsights';
 import { PreviewPanel } from './components/preview/PreviewPanel';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
@@ -180,6 +181,7 @@ export function App() {
                 </div>
               )}
             </section>
+            <ControlPlaneInsights events={events} snapshot={snapshot} />
             <section className="event-section">
               <div className="section-heading">
                 <span>{messages.task.activity}</span>

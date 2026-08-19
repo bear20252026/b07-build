@@ -59,6 +59,22 @@ export const catalog = {
       status: { created: '已创建', running: '运行中', blocked: '等待审批', completed: '已完成', failed: '执行失败', idle: '等待任务' },
       error: { connect: '无法连接本地任务服务', resume: '恢复任务失败', approve: '审批或恢复任务失败' },
     },
+    insights: {
+      aria: '控制面洞察',
+      eyebrow: '受控运行时',
+      title: '控制面健康',
+      liveSource: '真实快照',
+      empty: '提交任务后，此处会展示本地运行时发出的真实、只读指标。',
+      execution: '执行进度',
+      concurrency: '并发调度',
+      safetyGates: '安全闸门',
+      contextCare: '上下文治理',
+      nodeCount: (completed: number, total: number) => `${completed}/${total} 个节点已收敛`,
+      peak: (count: number) => `峰值 ${count}`,
+      gateCount: (blocked: number, approvals: number) => `${blocked} 个阻断 · ${approvals} 次审批请求`,
+      compactionCount: (count: number) => `${count} 次压缩记录`,
+      note: '这些指标只读取任务快照和事件流；它们不会批准工具、修改记忆或触发 MCP。',
+    },
     event: {
       created: (goal: string) => ({ title: '任务已创建', detail: goal }),
       profile: (label: string, description: string) => ({ title: 'Agent Profile 已选择', detail: `${label} · ${description}` }),
@@ -80,6 +96,9 @@ export const catalog = {
       html: { title: '安全的单视图预览容器', description: '后续 HTML、文档和浏览器视图会保持宿主级持久化，不因会话切换而丢失状态。' },
       diff: { title: '每一项变更都应可审查', description: '文件修改、审批决策与可回滚 diff 将与任务事件关联，成为可解释交付的一部分。' },
       knowledgeError: '本地知识检索失败',
+      draft: {
+        edit: '编辑草稿', preview: '预览草稿', aria: '本地交付说明草稿', placeholder: '在此记录可审查的交付说明、假设和下一步…', empty: '此草稿只存在于当前浏览器视图，尚未写入任务或知识库。', localOnly: '仅本地草稿', note: '草稿不会自动提交、授权工具、修改 Memory Ledger 或启动 MCP。',
+      },
     },
     citation: {
       aria: '本地知识引用预览', eyebrow: '本地知识', title: '引用预览', count: (count: number) => `${count} 条`,
@@ -109,6 +128,22 @@ export const catalog = {
     task: {
       title: 'Task workbench', controlPlane: 'LOCAL CONTROL PLANE', initialGoal: 'Submit a goal to start a recoverable, locally controlled task.', currentCapabilities: 'Current capabilities', eventProtocol: 'Event protocol v1.0', leastPrivilege: 'Least privilege', sqliteSnapshot: 'SQLite snapshots', welcomeEyebrow: 'AI WORK OS · LOCAL-FIRST', welcomeTitle: 'What outcome will you move forward today?', eventStreamAria: 'Task event stream', snapshotAria: 'Current task snapshot', runtimeSnapshot: 'Live runtime snapshot', noTask: 'No task yet', noTaskDescription: 'SQLite-persisted task state will appear here after you submit a goal.', attempt: (attempt: number, nodes: number) => `Attempt ${attempt} · ${nodes} nodes`, concurrencyPeak: (count: number) => `Concurrency peak ${count}`, approveAndResume: (nodeId: string) => `Approve and resume ${nodeId}`, resume: 'Resume from snapshot', activity: 'Task activity', eventCount: (count: number) => `${count} live events`, noEvents: 'No runtime events yet. Start the local gateway and submit a goal.', goalAria: 'Task goal', goalPlaceholder: 'Describe the desired outcome; the system will create an explainable, recoverable local plan…', composerHint: 'Ctrl / ⌘ + Enter to submit. High-risk actions enter approval.', submit: 'Start task', submitting: 'Submitting…', status: { created: 'Created', running: 'Running', blocked: 'Awaiting approval', completed: 'Completed', failed: 'Failed', idle: 'Awaiting task' }, error: { connect: 'Unable to reach the local task service', resume: 'Unable to resume task', approve: 'Approval or task resume failed' },
     },
+    insights: {
+      aria: 'Control plane insights',
+      eyebrow: 'Controlled runtime',
+      title: 'Control plane health',
+      liveSource: 'Live snapshot',
+      empty: 'Submit a task to show real, read-only metrics emitted by the local runtime.',
+      execution: 'Execution progress',
+      concurrency: 'Concurrent scheduling',
+      safetyGates: 'Safety gates',
+      contextCare: 'Context governance',
+      nodeCount: (completed: number, total: number) => `${completed}/${total} nodes converged`,
+      peak: (count: number) => `Peak ${count}`,
+      gateCount: (blocked: number, approvals: number) => `${blocked} blocked · ${approvals} approval requests`,
+      compactionCount: (count: number) => `${count} compaction records`,
+      note: 'These indicators only read task snapshots and event streams; they cannot approve tools, alter memory, or run MCP.',
+    },
     event: {
       created: (goal: string) => ({ title: 'Task created', detail: goal }),
       profile: (label: string, description: string) => ({ title: 'Agent Profile selected', detail: `${label} · ${description}` }),
@@ -130,6 +165,9 @@ export const catalog = {
       html: { title: 'A safe single-view preview container', description: 'Future HTML, document, and browser views remain persisted at the host level rather than losing state when sessions change.' },
       diff: { title: 'Every change should be reviewable', description: 'File changes, approval decisions, and reversible diffs are linked to task events as explainable delivery.' },
       knowledgeError: 'Local knowledge retrieval failed',
+      draft: {
+        edit: 'Edit draft', preview: 'Preview draft', aria: 'Local delivery-notes draft', placeholder: 'Record reviewable delivery notes, assumptions, and next steps…', empty: 'This draft only exists in the current browser view; it has not been written to a task or knowledge workspace.', localOnly: 'Local-only draft', note: 'Drafts never auto-submit, authorize tools, alter the Memory Ledger, or launch MCP.',
+      },
     },
     citation: {
       aria: 'Local knowledge citation preview', eyebrow: 'Local knowledge', title: 'Citation preview', count: (count: number) => `${count} items`, searchAria: 'Search local knowledge', placeholder: 'Search local knowledge…', search: 'Search', loading: 'Searching', empty: 'Enter keywords to display traceable source passages from the local SQLite vector index.',

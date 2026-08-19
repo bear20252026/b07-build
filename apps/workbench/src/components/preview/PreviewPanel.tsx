@@ -14,6 +14,8 @@ export function PreviewPanel() {
   const [citations, setCitations] = useState<readonly Citation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
+  const [deliveryDraft, setDeliveryDraft] = useState('');
+  const [editingDraft, setEditingDraft] = useState(false);
   const { messages } = useLocale();
 
   const searchKnowledge = async (): Promise<void> => {
@@ -41,11 +43,11 @@ export function PreviewPanel() {
       <div className="preview-tabs" role="tablist" aria-label={messages.preview.tabsAria}>
         {TABS.map((tab) => (
           <button
+            aria-selected={active === tab}
             className={`preview-tab${active === tab ? ' active' : ''}`}
             key={tab}
             onClick={() => setActive(tab)}
             role="tab"
-            aria-selected={active === tab}
             type="button"
           >
             {messages.preview.tabs[tab]}
@@ -61,6 +63,35 @@ export function PreviewPanel() {
           onSearch={() => void searchKnowledge()}
           query={query}
         />
+      ) : active === 'markdown' ? (
+        <section className="preview-canvas delivery-draft" aria-label={messages.preview.draft.aria}>
+          <div className="preview-draft-heading">
+            <div>
+              <div className="preview-artifact-type">markdown draft</div>
+              <h2>{messages.preview.markdown.title}</h2>
+            </div>
+            <button className="draft-toggle" onClick={() => setEditingDraft((current) => !current)} type="button">
+              {editingDraft ? messages.preview.draft.preview : messages.preview.draft.edit}
+            </button>
+          </div>
+          {editingDraft ? (
+            <textarea
+              aria-label={messages.preview.draft.aria}
+              className="delivery-draft-editor"
+              onChange={(event) => setDeliveryDraft(event.target.value)}
+              placeholder={messages.preview.draft.placeholder}
+              value={deliveryDraft}
+            />
+          ) : deliveryDraft ? (
+            <pre className="delivery-draft-preview">{deliveryDraft}</pre>
+          ) : (
+            <p>{messages.preview.draft.empty}</p>
+          )}
+          <div className="delivery-draft-boundary">
+            <span>{messages.preview.draft.localOnly}</span>
+            <p>{messages.preview.draft.note}</p>
+          </div>
+        </section>
       ) : (
         <section className="preview-canvas">
           <div className="preview-artifact-type">{active} artifact</div>
