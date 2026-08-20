@@ -1,23 +1,23 @@
-import { useState } from 'react';
 import { useLocale } from '../../i18n/LocaleProvider';
 
-type NavKey = 'chat' | 'files' | 'schedule' | 'settings';
+export type WorkbenchPage = 'workspace' | 'models' | 'operations' | 'security';
 
-const NAV: readonly { key: NavKey; icon: string }[] = [
-  { key: 'chat', icon: '◌' },
-  { key: 'files', icon: '⌑' },
-  { key: 'schedule', icon: '◷' },
-  { key: 'settings', icon: '⚙' },
+const NAV: readonly { key: WorkbenchPage; icon: string; label: string; description: string }[] = [
+  { key: 'workspace', icon: '◌', label: '工作区', description: '任务会话、当前状态与交付预览' },
+  { key: 'models', icon: '◇', label: '模型连接', description: '第三方 API、模型预设与单次测试' },
+  { key: 'operations', icon: '◷', label: '运行记录', description: '运行轨迹、扩展与本地模型观察' },
+  { key: 'security', icon: '⚙', label: '安全与系统', description: '只读审计、构件锁定和发布证据' },
 ];
 
 export interface SiderProps {
+  activePage: WorkbenchPage;
   theme: 'light' | 'dark';
   onThemeToggle(): void;
   onNewTask(): void;
+  onNavigate(page: WorkbenchPage): void;
 }
 
-export function Sider({ theme, onThemeToggle, onNewTask }: SiderProps) {
-  const [active, setActive] = useState<NavKey>('chat');
+export function Sider({ activePage, theme, onThemeToggle, onNewTask, onNavigate }: SiderProps) {
   const { locale, messages, setLocale } = useLocale();
   const nextLocale = locale === 'zh-CN' ? 'en' : 'zh-CN';
 
@@ -36,18 +36,17 @@ export function Sider({ theme, onThemeToggle, onNewTask }: SiderProps) {
       <div className="sider-section-label">{messages.common.workspace}</div>
       <div className="sider-nav">
         {NAV.map((item) => {
-          const copy = messages.navigation[item.key];
           return (
             <button
-              aria-current={active === item.key ? 'page' : undefined}
-              className={`sider-item${active === item.key ? ' active' : ''}`}
+              aria-current={activePage === item.key ? 'page' : undefined}
+              className={`sider-item${activePage === item.key ? ' active' : ''}`}
               key={item.key}
-              onClick={() => setActive(item.key)}
-              title={copy.description}
+              onClick={() => onNavigate(item.key)}
+              title={item.description}
               type="button"
             >
               <span className="sider-icon" aria-hidden="true">{item.icon}</span>
-              <span className="sider-label">{copy.label}</span>
+              <span className="sider-label">{item.label}</span>
             </button>
           );
         })}

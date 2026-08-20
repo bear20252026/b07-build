@@ -16,6 +16,12 @@ export interface CredentialResolver {
   resolve(reference: string): string | undefined;
 }
 
+/** 单向会话密钥写入端口；不包含 get、list、serialize 或持久化能力。 */
+export interface SessionCredentialStore {
+  storeFromExplicitOperatorIntent(reference: string, apiKey: string): void;
+  clearSessionCredential(reference: string): void;
+}
+
 const ENVIRONMENT_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'env.openai': 'OPENAI_API_KEY',
   'env.anthropic': 'ANTHROPIC_API_KEY',
@@ -44,6 +50,37 @@ export class EnvironmentCredentialResolver implements CredentialResolver {
     if (!safeReference(reference) || !ENVIRONMENT_NAMES[reference]) return undefined;
     const value = this.lookup(ENVIRONMENT_NAMES[reference]);
     return value?.trim() || undefined;
+  }
+}
+
+/**
+ * Gateway session 内存覆盖层。它只接受已审核 `env.*` reference 的短生命周期 key：
+ * 不提供读取、列举、序列化或持久化接口；进程退出即清空。外部只能获得 availability。
+ */
+export class SessionCredentialResolver implements CredentialResolver, SessionCredentialStore {
+  private readonly sessionSecrets = new Map<string, string>();
+  constructor(private readonly fallback: CredentialResolver) {}
+
+  availability(reference: string): CredentialAvailabilitySummary {
+    if (!safeReference(reference) || !ENVIRONMENT_NAMES[reference]) return { reference, availability: 'unsupported-reference' };
+    if (this.sessionSecrets.has(reference)) return { reference, availability: 'available' };
+    return this.fallback.availability(reference);
+  }
+
+  resolve(reference: string): string | undefined {
+    if (!safeReference(reference) || !ENVIRONMENT_NAMES[reference]) return undefined;
+    return this.sessionSecrets.get(reference) ?? this.fallback.resolve(reference);
+  }
+
+  storeFromExplicitOperatorIntent(reference: string, apiKey: string): void {
+    if (!safeReference(reference) || !ENVIRONMENT_NAMES[reference]) throw new Error('凭据引用不受支持');
+    const normalized = apiKey.trim();
+    if (normalized.length < 8 || normalized.length > 4_096 || /[\r\n\0]/.test(normalized)) throw new Error('API key 格式无效');
+    this.sessionSecrets.set(reference, normalized);
+  }
+
+  clearSessionCredential(reference: string): void {
+    this.sessionSecrets.delete(reference);
   }
 }
 

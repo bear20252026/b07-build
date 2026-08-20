@@ -1,4 +1,4 @@
-import type { CredentialResolver } from './credential-resolver.js';
+import type { CredentialResolver, SessionCredentialStore } from './credential-resolver.js';
 import type { ProviderCatalog, ProviderCatalogEntry } from './provider-catalog.js';
 import type { ProviderProfile, ProviderProfileRegistry, ProviderProfileStatus } from './provider-profile.js';
 
@@ -43,6 +43,16 @@ export interface ActivateCatalogProviderRequest {
   at: number;
 }
 
+/** API key 仅由该显式动作写入 Gateway 当前会话内存；不可被状态、Profile 或 HTTP 响应读取。 */
+export interface ConfigureSessionProviderRequest {
+  providerId: string;
+  reviewedBy: string;
+  displayName?: string;
+  model?: string;
+  apiKey: string;
+  at: number;
+}
+
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 function profileId(provider: ProviderCatalogEntry): string {
@@ -54,13 +64,13 @@ function requireReview(value: string): string {
   return value;
 }
 
-function statusFor(provider: ProviderCatalogEntry, profile: ProviderProfile | undefined, resolver: CredentialResolver): ProviderConnectionStatus {
+function statusFor(provider: ProviderCatalogEntry, profile: ProviderProfile | undefined, resolver: CredentialResolver, presentation?: { displayName?: string; model?: string }): ProviderConnectionStatus {
   return {
     schemaVersion: 1,
     providerId: provider.id,
-    displayName: provider.displayName,
+    displayName: presentation?.displayName ?? provider.displayName,
     driverId: provider.driverId,
-    defaultModel: provider.defaultModel,
+    defaultModel: presentation?.model ?? provider.defaultModel,
     credentialReference: provider.credentialReference,
     credentialAvailability: resolver.availability(provider.credentialReference).availability,
     profileStatus: profile?.status ?? 'not-registered',
@@ -91,13 +101,15 @@ export class ProviderConnectionService {
   constructor(
     private readonly catalog: ProviderCatalog,
     private readonly profiles: ProviderProfileRegistry,
-    private readonly credentials: CredentialResolver,
+    private readonly credentials: CredentialResolver & Partial<SessionCredentialStore>,
     private readonly fetcher: typeof fetch = globalThis.fetch,
     private readonly now: () => number = () => Date.now(),
   ) {}
 
+  private readonly sessionPresentation = new Map<string, { displayName?: string; model?: string }>();
+
   list(): readonly ProviderConnectionStatus[] {
-    return this.catalog.list().map((provider) => statusFor(provider, this.profiles.get(profileId(provider)), this.credentials));
+    return this.catalog.list().map((provider) => this.statusFor(provider));
   }
 
   register(request: RegisterCatalogProviderRequest): ProviderConnectionStatus {
@@ -114,7 +126,27 @@ export class ProviderConnectionService {
       note: request.note ?? '由本地操作者显式登记的目录供应商；API key 不进入 Provider Profile。',
       at: request.at,
     });
-    return statusFor(provider, this.profiles.get(profileId(provider)), this.credentials);
+    return this.statusFor(provider);
+  }
+
+  /**
+   * 新手向导的单向会话配置动作。显示名与模型仅留在本次 Gateway 会话投影中；
+   * API key 由 SessionCredentialStore 接收后不可读、不可列举、不可持久化。
+   */
+  configureSession(request: ConfigureSessionProviderRequest): ProviderConnectionStatus {
+    const provider = this.requireProvider(request.providerId);
+    const store = this.credentials.storeFromExplicitOperatorIntent;
+    if (typeof store !== 'function') throw new Error('当前 Gateway 未启用会话凭据保管器');
+    const displayName = request.displayName?.trim();
+    const model = request.model?.trim();
+    if (displayName !== undefined && (!displayName || displayName.length > 80)) throw new Error('显示名称必须为 1-80 字符');
+    if (model !== undefined && !IDENTIFIER.test(model)) throw new Error('模型标识无效');
+    store.call(this.credentials, provider.credentialReference, request.apiKey);
+    this.sessionPresentation.set(provider.id, { ...(displayName ? { displayName } : {}), ...(model ? { model } : {}) });
+    const existing = this.profiles.get(profileId(provider));
+    if (!existing) this.register({ providerId: provider.id, reviewedBy: request.reviewedBy, note: '由本地操作者显式快速配置；API key 仅保留在 Gateway 当前进程内存。', at: request.at });
+    if (this.profiles.get(profileId(provider))?.status !== 'active') this.activate({ providerId: provider.id, reviewedBy: request.reviewedBy, note: '由本地操作者显式启用；不会自动发送模型请求。', at: request.at });
+    return this.statusFor(provider);
   }
 
   activate(request: ActivateCatalogProviderRequest): ProviderConnectionStatus {
@@ -150,6 +182,10 @@ export class ProviderConnectionService {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private statusFor(provider: ProviderCatalogEntry): ProviderConnectionStatus {
+    return statusFor(provider, this.profiles.get(profileId(provider)), this.credentials, this.sessionPresentation.get(provider.id));
   }
 
   private requireProvider(providerId: string): ProviderCatalogEntry {

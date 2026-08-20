@@ -21,10 +21,19 @@ function readInference(body: unknown): { prompt: string; model?: string } | unde
   return { prompt: candidate.prompt, model: candidate.model as string | undefined };
 }
 
+/** 唯一会话密钥入口：精确白名单，不接受 endpoint、headers、工具、Profile 或任意扩展字段。 */
+function readSessionConfiguration(body: unknown): { displayName?: string; model?: string; apiKey: string } | undefined {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
+  const candidate = body as Record<string, unknown>;
+  if (Object.keys(candidate).some((key) => key !== 'displayName' && key !== 'model' && key !== 'apiKey')) return undefined;
+  if (typeof candidate.apiKey !== 'string' || (candidate.displayName !== undefined && typeof candidate.displayName !== 'string') || (candidate.model !== undefined && typeof candidate.model !== 'string')) return undefined;
+  return { apiKey: candidate.apiKey, displayName: candidate.displayName as string | undefined, model: candidate.model as string | undefined };
+}
+
 /**
  * Provider connection 管道：Profile metadata 与 credential availability 的显式控制面。
- * 它不读取运行时环境配置，不接收密钥、token、URL、工具或 agent 配置；远程探测与推理均只能由
- * operator-intent header 的显式 POST 发起。推理仅接收一个受限文本 prompt 与可选模型标识。
+ * 它不读取运行时环境配置。除 `configure-session` 外不接收密钥、token、URL、工具或 agent 配置；
+ * `configure-session` 的 key 只进入 Gateway 当前进程内存且不回显。远程探测与推理均只能由 operator-intent 的显式 POST 发起。
  */
 export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, response, url, segments, dependencies }) => {
   if (request.method === 'GET' && url.pathname === '/api/providers/connections') {
@@ -56,8 +65,18 @@ export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, re
       sendJson(response, 200, await dependencies.providerInference.infer({ providerId, ...inference }));
       return true;
     }
+    if (operation === 'configure-session') {
+      const configuration = readSessionConfiguration(await readJsonBody(request));
+      if (!configuration) {
+        sendJson(response, 400, { error: '快速配置只接受 displayName、model 与 apiKey；不得提交 endpoint、header、工具或其他字段' });
+        return true;
+      }
+      const status = dependencies.providerConnections.configureSession({ providerId, reviewedBy: 'desktop-owner', at: Date.now(), ...configuration });
+      sendJson(response, 200, status);
+      return true;
+    }
     if (operation !== 'register' && operation !== 'activate') {
-      sendJson(response, 404, { error: '供应商连接操作必须是 register、activate、probe 或 infer' });
+      sendJson(response, 404, { error: '供应商连接操作必须是 register、activate、configure-session、probe 或 infer' });
       return true;
     }
     const review = readReview(await readJsonBody(request));

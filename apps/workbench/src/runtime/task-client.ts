@@ -253,6 +253,7 @@ export interface WorkbenchTaskClient {
   localModelHealth(): Promise<readonly WorkbenchLocalModelHealth[]>;
   providerConnections(): Promise<readonly WorkbenchProviderConnection[]>;
   registerProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection>;
+  configureProviderSession(providerId: string, input: { displayName?: string; model?: string; apiKey: string }): Promise<WorkbenchProviderConnection>;
   activateProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection>;
   probeProviderConnection(providerId: string): Promise<WorkbenchProviderConnectionProbe>;
   inferProviderConnection(providerId: string, prompt: string, model?: string): Promise<WorkbenchProviderInference>;
@@ -645,6 +646,21 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     if (!Array.isArray(payload)) throw new Error('供应商连接返回了无效列表');
     payload.forEach(assertProviderConnection);
     return [...payload].sort((left, right) => left.displayName.localeCompare(right.displayName) || left.providerId.localeCompare(right.providerId));
+  }
+
+  async configureProviderSession(providerId: string, input: { displayName?: string; model?: string; apiKey: string }): Promise<WorkbenchProviderConnection> {
+    if (!/^[a-z][a-z0-9-]{1,63}$/.test(providerId) || !input.apiKey.trim() || input.apiKey.length > 4_096 || /[\r\n\0]/.test(input.apiKey)) throw new Error('快速配置的 API key 无效');
+    if (input.displayName !== undefined && (!input.displayName.trim() || input.displayName.trim().length > 80)) throw new Error('显示名称无效');
+    if (input.model !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(input.model.trim())) throw new Error('模型标识无效');
+    const response = await fetch(`${this.providerConnectionsUrl}/${encodeURIComponent(providerId)}/configure-session`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1', 'idempotency-key': createIdempotencyKey('provider-configure') },
+      body: JSON.stringify({ apiKey: input.apiKey.trim(), ...(input.displayName?.trim() ? { displayName: input.displayName.trim() } : {}), ...(input.model?.trim() ? { model: input.model.trim() } : {}) }),
+    });
+    if (!response.ok) throw new Error(await response.text() || `快速配置失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertProviderConnection(payload);
+    return payload;
   }
 
   async registerProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection> {

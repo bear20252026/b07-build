@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import './components/observability/GatewayAttachment.css';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
-import { Sider } from './components/layout/Sider';
+import { Sider, type WorkbenchPage } from './components/layout/Sider';
 import { ControlPlaneInsights } from './components/observability/ControlPlaneInsights';
 import { ControlPlaneDiagnosticsBoard } from './components/observability/ControlPlaneDiagnosticsBoard';
 import { ComponentLockBoard } from './components/observability/ComponentLockBoard';
 import { ComponentManagementReceiptBoard } from './components/observability/ComponentManagementReceiptBoard';
 import { ExtensionCenter } from './components/observability/ExtensionCenter';
 import { LocalModelHealthBoard } from './components/observability/LocalModelHealthBoard';
-import { ProviderConnectionCenter } from './components/observability/ProviderConnectionCenter';
+import { ProviderSetupPage } from './components/settings/ProviderSetupPage';
 import { NativeHostAuthenticationBoard } from './components/observability/NativeHostAuthenticationBoard';
 import { WindowsNativeReleaseBoard } from './components/observability/WindowsNativeReleaseBoard';
 import { SecurityPostureAuditBoard } from './components/observability/SecurityPostureAuditBoard';
@@ -87,6 +87,7 @@ function statusLabel(status: WorkbenchTaskSnapshot['status'] | undefined, messag
 }
 
 export function App() {
+  const [activePage, setActivePage] = useState<WorkbenchPage>('models');
   const [gatewayAttached, setGatewayAttached] = useState(false);
   const [gatewayAttachmentError, setGatewayAttachmentError] = useState<string>();
   const [attachingGateway, setAttachingGateway] = useState(false);
@@ -122,6 +123,7 @@ export function App() {
   const { messages } = useLocale();
   const profiles = profileUi(messages);
   const profile = profiles[activeProfile];
+  const pageTitle = activePage === 'workspace' ? messages.task.title : activePage === 'models' ? '模型连接' : activePage === 'operations' ? '运行记录' : '安全与系统';
   const blockedNodeId = snapshot && Object.entries(snapshot.nodeOutcomes).find(([, outcome]) => outcome === 'blocked')?.[0];
   const provenance = snapshot?.inputProvenance ?? [];
   const untrustedInputCount = provenance.filter((input) => input.trust === 'external-untrusted' || input.trust === 'derived-untrusted').length;
@@ -156,13 +158,19 @@ export function App() {
     return () => { disposed = true; };
   }, [gatewayAttached]);
 
+  const gatewayErrorText = (error: unknown): string => {
+    const message = error instanceof Error ? error.message : '';
+    if (/Failed to fetch|DOCTYPE|JSON/.test(message)) return '本机 Gateway 未启动或无法访问。请先启动本机服务后点击重试；不会自动启动任何进程。';
+    return message || '本机 Gateway 未响应。请检查服务状态后重试。';
+  };
+
   const attachGateway = (): void => {
     if (attachingGateway || gatewayAttached) return;
     setAttachingGateway(true);
     setGatewayAttachmentError(undefined);
     void localGatewayClient.providerConnections()
       .then(() => setGatewayAttached(true))
-      .catch((error: unknown) => setGatewayAttachmentError(error instanceof Error ? error.message : '本地 Gateway 未响应'))
+      .catch((error: unknown) => setGatewayAttachmentError(gatewayErrorText(error)))
       .finally(() => setAttachingGateway(false));
   };
 
@@ -190,6 +198,22 @@ export function App() {
     void localGatewayClient.providerConnections()
       .then((connections) => setProviderConnections(connections))
       .catch((error: unknown) => setProviderConnectionError(error instanceof Error ? error.message : 'Provider connections unavailable'));
+  };
+
+  const configureProviderSession = (providerId: string, input: { displayName?: string; model?: string; apiKey: string }): void => {
+    if (!gatewayAttached) {
+      setProviderConnectionError('请先附着本机 Gateway，再保存模型连接。');
+      return;
+    }
+    setPendingProviderId(providerId);
+    setProviderConnectionError(undefined);
+    void localGatewayClient.configureProviderSession(providerId, input)
+      .then((connection) => setProviderConnections((current) => {
+        const rest = (current ?? []).filter((item) => item.providerId !== providerId);
+        return [...rest, connection].sort((left, right) => left.displayName.localeCompare(right.displayName));
+      }))
+      .catch((error: unknown) => setProviderConnectionError(gatewayErrorText(error)))
+      .finally(() => setPendingProviderId(undefined));
   };
 
   const registerProviderConnection = (providerId: string): void => {
@@ -302,23 +326,25 @@ export function App() {
   };
 
   return (
-    <div className={`workbench-shell theme-${theme}`}>
+    <div className={`workbench-shell ${activePage === 'workspace' ? 'with-preview' : 'focus-page'} theme-${theme}`}>
       <Sider
-        onNewTask={() => document.querySelector<HTMLTextAreaElement>(`[aria-label="${messages.task.goalAria}"]`)?.focus()}
+        activePage={activePage}
+        onNavigate={setActivePage}
+        onNewTask={() => { setActivePage('workspace'); window.setTimeout(() => document.querySelector<HTMLTextAreaElement>(`[aria-label="${messages.task.goalAria}"]`)?.focus(), 0); }}
         onThemeToggle={() => setTheme((current) => current === 'light' ? 'dark' : 'light')}
         theme={theme}
       />
       <main className="workbench-main">
         <header className="workbench-titlebar">
           <div>
-            <div className="titlebar-kicker">{messages.task.controlPlane}</div>
-            <div className="titlebar-title">{messages.task.title}</div>
+            <div className="titlebar-kicker">AI WORK OS · LOCAL-FIRST</div>
+            <div className="titlebar-title">{pageTitle}</div>
           </div>
           <div className="titlebar-actions">
             <button className={`gateway-attach-button${gatewayAttached ? ' attached' : ''}`} type="button" onClick={gatewayAttached ? detachGateway : attachGateway} disabled={attachingGateway}>
               {attachingGateway ? '正在附着…' : gatewayAttached ? '断开本机 Gateway' : '附着本机 Gateway'}
             </button>
-            <div className="profile-switcher" aria-label={messages.profile.selectAria}>
+            {activePage === 'workspace' && <><div className="profile-switcher" aria-label={messages.profile.selectAria}>
               {(Object.keys(profiles) as AgentProfileId[]).map((profileId) => (
                 <button
                   className={`agent-chip${activeProfile === profileId ? ' active' : ''}`}
@@ -332,11 +358,12 @@ export function App() {
               ))}
             </div>
             <span className="context-chip">{snapshot?.stats ? messages.task.concurrencyPeak(snapshot.stats.maxObservedConcurrency) : messages.common.localFirst}</span>
-            <span className={`status-chip ${snapshot?.status ?? ''}`}><span className="status-dot" />{statusLabel(snapshot?.status, messages)}</span>
+            <span className={`status-chip ${snapshot?.status ?? ''}`}><span className="status-dot" />{statusLabel(snapshot?.status, messages)}</span></>}
           </div>
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
+            {activePage === 'workspace' && <>
             <div className="welcome-card">
               <div className="welcome-eyebrow">{messages.task.welcomeEyebrow}</div>
               <h1>{messages.task.welcomeTitle}</h1>
@@ -379,28 +406,28 @@ export function App() {
               )}
             </section>
             <ControlPlaneInsights events={events} snapshot={snapshot} />
-            <TrajectoryBoard events={trajectory} messages={messages} />
-            <ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} />
-            <SecurityPostureAuditBoard error={securityPostureAuditError} messages={messages} report={securityPostureAudit} />
-            <ComponentLockBoard error={componentLockReportError} messages={messages} report={componentLockReport} />
-            <ComponentManagementReceiptBoard error={componentManagementReportError} messages={messages} report={componentManagementReport} />
-            <NativeHostAuthenticationBoard error={nativeHostAuthenticationReportError} messages={messages} report={nativeHostAuthenticationReport} />
-            <WindowsNativeReleaseBoard error={windowsNativeReleaseReportError} messages={messages} report={windowsNativeReleaseReport} />
-            <LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} />
-            <ProviderConnectionCenter
+            </>}
+            {activePage === 'models' && <ProviderSetupPage
+              gatewayAttached={gatewayAttached}
+              attachingGateway={attachingGateway}
+              gatewayError={gatewayAttachmentError}
               connections={gatewayAttached ? providerConnections : []}
-              error={providerConnectionError}
+              probes={providerConnectionProbes}
               inferences={providerInferences}
-              onActivate={activateProviderConnection}
-              onInfer={inferProviderConnection}
-              onProbe={probeProviderConnection}
+              error={providerConnectionError}
+              pendingProviderId={pendingProviderId}
+              onAttach={attachGateway}
+              onDetach={detachGateway}
+              onConfigure={configureProviderSession}
               onRefresh={refreshProviderConnections}
               onRegister={registerProviderConnection}
-              pendingProviderId={pendingProviderId}
-              probes={providerConnectionProbes}
-            />
-            <ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} />
-            <section className="event-section">
+              onActivate={activateProviderConnection}
+              onProbe={probeProviderConnection}
+              onInfer={inferProviderConnection}
+            />}
+            {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录与控制面</h1><p>这些内容只读、按需加载，不再占用任务工作区。</p></div><TrajectoryBoard events={trajectory} messages={messages} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /></section>}
+            {activePage === 'security' && <section className="page-stack"><div className="page-heading"><span>SECURITY & SYSTEM</span><h1>安全与系统</h1><p>所有项目均为只读证据与审计摘要；此页不能自动修复、信任或执行。</p></div><SecurityPostureAuditBoard error={securityPostureAuditError} messages={messages} report={securityPostureAudit} /><ComponentLockBoard error={componentLockReportError} messages={messages} report={componentLockReport} /><ComponentManagementReceiptBoard error={componentManagementReportError} messages={messages} report={componentManagementReport} /><NativeHostAuthenticationBoard error={nativeHostAuthenticationReportError} messages={messages} report={nativeHostAuthenticationReport} /><WindowsNativeReleaseBoard error={windowsNativeReleaseReportError} messages={messages} report={windowsNativeReleaseReport} /></section>}
+            {activePage === 'workspace' && <section className="event-section">
               <div className="section-heading">
                 <span>{messages.task.activity}</span>
                 <span className="event-count">{messages.task.eventCount(events.length)}</span>
@@ -420,10 +447,10 @@ export function App() {
                   );
                 })}
               </div>
-            </section>
+            </section>}
           </div>
         </section>
-        <div className="task-composer">
+        {activePage === 'workspace' && <div className="task-composer">
           <textarea
             aria-label={messages.task.goalAria}
             onChange={(event) => setDraft(event.target.value)}
@@ -448,9 +475,9 @@ export function App() {
               </button>
             </div>
           </div>
-        </div>
+        </div>}
       </main>
-      <PreviewPanel />
+      {activePage === 'workspace' && <PreviewPanel />}
     </div>
   );
 }

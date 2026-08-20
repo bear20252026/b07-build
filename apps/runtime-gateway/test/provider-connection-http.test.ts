@@ -64,6 +64,23 @@ test('Provider connections API 只投影脱敏目录，注册与激活均需要�
   });
 });
 
+test('Provider session configuration 仅接收白名单字段并且绝不回显浏览器提交的 API key', async () => {
+  await withGateway(async (baseUrl) => {
+    const headers = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };
+    const malformed = await fetch(`${baseUrl}/api/providers/connections/openai/configure-session`, { method: 'POST', headers, body: JSON.stringify({ displayName: '我的连接', model: 'gpt-safe', apiKey: 'sk-browser-session-only', endpoint: 'https://forbidden.example' }) });
+    assert.equal(malformed.status, 400);
+    const configured = await fetch(`${baseUrl}/api/providers/connections/openai/configure-session`, { method: 'POST', headers, body: JSON.stringify({ displayName: '我的连接', model: 'gpt-safe', apiKey: 'sk-browser-session-only' }) });
+    assert.equal(configured.status, 200);
+    const status = await configured.json() as Record<string, unknown>;
+    assert.equal(status.displayName, '我的连接');
+    assert.equal(status.defaultModel, 'gpt-safe');
+    assert.equal(status.profileStatus, 'active');
+    assert.equal(JSON.stringify(status).includes('sk-browser-session-only'), false);
+    const listed = await (await fetch(`${baseUrl}/api/providers/connections`)).text();
+    assert.equal(listed.includes('sk-browser-session-only'), false);
+  });
+});
+
 test('Provider infer API 只在显式激活后调用受控 Driver，并以脱敏会话结果返回流式文本', async () => {
   await withGateway(async (baseUrl) => {
     const headers = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };

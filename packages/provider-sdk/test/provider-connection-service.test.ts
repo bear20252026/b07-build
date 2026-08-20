@@ -6,6 +6,7 @@ import {
   ProviderCatalog,
   ProviderConnectionService,
   ProviderProfileRegistry,
+  SessionCredentialResolver,
 } from '../src/index.js';
 
 const catalog = new ProviderCatalog([
@@ -49,6 +50,25 @@ test('Provider Connection Service 需要显式登记与可用 Gateway credential
   assert.deepEqual(probe, { schemaVersion: 1, providerId: 'example-provider', outcome: 'reachable', checkedAt: 123, latencyMs: 0, canReadSecret: false, canAutoConnect: false });
   assert.equal(receivedAuthorization, 'Bearer sk-local-only');
   assert.equal(JSON.stringify(probe).includes('sk-local-only'), false);
+});
+
+test('Provider Connection Service 的快速配置只将 API key 保存到当前会话内存且状态永不回显', async () => {
+  let receivedAuthorization = '';
+  const sessionCredentials = new SessionCredentialResolver(new EnvironmentCredentialResolver(() => undefined));
+  const fetcher = (async (_input, init) => {
+    receivedAuthorization = String((init?.headers as Record<string, string> | undefined)?.authorization ?? '');
+    return new Response('{"data":[]}', { status: 200 });
+  }) as typeof fetch;
+  const value = new ProviderConnectionService(catalog, new ProviderProfileRegistry(new InMemoryProviderProfileStore()), sessionCredentials, fetcher, (() => 123) as () => number);
+  const configured = value.configureSession({ providerId: 'example-provider', reviewedBy: 'desktop-owner', displayName: '我的测试模型', model: 'custom-model-v1', apiKey: 'sk-session-only', at: 100 });
+  assert.equal(configured.displayName, '我的测试模型');
+  assert.equal(configured.defaultModel, 'custom-model-v1');
+  assert.equal(configured.profileStatus, 'active');
+  assert.equal(JSON.stringify(configured).includes('sk-session-only'), false);
+  await value.probe('example-provider');
+  assert.equal(receivedAuthorization, 'Bearer sk-session-only');
+  const newProcessService = service(undefined, fetcher);
+  assert.equal(newProcessService.list()[0]?.credentialAvailability, 'missing');
 });
 
 test('Provider Connection Service 在凭据缺失时拒绝激活且 probe 绝不联网', async () => {
