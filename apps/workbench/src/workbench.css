@@ -484,3 +484,68 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
   .component-lock-heading { display: block; }
   .component-lock-count { display: inline-block; margin-top: 0.42rem; }
 }
+
+/* P6.3 Native-host component management：浏览器只读审计回执，绝不提供构件 mutation 控件。 */
+.component-management-board {
+  margin-top: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  background: var(--panel);
+}
+
+.component-management-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.component-management-heading span,
+.component-management-meta,
+.component-management-note,
+.component-management-boundary,
+.component-management-empty {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.component-management-heading h2 {
+  margin: 0.18rem 0 0;
+  font-size: 1rem;
+}
+
+.component-management-count {
+  color: var(--accent);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.component-management-meta { margin: 0.7rem 0; }
+.component-management-receipts { display: grid; gap: 0.48rem; }
+
+.component-management-receipt {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.72rem;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 0.58rem;
+}
+
+.component-management-receipt.applied { border-left-color: var(--success); }
+.component-management-receipt.rejected { border-left-color: var(--warning); }
+.component-management-receipt > div { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+.component-management-receipt code { color: var(--text); font-size: 0.72rem; }
+.component-management-receipt strong { color: var(--muted); font-size: 0.76rem; font-weight: 600; }
+.component-management-receipt small { color: var(--muted); font-size: 0.74rem; line-height: 1.42; }
+.component-management-status { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; }
+.component-management-receipt.applied .component-management-status { color: var(--success); }
+.component-management-receipt.rejected .component-management-status { color: var(--warning); }
+.component-management-note { margin: 0.78rem 0 0; line-height: 1.45; }
+.component-management-boundary { margin: 0.34rem 0 0; font-weight: 650; }
+
+@media (max-width: 620px) {
+  .component-management-heading { display: block; }
+  .component-management-count { display: inline-block; margin-top: 0.42rem; }
+}

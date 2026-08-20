@@ -202,6 +202,34 @@ test('Security Posture Audit 客户端只读取固定冷路径 report，并拒�
   }
 });
 
+test('Component Management Receipt 客户端只读取固定冷路径审计摘要，并拒绝 attestation 或敏感字段', async () => {
+  const originalFetch = globalThis.fetch;
+  let url = '';
+  const report = {
+    schemaVersion: 1, generatedAt: 2, browserCanManage: false, canExecute: false, canAutoRemediate: false,
+    receipts: [{
+      operationId: 'op-review', issuerId: 'desktop-host', action: 'review-provenance', componentId: 'local-reader',
+      outcome: 'applied', recordedAt: 1, canExecute: false, canAutoRemediate: false,
+    }],
+  };
+  globalThis.fetch = (async (nextUrl) => { url = String(nextUrl); return Response.json(report); }) as typeof fetch;
+  try {
+    const value = await new HttpWorkbenchTaskClient().componentManagementReport();
+    assert.equal(url, '/api/components/management-receipts');
+    assert.equal(value.browserCanManage, false);
+    assert.equal(value.receipts[0].canExecute, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = (async () => Response.json({ ...report, receipts: [{ ...report.receipts[0], attestation: { payloadDigest: 'a'.repeat(64) } }] })) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().componentManagementReport(), /未声明、敏感或可执行/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('Component Lock Report 客户端只读取固定冷路径隔离决定，并拒绝敏感或执行字段', async () => {
   const originalFetch = globalThis.fetch;
   let url = '';

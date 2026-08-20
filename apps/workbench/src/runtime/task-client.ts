@@ -108,6 +108,27 @@ export interface WorkbenchComponentLockReport {
   canAutoRepair: false;
 }
 
+export interface WorkbenchComponentManagementReceipt {
+  operationId: string;
+  issuerId: string;
+  action: 'register-candidate' | 'verify-digest' | 'review-provenance' | 'record-lockfile' | 'revoke-provenance';
+  componentId: string;
+  outcome: 'applied' | 'rejected';
+  rejectionCode?: 'attestation-invalid' | 'attestation-expired' | 'issuer-untrusted' | 'operation-replayed' | 'payload-mismatch' | 'precondition-failed';
+  recordedAt: number;
+  canExecute: false;
+  canAutoRemediate: false;
+}
+
+export interface WorkbenchComponentManagementReport {
+  schemaVersion: 1;
+  generatedAt: number;
+  receipts: readonly WorkbenchComponentManagementReceipt[];
+  browserCanManage: false;
+  canExecute: false;
+  canAutoRemediate: false;
+}
+
 export interface WorkbenchRunTrajectoryEvent {
   schemaVersion: 1;
   trajectoryEventId: string;
@@ -143,6 +164,7 @@ export interface WorkbenchTaskClient {
   controlPlaneDiagnostics(): Promise<WorkbenchControlPlaneDiagnostics>;
   securityPostureAudit(): Promise<WorkbenchSecurityPostureReport>;
   componentLockReport(): Promise<WorkbenchComponentLockReport>;
+  componentManagementReport(): Promise<WorkbenchComponentManagementReport>;
 }
 
 function assertLocalModelHealth(value: unknown): asserts value is WorkbenchLocalModelHealth {
@@ -255,6 +277,32 @@ function assertComponentLockReport(value: unknown): asserts value is WorkbenchCo
   }
 }
 
+function assertComponentManagementReport(value: unknown): asserts value is WorkbenchComponentManagementReport {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('构件管理回执报告无效');
+  const report = value as Record<string, unknown>;
+  const actions = new Set(['register-candidate', 'verify-digest', 'review-provenance', 'record-lockfile', 'revoke-provenance']);
+  const outcomes = new Set(['applied', 'rejected']);
+  const rejections = new Set(['attestation-invalid', 'attestation-expired', 'issuer-untrusted', 'operation-replayed', 'payload-mismatch', 'precondition-failed']);
+  const isNonNegativeSafeInteger = (candidate: unknown): candidate is number => typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate >= 0;
+  if (
+    Object.keys(report).some((key) => !['schemaVersion', 'generatedAt', 'receipts', 'browserCanManage', 'canExecute', 'canAutoRemediate'].includes(key))
+    || report.schemaVersion !== 1 || !isNonNegativeSafeInteger(report.generatedAt)
+    || report.browserCanManage !== false || report.canExecute !== false || report.canAutoRemediate !== false || !isSafeMetadataArray(report.receipts)
+  ) throw new Error('构件管理回执报告返回了不兼容或可执行的 metadata contract');
+  for (const receipt of report.receipts) {
+    if (
+      Object.keys(receipt).some((key) => !['operationId', 'issuerId', 'action', 'componentId', 'outcome', 'rejectionCode', 'recordedAt', 'canExecute', 'canAutoRemediate'].includes(key))
+      || typeof receipt.operationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(receipt.operationId)
+      || typeof receipt.issuerId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(receipt.issuerId)
+      || typeof receipt.componentId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(receipt.componentId)
+      || typeof receipt.action !== 'string' || !actions.has(receipt.action)
+      || typeof receipt.outcome !== 'string' || !outcomes.has(receipt.outcome)
+      || (receipt.rejectionCode !== undefined && (typeof receipt.rejectionCode !== 'string' || !rejections.has(receipt.rejectionCode)))
+      || !isNonNegativeSafeInteger(receipt.recordedAt) || receipt.canExecute !== false || receipt.canAutoRemediate !== false
+    ) throw new Error('构件管理回执包含未声明、敏感或可执行字段');
+  }
+}
+
 function assertTrajectoryEvent(value: unknown): asserts value is WorkbenchRunTrajectoryEvent {
   if (!value || typeof value !== 'object') throw new Error('运行轨迹包含无效事件');
   const event = value as Partial<WorkbenchRunTrajectoryEvent>;
@@ -309,6 +357,7 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     private readonly controlPlaneDiagnosticUrl = '/api/control-plane/diagnostics',
     private readonly securityPostureAuditUrl = '/api/security-posture/audit',
     private readonly componentLockReportUrl = '/api/components/lock-report',
+    private readonly componentManagementReportUrl = '/api/components/management-receipts',
   ) {}
 
   async submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot> {
@@ -391,6 +440,14 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     const payload: unknown = await response.json();
     assertComponentLockReport(payload);
     return { ...payload, decisions: [...payload.decisions].sort((left, right) => left.componentId.localeCompare(right.componentId)) };
+  }
+
+  async componentManagementReport(): Promise<WorkbenchComponentManagementReport> {
+    const response = await fetch(this.componentManagementReportUrl, { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(await response.text() || `构件管理回执报告请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertComponentManagementReport(payload);
+    return { ...payload, receipts: [...payload.receipts].sort((left, right) => right.recordedAt - left.recordedAt || left.operationId.localeCompare(right.operationId)) };
   }
 
   async snapshot(taskId: string, runId: string): Promise<WorkbenchTaskSnapshot | undefined> {

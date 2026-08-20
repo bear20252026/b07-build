@@ -93,6 +93,9 @@ export const catalog = {
     componentLock: {
       aria: '构件来源与锁定状态', eyebrow: 'READ-ONLY COMPONENT LOCK', title: '构件 provenance 与 lockfile', loading: '正在比对已登记构件与锁定 metadata…', empty: '当前没有处于可激活状态的构件。', locked: (revision: number) => `Lock revision ${revision}`, unlocked: '尚未登记 lockfile；任何可激活构件都将保持隔离。', decisions: (count: number) => `${count} 个构件决定`, eligible: '可进入后续受控规划', quarantined: '已隔离', reasons: '隔离原因', inspectedAt: '检查时间', note: '报告只读取既有 manifest、provenance 与 lock metadata；摘要或修订漂移会保持隔离，绝不静默升级。', cannotRepair: '此视图不能登记、评审、锁定、安装、修复或激活构件。',
     },
+    componentManagement: {
+      aria: '构件管理回执', eyebrow: 'NATIVE-HOST MANAGEMENT AUDIT', title: '受控构件管理回执', loading: '正在读取本地宿主管理审计摘要…', empty: '尚无已记录的构件管理操作。', count: (count: number) => `${count} 条宿主管理回执`, generatedAt: '生成时间', applied: '已应用', rejected: '已拒绝', browserDenied: '浏览器不能登记、核验、评审、锁定、撤销或激活构件。', note: '此卡片只显示脱敏管理回执；不暴露 attestation、payload digest、来源、路径、制品、许可证或命令。',
+    },
     authority: {
       selectLabel: '执行权限', selectAria: '选择本次任务的执行权限', mode: {
         plan: { label: '只计划', description: '只允许模型、文档和只读工作区检查；高影响能力会被拒绝。' },
@@ -196,6 +199,9 @@ export const catalog = {
     },
     componentLock: {
       aria: 'Component provenance and lock status', eyebrow: 'READ-ONLY COMPONENT LOCK', title: 'Component provenance and lockfile', loading: 'Comparing registered components with lock metadata…', empty: 'No component is currently in an activatable state.', locked: (revision: number) => `Lock revision ${revision}`, unlocked: 'No lockfile is recorded; every activatable component remains quarantined.', decisions: (count: number) => `${count} component decisions`, eligible: 'Eligible for later controlled planning', quarantined: 'Quarantined', reasons: 'Quarantine reasons', inspectedAt: 'Inspected', note: 'The report reads only existing manifest, provenance, and lock metadata. Digest or revision drift remains quarantined; it never upgrades silently.', cannotRepair: 'This view cannot register, review, lock, install, repair, or activate components.',
+    },
+    componentManagement: {
+      aria: 'Component management receipts', eyebrow: 'NATIVE-HOST MANAGEMENT AUDIT', title: 'Controlled component management receipts', loading: 'Reading local host management audit summaries…', empty: 'No component management operation is recorded yet.', count: (count: number) => `${count} host management receipts`, generatedAt: 'Generated', applied: 'Applied', rejected: 'Rejected', browserDenied: 'Browsers cannot register, verify, review, lock, revoke, or activate components.', note: 'This card shows only redacted management receipts. It never exposes attestations, payload digests, source, paths, artifacts, licenses, or commands.',
     },
     authority: {
       selectLabel: 'Execution authority', selectAria: 'Select execution authority for this task', mode: {

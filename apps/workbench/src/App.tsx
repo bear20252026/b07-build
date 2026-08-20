@@ -4,6 +4,7 @@ import { Sider } from './components/layout/Sider';
 import { ControlPlaneInsights } from './components/observability/ControlPlaneInsights';
 import { ControlPlaneDiagnosticsBoard } from './components/observability/ControlPlaneDiagnosticsBoard';
 import { ComponentLockBoard } from './components/observability/ComponentLockBoard';
+import { ComponentManagementReceiptBoard } from './components/observability/ComponentManagementReceiptBoard';
 import { ExtensionCenter } from './components/observability/ExtensionCenter';
 import { LocalModelHealthBoard } from './components/observability/LocalModelHealthBoard';
 import { SecurityPostureAuditBoard } from './components/observability/SecurityPostureAuditBoard';
@@ -15,6 +16,7 @@ import {
   HttpWorkbenchTaskClient,
   type WorkbenchAuthorityMode,
   type WorkbenchComponentLockReport,
+  type WorkbenchComponentManagementReport,
   type WorkbenchControlPlaneDiagnostics,
   type WorkbenchLocalModelHealth,
   type WorkbenchTaskSnapshot,
@@ -86,6 +88,8 @@ export function App() {
   const [securityPostureAuditError, setSecurityPostureAuditError] = useState<string>();
   const [componentLockReport, setComponentLockReport] = useState<WorkbenchComponentLockReport>();
   const [componentLockReportError, setComponentLockReportError] = useState<string>();
+  const [componentManagementReport, setComponentManagementReport] = useState<WorkbenchComponentManagementReport>();
+  const [componentManagementReportError, setComponentManagementReportError] = useState<string>();
   const [snapshot, setSnapshot] = useState<WorkbenchTaskSnapshot>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
@@ -115,6 +119,9 @@ export function App() {
     void taskClient.componentLockReport()
       .then((report) => { if (!disposed) setComponentLockReport(report); })
       .catch((error: unknown) => { if (!disposed) setComponentLockReportError(error instanceof Error ? error.message : 'Component lock report unavailable'); });
+    void taskClient.componentManagementReport()
+      .then((report) => { if (!disposed) setComponentManagementReport(report); })
+      .catch((error: unknown) => { if (!disposed) setComponentManagementReportError(error instanceof Error ? error.message : 'Component management report unavailable'); });
     return () => { disposed = true; };
   }, []);
 
@@ -245,6 +252,7 @@ export function App() {
             <ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} />
             <SecurityPostureAuditBoard error={securityPostureAuditError} messages={messages} report={securityPostureAudit} />
             <ComponentLockBoard error={componentLockReportError} messages={messages} report={componentLockReport} />
+            <ComponentManagementReceiptBoard error={componentManagementReportError} messages={messages} report={componentManagementReport} />
             <LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} />
             <ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} />
             <section className="event-section">

@@ -26,6 +26,7 @@ const DATABASE_VARIABLES = [
   'AWO_TRUSTED_DESKTOP_ISSUER_DB',
   'AWO_COMPONENT_PROVENANCE_DB',
   'AWO_COMPONENT_LOCKFILE_DB',
+  'AWO_COMPONENT_MANAGEMENT_RECEIPT_DB',
 ] as const;
 
 async function withGateway<T>(run: (baseUrl: string) => Promise<T>): Promise<T> {
@@ -157,6 +158,22 @@ test('Gateway Component Lock Report 只投影冷路径隔离决定，拒绝登�
     assert.equal(report.canAutoRepair, false);
 
     const writeAttempt = await fetch(`${baseUrl}/api/components/lock-report`, { method: 'POST', body: '{}' });
+    assert.equal(writeAttempt.status, 404);
+  });
+});
+
+test('Gateway Component Management Receipt Report 仅可观察脱敏回执，普通 HTTP 不能调用本地宿主管理 authority', async () => {
+  await withGateway(async (baseUrl) => {
+    const reportResponse = await fetch(`${baseUrl}/api/components/management-receipts`);
+    assert.equal(reportResponse.status, 200);
+    const report = await reportResponse.json() as { schemaVersion: number; receipts: readonly unknown[]; browserCanManage: boolean; canExecute: boolean; canAutoRemediate: boolean };
+    assert.equal(report.schemaVersion, 1);
+    assert.deepEqual(report.receipts, []);
+    assert.equal(report.browserCanManage, false);
+    assert.equal(report.canExecute, false);
+    assert.equal(report.canAutoRemediate, false);
+
+    const writeAttempt = await fetch(`${baseUrl}/api/components/management-receipts`, { method: 'POST', body: JSON.stringify({ action: 'register-candidate' }) });
     assert.equal(writeAttempt.status, 404);
   });
 });

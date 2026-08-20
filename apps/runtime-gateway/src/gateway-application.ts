@@ -6,6 +6,7 @@ import {
   AdministratorAuthorityLedger,
   AgentAdapterControlPlane,
   ComponentLockfileLedger,
+  ComponentManagementAuthority,
   ComponentProvenanceRegistry,
   AuditedScheduleControlPlane,
   ExtensionActivationPlanner,
@@ -20,6 +21,7 @@ import {
   SqliteAdapterApprovalMailboxStore,
   SqliteAdministratorLeaseStore,
   SqliteComponentLockfileStore,
+  SqliteComponentManagementReceiptStore,
   SqliteComponentProvenanceStore,
   SqliteAgentAdapterManifestStore,
   SqliteAgentAdapterSessionStore,
@@ -49,6 +51,7 @@ import type { GatewayDependencies } from './http/gateway-dependencies.js';
 import { createControlPlaneDiagnosticReport } from './control-plane-diagnostics.js';
 import { createGatewaySecurityPostureReport } from './security-posture-audit.js';
 import { createGatewayComponentLockReport, createGatewayExtensionProvenanceLockGuard } from './component-lock-report.js';
+import { createGatewayComponentManagementReport } from './component-management-report.js';
 import { handleGatewayRequest } from './http/router.js';
 
 const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318);
@@ -122,6 +125,7 @@ export function createGatewayComposition(): GatewayComposition {
   const trustedDesktopIssuerPath = resolve(process.env.AWO_TRUSTED_DESKTOP_ISSUER_DB ?? '.awo/trusted-desktop-issuers.sqlite');
   const componentProvenancePath = resolve(process.env.AWO_COMPONENT_PROVENANCE_DB ?? '.awo/component-provenance.sqlite');
   const componentLockfilePath = resolve(process.env.AWO_COMPONENT_LOCKFILE_DB ?? '.awo/component-lockfile.sqlite');
+  const componentManagementReceiptPath = resolve(process.env.AWO_COMPONENT_MANAGEMENT_RECEIPT_DB ?? '.awo/component-management-receipts.sqlite');
 
   const store = new SqliteTaskSnapshotStore(snapshotPath);
   const knowledgeWorkspaceStore = new SqliteKnowledgeWorkspaceStore(knowledgeWorkspacePath);
@@ -157,6 +161,9 @@ export function createGatewayComposition(): GatewayComposition {
   const componentProvenances = new ComponentProvenanceRegistry(componentProvenanceStore);
   const componentLockfileStore = new SqliteComponentLockfileStore(componentLockfilePath);
   const componentLockfiles = new ComponentLockfileLedger(componentLockfileStore);
+  const componentManagementReceiptStore = new SqliteComponentManagementReceiptStore(componentManagementReceiptPath);
+  // 仅供未来 native desktop host 在进程内调用；loopback HTTP/renderer 永远不暴露 manage()。
+  const componentManagement = new ComponentManagementAuthority(trustedDesktopIssuers, componentProvenances, componentLockfiles, componentManagementReceiptStore);
 
   if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
     knowledgeWorkspaces.create({
@@ -252,6 +259,7 @@ export function createGatewayComposition(): GatewayComposition {
       () => trustedDesktopIssuerStore.close(),
       () => componentProvenanceStore.close(),
       () => componentLockfileStore.close(),
+      () => componentManagementReceiptStore.close(),
     ];
     let closeFailure: unknown;
     for (const close of closers) {
@@ -277,6 +285,8 @@ export function createGatewayComposition(): GatewayComposition {
         localModels: localModelHealth,
         trustedDesktopIssuers,
       }),
+      componentManagement,
+      componentManagementReport: () => createGatewayComponentManagementReport(componentManagement),
       componentLockReport: () => createGatewayComponentLockReport({
         extensions: extensionRegistry,
         skillPacks,
