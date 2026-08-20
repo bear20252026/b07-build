@@ -8,6 +8,7 @@ import type {
   McpRegistry,
   ReadOnlySubtaskService,
   RunTrajectoryLedger,
+  RunWorkspaceLedger,
   SqliteExtensionPlanStore,
   SqliteTaskCommandReceiptStore,
   LocalTaskRuntimeService,
@@ -45,6 +46,8 @@ export interface GatewayDependencies {
   readonly agentAdapters: AgentAdapterControlPlane;
   readonly schedules: AuditedScheduleControlPlane;
   readonly runTrajectory: RunTrajectoryLedger;
+  /** 运行产出与检查点仅为脱敏、不可复放 metadata。 */
+  readonly runWorkspace: RunWorkspaceLedger;
   readonly administratorLeases: AdministratorAuthorityLedger;
   readonly trustedDesktopIssuers: TrustedDesktopIssuerRegistry;
   readonly controlPlaneDiagnostics: () => ControlPlaneDiagnosticReportV1;

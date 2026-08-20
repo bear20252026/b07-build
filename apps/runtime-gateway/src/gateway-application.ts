@@ -18,6 +18,7 @@ import {
   ReadOnlySubtaskService,
   RuleBasedCapabilityPolicy,
   RunTrajectoryLedger,
+  RunWorkspaceLedger,
   SqliteAdapterApprovalMailboxStore,
   SqliteAdministratorLeaseStore,
   SqliteComponentLockfileStore,
@@ -32,6 +33,7 @@ import {
   SqliteScheduledRunStore,
   SqliteSubtaskSnapshotStore,
   SqliteRunTrajectoryStore,
+  SqliteRunWorkspaceLedgerStore,
   SqliteTaskCommandReceiptStore,
   SqliteTaskSnapshotStore,
   SqliteTrustedDesktopIssuerStore,
@@ -121,7 +123,7 @@ export function createGatewayComposition(): GatewayComposition {
   const agentAdapterMailboxPath = resolve(process.env.AWO_AGENT_ADAPTER_MAILBOX_DB ?? '.awo/agent-adapter-mailbox.sqlite');
   const scheduleManifestPath = resolve(process.env.AWO_SCHEDULE_MANIFEST_DB ?? '.awo/audited-schedules.sqlite');
   const scheduleRunPath = resolve(process.env.AWO_SCHEDULE_RUN_DB ?? '.awo/audited-schedule-runs.sqlite');
-  const runTrajectoryPath = resolve(process.env.AWO_RUN_TRAJECTORY_DB ?? '.awo/run-trajectories.sqlite');
+  const runTrajectoryPath = resolve(process.env.AWO_RUN_TRAJECTORY_DB ?? '.awo/run-trajectories.sqlite'); const runWorkspaceLedgerPath = resolve(process.env.AWO_RUN_WORKSPACE_LEDGER_DB ?? '.awo/run-workspace-ledger.sqlite');
   const administratorLeasePath = resolve(process.env.AWO_ADMINISTRATOR_LEASE_DB ?? '.awo/administrator-leases.sqlite');
   const trustedDesktopIssuerPath = resolve(process.env.AWO_TRUSTED_DESKTOP_ISSUER_DB ?? '.awo/trusted-desktop-issuers.sqlite');
   const componentProvenancePath = resolve(process.env.AWO_COMPONENT_PROVENANCE_DB ?? '.awo/component-provenance.sqlite');
@@ -155,8 +157,8 @@ export function createGatewayComposition(): GatewayComposition {
   const scheduleManifestStore = new SqliteScheduleManifestStore(scheduleManifestPath);
   const scheduledRunStore = new SqliteScheduledRunStore(scheduleRunPath);
   const schedules = new AuditedScheduleControlPlane(scheduleManifestStore, scheduledRunStore);
-  const runTrajectoryStore = new SqliteRunTrajectoryStore(runTrajectoryPath);
-  const runTrajectory = new RunTrajectoryLedger(runTrajectoryStore);
+  const runTrajectoryStore = new SqliteRunTrajectoryStore(runTrajectoryPath); const runTrajectory = new RunTrajectoryLedger(runTrajectoryStore);
+  const runWorkspaceStore = new SqliteRunWorkspaceLedgerStore(runWorkspaceLedgerPath); const runWorkspace = new RunWorkspaceLedger(runWorkspaceStore);
   const administratorLeaseStore = new SqliteAdministratorLeaseStore(administratorLeasePath);
   const administratorLeases = new AdministratorAuthorityLedger(administratorLeaseStore);
   const trustedDesktopIssuerStore = new SqliteTrustedDesktopIssuerStore(trustedDesktopIssuerPath);
@@ -234,6 +236,7 @@ export function createGatewayComposition(): GatewayComposition {
       emit(nextEvent) {
         events.push(nextEvent);
         runTrajectory.recordTaskEvent(nextEvent, 'task-runtime');
+        runWorkspace.recordTaskEvent(nextEvent);
       },
     };
     eventsByRun.set(runKey(taskId, runId), events);
@@ -259,7 +262,7 @@ export function createGatewayComposition(): GatewayComposition {
       () => agentAdapterMailboxStore.close(),
       () => scheduleManifestStore.close(),
       () => scheduledRunStore.close(),
-      () => runTrajectoryStore.close(),
+      () => { runTrajectoryStore.close(); runWorkspaceStore.close(); },
       () => administratorLeaseStore.close(),
       () => trustedDesktopIssuerStore.close(),
       () => componentProvenanceStore.close(),
@@ -282,7 +285,7 @@ export function createGatewayComposition(): GatewayComposition {
     dependencies: {
       runtime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
       extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, localModelHealth, knowledgeWorkspaces, skillPacks,
-      agentAdapters, schedules, runTrajectory, administratorLeases, trustedDesktopIssuers,
+      agentAdapters, schedules, runTrajectory, runWorkspace, administratorLeases, trustedDesktopIssuers,
       controlPlaneDiagnostics: () => createControlPlaneDiagnosticReport({
         extensions: extensionRegistry,
         extensionDoctor,

@@ -23,7 +23,7 @@ function idempotencyKey(request: IncomingMessage): string | undefined {
 
 /** 任务 intent HTTP 适配器；所有执行仍经既有 Profile、Policy、审批与预算链路。 */
 export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, segments, dependencies }) => {
-  const { runtime, commandReceipts, requests, eventsByRun, approvedActions, readOnlySubtasks, runTrajectory, createTaskRequest, createEvent } = dependencies;
+  const { runtime, commandReceipts, requests, eventsByRun, approvedActions, readOnlySubtasks, runTrajectory, runWorkspace, createTaskRequest, createEvent } = dependencies;
   if (request.method === 'POST' && url.pathname === '/api/tasks') {
     const body = await readJsonBody(request);
     let intent;
@@ -84,6 +84,7 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
     );
     requests.set(runKey(runtimeRequest.taskId, runtimeRequest.runId), runtimeRequest);
     const snapshot = await runtime.submit(runtimeRequest);
+    runWorkspace.recordCheckpoint(snapshot, true);
     commandReceipts.complete('submit', key, snapshot, Date.now());
     sendJson(response, claimed.kind === 'claimed' ? 201 : 200, snapshot);
     return true;
@@ -113,6 +114,18 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
     const events = runTrajectory.list(taskId, runId);
     if (events.length === 0) sendJson(response, 404, { error: '当前本地网关没有此任务的运行轨迹' });
     else sendJson(response, 200, events);
+    return true;
+  }
+  if (request.method === 'GET' && operation === 'workspace') {
+    const snapshot = runtime.snapshot(taskId, runId);
+    if (!snapshot) sendJson(response, 404, { error: '任务快照不存在' });
+    else sendJson(response, 200, runWorkspace.listArtifacts(taskId, runId));
+    return true;
+  }
+  if (request.method === 'GET' && operation === 'checkpoints') {
+    const snapshot = runtime.snapshot(taskId, runId);
+    if (!snapshot) sendJson(response, 404, { error: '任务快照不存在' });
+    else sendJson(response, 200, runWorkspace.listCheckpoints(taskId, runId));
     return true;
   }
   if (request.method === 'POST' && operation === 'subtasks' && segments.length === 5) {
@@ -176,6 +189,7 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
       return true;
     }
     const snapshot = await runtime.resume(runtimeRequest);
+    runWorkspace.recordCheckpoint(snapshot, true);
     commandReceipts.complete('resume', commandKey, snapshot, Date.now());
     sendJson(response, 200, snapshot);
     return true;
@@ -201,6 +215,7 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
     eventsByRun.get(key)?.push(approvalEvent);
     runTrajectory.recordTaskEvent(approvalEvent, 'approval');
     const snapshot = await runtime.resume(runtimeRequest);
+    runWorkspace.recordCheckpoint(snapshot, true);
     commandReceipts.complete('approve', commandKey, snapshot, Date.now());
     sendJson(response, 200, snapshot);
     return true;

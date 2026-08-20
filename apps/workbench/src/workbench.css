@@ -683,3 +683,35 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .page-heading h1 { margin: 5px 0 7px; color: var(--text-strong); font-size: 24px; letter-spacing: -.035em; }
 .page-heading p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
 @media (max-width: 680px) { .page-stack { padding: 20px 16px 32px; } }
+
+/* P11：运行产出与检查点只读账本；不提供文件读取、重放或权限提升入口。 */
+.run-workspace-board {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel) 94%, var(--success-soft));
+}
+.run-workspace-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.run-workspace-heading > div:first-child > span, .run-workspace-section-heading small { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; }
+.run-workspace-heading h2 { margin: 4px 0 0; color: var(--text-strong); font-size: 16px; letter-spacing: -0.02em; }
+.run-workspace-heading p { max-width: 590px; margin: 6px 0 0; color: var(--muted-strong); font-size: 11px; line-height: 1.5; }
+.run-workspace-counts { display: inline-flex; flex: 0 0 auto; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.run-workspace-counts span { padding: 4px 8px; color: var(--muted-strong); font-size: 10px; font-weight: 650; border-radius: 999px; background: var(--panel-muted); white-space: nowrap; }
+.run-workspace-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.run-workspace-section { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
+.run-workspace-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.run-workspace-section-heading strong { color: var(--text-strong); font-size: 12px; }
+.run-workspace-list { display: grid; gap: 7px; margin: 10px 0 0; padding: 0; list-style: none; }
+.run-workspace-item { display: grid; gap: 5px; padding: 9px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel-muted); }
+.run-workspace-item > div { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; }
+.run-workspace-item strong { min-width: 0; overflow: hidden; color: var(--text-strong); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.run-workspace-item code { min-width: 0; overflow: hidden; color: var(--accent); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.run-workspace-item small, .run-workspace-empty, .run-workspace-note, .run-workspace-error { color: var(--muted-strong); font-size: 10px; line-height: 1.45; }
+.run-workspace-empty { margin: 11px 0 2px; }
+.run-workspace-item.checkpoint > div > span { flex: 0 0 auto; color: var(--muted); font-size: 10px; }
+.run-workspace-item.checkpoint > div > span.resume-available { color: var(--warning); font-weight: 650; }
+.run-workspace-note, .run-workspace-error { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--border); }
+.run-workspace-note { color: var(--muted); }
+.run-workspace-error { color: var(--danger); }
+@media (max-width: 760px) { .run-workspace-heading { flex-direction: column; } .run-workspace-counts { justify-content: flex-start; } .run-workspace-columns { grid-template-columns: 1fr; } }

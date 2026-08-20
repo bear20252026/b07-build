@@ -22,6 +22,7 @@ const DATABASE_VARIABLES = [
   'AWO_SCHEDULE_MANIFEST_DB',
   'AWO_SCHEDULE_RUN_DB',
   'AWO_RUN_TRAJECTORY_DB',
+  'AWO_RUN_WORKSPACE_LEDGER_DB',
   'AWO_ADMINISTRATOR_LEASE_DB',
   'AWO_TRUSTED_DESKTOP_ISSUER_DB',
   'AWO_COMPONENT_PROVENANCE_DB',
@@ -101,7 +102,7 @@ test('Gateway 强制 Task Submit HTTP v1，并提供脱敏且只读的 run traje
     const submitted = await fetch(`${baseUrl}/api/tasks`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'idempotency-key': 'contract-v1-accepted' },
-      body: JSON.stringify({ schemaVersion: 1, goal: privateGoal, profileId: 'plan' }),
+      body: JSON.stringify({ schemaVersion: 1, goal: privateGoal, profileId: 'build' }),
     });
     assert.equal(submitted.status, 201);
     const snapshot = await submitted.json() as { taskId: string; runId: string };
@@ -113,6 +114,27 @@ test('Gateway 强制 Task Submit HTTP v1，并提供脱敏且只读的 run traje
     assert.equal(JSON.stringify(trajectory).includes(privateGoal), false);
     assert.equal(trajectory.every((event) => event.canReplaySideEffects === false), true);
     assert.equal(trajectory[0].source, 'gateway.intent');
+
+    const workspaceResponse = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/workspace`);
+    assert.equal(workspaceResponse.status, 200);
+    const artifacts = await workspaceResponse.json() as readonly { reference: string; referenceDigest: string; containsSensitiveContent: boolean; canReplaySideEffects: boolean }[];
+    assert.equal(artifacts.length >= 1, true);
+    assert.equal(artifacts.every((artifact) => /^local:\/\/task\/[A-Za-z0-9._:-]+\/[A-Za-z0-9._:-]+$|^artifact:\/\/[A-Za-z0-9._:-]+$/.test(artifact.reference)), true);
+    assert.equal(artifacts.every((artifact) => /^[a-f0-9]{64}$/.test(artifact.referenceDigest) && artifact.containsSensitiveContent === false && artifact.canReplaySideEffects === false), true);
+    assert.equal(JSON.stringify(artifacts).includes(privateGoal), false);
+    assert.equal((await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/workspace`, { method: 'POST' })).status, 404);
+
+    const checkpointsResponse = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/checkpoints`);
+    assert.equal(checkpointsResponse.status, 200);
+    const checkpoints = await checkpointsResponse.json() as readonly { attempt: number; artifactCount: number; canResume: boolean; canReplaySideEffects: boolean; nodeOutcomeDigest: string; artifactManifestDigest: string }[];
+    assert.equal(checkpoints.length, 1);
+    assert.equal(checkpoints[0]?.attempt, 1);
+    assert.equal(checkpoints[0]?.artifactCount, artifacts.length);
+    assert.equal(checkpoints[0]?.canResume, true);
+    assert.equal(checkpoints[0]?.canReplaySideEffects, false);
+    assert.equal(/^[a-f0-9]{64}$/.test(checkpoints[0]?.nodeOutcomeDigest ?? ''), true);
+    assert.equal(/^[a-f0-9]{64}$/.test(checkpoints[0]?.artifactManifestDigest ?? ''), true);
+    assert.equal((await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/checkpoints`, { method: 'POST' })).status, 404);
   });
 });
 

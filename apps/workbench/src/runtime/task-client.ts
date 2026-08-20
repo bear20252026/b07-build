@@ -232,6 +232,39 @@ export interface WorkbenchRunTrajectoryEvent {
   canReplaySideEffects: false;
 }
 
+/** 受控结果引用的脱敏投影；reference 不是路径、内容或文件读取能力。 */
+export interface WorkbenchRunWorkspaceArtifact {
+  schemaVersion: 1;
+  artifactLedgerId: string;
+  sourceEventId: string;
+  taskId: string;
+  runId: string;
+  nodeId: string;
+  reference: string;
+  referenceDigest: string;
+  kind: 'tool-output' | 'declared-artifact';
+  status: 'available';
+  at: number;
+  containsSensitiveContent: false;
+  canReplaySideEffects: false;
+}
+
+/** 任务快照的不可变 metadata；继续运行仍需用户的既有 resume/approve intent。 */
+export interface WorkbenchRunCheckpoint {
+  schemaVersion: 1;
+  checkpointId: string;
+  taskId: string;
+  runId: string;
+  attempt: number;
+  status: WorkbenchTaskStatus;
+  nodeOutcomeDigest: string;
+  artifactManifestDigest: string;
+  artifactCount: number;
+  createdAt: number;
+  canResume: boolean;
+  canReplaySideEffects: false;
+}
+
 /**
  * 浏览器端的唯一运行时入口。该接口故意不暴露节点、工具、审批许可或数据库操作；
  * 它们必须由本地服务端在可信边界内装配。
@@ -243,6 +276,10 @@ function createIdempotencyKey(operation: string): string {
   return `${operation}-${suffix}`;
 }
 
+function isNonNegativeSafeInteger(candidate: unknown): candidate is number {
+  return typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate >= 0;
+}
+
 export interface WorkbenchTaskClient {
   submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot>;
   resume(taskId: string, runId: string): Promise<WorkbenchTaskSnapshot>;
@@ -250,6 +287,8 @@ export interface WorkbenchTaskClient {
   snapshot(taskId: string, runId: string): Promise<WorkbenchTaskSnapshot | undefined>;
   events(taskId: string, runId: string): Promise<readonly TaskEvent[]>;
   trajectory(taskId: string, runId: string): Promise<readonly WorkbenchRunTrajectoryEvent[]>;
+  workspaceArtifacts(taskId: string, runId: string): Promise<readonly WorkbenchRunWorkspaceArtifact[]>;
+  checkpoints(taskId: string, runId: string): Promise<readonly WorkbenchRunCheckpoint[]>;
   localModelHealth(): Promise<readonly WorkbenchLocalModelHealth[]>;
   providerConnections(): Promise<readonly WorkbenchProviderConnection[]>;
   registerProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection>;
@@ -513,6 +552,39 @@ function assertTrajectoryEvent(value: unknown): asserts value is WorkbenchRunTra
   }
 }
 
+function assertWorkspaceArtifact(value: unknown): asserts value is WorkbenchRunWorkspaceArtifact {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('运行产出包含无效条目');
+  const artifact = value as Partial<WorkbenchRunWorkspaceArtifact>;
+  const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+  const reference = /^local:\/\/task\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$|^artifact:\/\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+  if (
+    Object.keys(artifact).some((key) => !['schemaVersion', 'artifactLedgerId', 'sourceEventId', 'taskId', 'runId', 'nodeId', 'reference', 'referenceDigest', 'kind', 'status', 'at', 'containsSensitiveContent', 'canReplaySideEffects'].includes(key))
+    || artifact.schemaVersion !== 1 || typeof artifact.artifactLedgerId !== 'string' || !identifier.test(artifact.artifactLedgerId)
+    || typeof artifact.sourceEventId !== 'string' || !identifier.test(artifact.sourceEventId)
+    || typeof artifact.taskId !== 'string' || !identifier.test(artifact.taskId) || typeof artifact.runId !== 'string' || !identifier.test(artifact.runId)
+    || typeof artifact.nodeId !== 'string' || !identifier.test(artifact.nodeId) || typeof artifact.reference !== 'string' || !reference.test(artifact.reference)
+    || typeof artifact.referenceDigest !== 'string' || !/^[a-f0-9]{64}$/.test(artifact.referenceDigest)
+    || !['tool-output', 'declared-artifact'].includes(String(artifact.kind)) || artifact.status !== 'available'
+    || !isNonNegativeSafeInteger(artifact.at) || artifact.containsSensitiveContent !== false || artifact.canReplaySideEffects !== false
+  ) throw new Error('运行产出返回了不兼容、敏感或可执行字段');
+}
+
+function assertRunCheckpoint(value: unknown): asserts value is WorkbenchRunCheckpoint {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('运行检查点包含无效条目');
+  const checkpoint = value as Partial<WorkbenchRunCheckpoint>;
+  const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+  if (
+    Object.keys(checkpoint).some((key) => !['schemaVersion', 'checkpointId', 'taskId', 'runId', 'attempt', 'status', 'nodeOutcomeDigest', 'artifactManifestDigest', 'artifactCount', 'createdAt', 'canResume', 'canReplaySideEffects'].includes(key))
+    || checkpoint.schemaVersion !== 1 || typeof checkpoint.checkpointId !== 'string' || !identifier.test(checkpoint.checkpointId)
+    || typeof checkpoint.taskId !== 'string' || !identifier.test(checkpoint.taskId) || typeof checkpoint.runId !== 'string' || !identifier.test(checkpoint.runId)
+    || typeof checkpoint.attempt !== 'number' || !Number.isSafeInteger(checkpoint.attempt) || checkpoint.attempt < 1 || !['created', 'running', 'blocked', 'completed', 'failed'].includes(String(checkpoint.status))
+    || typeof checkpoint.nodeOutcomeDigest !== 'string' || !/^[a-f0-9]{64}$/.test(checkpoint.nodeOutcomeDigest)
+    || typeof checkpoint.artifactManifestDigest !== 'string' || !/^[a-f0-9]{64}$/.test(checkpoint.artifactManifestDigest)
+    || !isNonNegativeSafeInteger(checkpoint.artifactCount) || !isNonNegativeSafeInteger(checkpoint.createdAt)
+    || typeof checkpoint.canResume !== 'boolean' || checkpoint.canReplaySideEffects !== false
+  ) throw new Error('运行检查点返回了不兼容、敏感或可执行字段');
+}
+
 function assertRecordedInputProvenance(value: unknown): asserts value is WorkbenchRecordedInputProvenance {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('输入 provenance 摘要无效');
   const input = value as Partial<WorkbenchRecordedInputProvenance>;
@@ -628,6 +700,28 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     if (!Array.isArray(payload)) throw new Error('运行轨迹返回了无效列表');
     payload.forEach(assertTrajectoryEvent);
     return [...payload].sort((left, right) => left.sequence - right.sequence);
+  }
+
+  async workspaceArtifacts(taskId: string, runId: string): Promise<readonly WorkbenchRunWorkspaceArtifact[]> {
+    const response = await fetch(`${this.baseUrl}/${encodeURIComponent(taskId)}/${encodeURIComponent(runId)}/workspace`, {
+      headers: { accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(await response.text() || `运行产出请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    if (!Array.isArray(payload)) throw new Error('运行产出返回了无效列表');
+    payload.forEach(assertWorkspaceArtifact);
+    return [...payload].sort((left, right) => left.at - right.at || left.artifactLedgerId.localeCompare(right.artifactLedgerId));
+  }
+
+  async checkpoints(taskId: string, runId: string): Promise<readonly WorkbenchRunCheckpoint[]> {
+    const response = await fetch(`${this.baseUrl}/${encodeURIComponent(taskId)}/${encodeURIComponent(runId)}/checkpoints`, {
+      headers: { accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(await response.text() || `运行检查点请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    if (!Array.isArray(payload)) throw new Error('运行检查点返回了无效列表');
+    payload.forEach(assertRunCheckpoint);
+    return [...payload].sort((left, right) => right.attempt - left.attempt || right.createdAt - left.createdAt);
   }
 
   async localModelHealth(): Promise<readonly WorkbenchLocalModelHealth[]> {

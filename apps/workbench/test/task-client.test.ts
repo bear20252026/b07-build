@@ -319,3 +319,47 @@ test('Component Lock Report 客户端只读取固定冷路径隔离决定，并�
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test('运行产出与检查点客户端仅接受受控 metadata，并拒绝路径、秘密和可执行字段', async () => {
+  const originalFetch = globalThis.fetch;
+  const artifact = {
+    schemaVersion: 1, artifactLedgerId: 'artifact-ledger-2', sourceEventId: 'event-2', taskId: 'task-1', runId: 'run-1', nodeId: 'inspect',
+    reference: 'local://task/task-1/inspect', referenceDigest: 'a'.repeat(64), kind: 'tool-output', status: 'available', at: 2,
+    containsSensitiveContent: false, canReplaySideEffects: false,
+  };
+  const checkpoint = {
+    schemaVersion: 1, checkpointId: 'checkpoint-task-1-run-1-2', taskId: 'task-1', runId: 'run-1', attempt: 2, status: 'blocked',
+    nodeOutcomeDigest: 'b'.repeat(64), artifactManifestDigest: 'c'.repeat(64), artifactCount: 1, createdAt: 2,
+    canResume: true, canReplaySideEffects: false,
+  };
+  const urls: string[] = [];
+  globalThis.fetch = (async (url) => {
+    urls.push(String(url));
+    return String(url).endsWith('/workspace')
+      ? Response.json([{ ...artifact, artifactLedgerId: 'artifact-ledger-2', at: 2 }, { ...artifact, artifactLedgerId: 'artifact-ledger-1', at: 1 }])
+      : Response.json([checkpoint, { ...checkpoint, checkpointId: 'checkpoint-task-1-run-1-1', attempt: 1, createdAt: 1 }]);
+  }) as typeof fetch;
+  try {
+    const client = new HttpWorkbenchTaskClient('/api/tasks');
+    assert.deepEqual((await client.workspaceArtifacts('task-1', 'run-1')).map((item) => item.artifactLedgerId), ['artifact-ledger-1', 'artifact-ledger-2']);
+    assert.deepEqual((await client.checkpoints('task-1', 'run-1')).map((item) => item.attempt), [2, 1]);
+    assert.deepEqual(urls, ['/api/tasks/task-1/run-1/workspace', '/api/tasks/task-1/run-1/checkpoints']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = (async () => Response.json([{ ...artifact, path: 'C:\\private\\secret.txt', canReplaySideEffects: true }])) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().workspaceArtifacts('task-1', 'run-1'), /敏感或可执行/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = (async () => Response.json([{ ...checkpoint, resumeCommand: 'do not run' }])) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().checkpoints('task-1', 'run-1'), /敏感或可执行/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

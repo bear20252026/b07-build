@@ -14,6 +14,7 @@ import { NativeHostAuthenticationBoard } from './components/observability/Native
 import { WindowsNativeReleaseBoard } from './components/observability/WindowsNativeReleaseBoard';
 import { SecurityPostureAuditBoard } from './components/observability/SecurityPostureAuditBoard';
 import { TrajectoryBoard } from './components/observability/TrajectoryBoard';
+import { RunWorkspaceBoard } from './components/observability/RunWorkspaceBoard';
 import { PreviewPanel } from './components/preview/PreviewPanel';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
@@ -31,6 +32,8 @@ import {
   type WorkbenchWindowsNativeReleaseReport,
   type WorkbenchTaskSnapshot,
   type WorkbenchRunTrajectoryEvent,
+  type WorkbenchRunCheckpoint,
+  type WorkbenchRunWorkspaceArtifact,
   type WorkbenchSecurityPostureReport,
 } from './runtime/task-client';
 
@@ -94,6 +97,8 @@ export function App() {
   const [attachingGateway, setAttachingGateway] = useState(false);
   const [events, setEvents] = useState<readonly TaskEvent[]>([]);
   const [trajectory, setTrajectory] = useState<readonly WorkbenchRunTrajectoryEvent[]>([]);
+  const [workspaceArtifacts, setWorkspaceArtifacts] = useState<readonly WorkbenchRunWorkspaceArtifact[]>([]);
+  const [checkpoints, setCheckpoints] = useState<readonly WorkbenchRunCheckpoint[]>([]);
   const [localModels, setLocalModels] = useState<readonly WorkbenchLocalModelHealth[]>();
   const [localModelError, setLocalModelError] = useState<string>();
   const [providerConnections, setProviderConnections] = useState<readonly WorkbenchProviderConnection[]>();
@@ -201,6 +206,8 @@ export function App() {
     setComponentManagementReport(undefined);
     setNativeHostAuthenticationReport(undefined);
     setWindowsNativeReleaseReport(undefined);
+    setWorkspaceArtifacts([]);
+    setCheckpoints([]);
   };
 
   const refreshProviderConnections = (): void => {
@@ -283,13 +290,17 @@ export function App() {
   };
 
   const hydrate = async (nextSnapshot: WorkbenchTaskSnapshot): Promise<void> => {
-    const [nextEvents, nextTrajectory] = await Promise.all([
+    const [nextEvents, nextTrajectory, nextArtifacts, nextCheckpoints] = await Promise.all([
       localGatewayClient.events(nextSnapshot.taskId, nextSnapshot.runId),
       localGatewayClient.trajectory(nextSnapshot.taskId, nextSnapshot.runId),
+      localGatewayClient.workspaceArtifacts(nextSnapshot.taskId, nextSnapshot.runId),
+      localGatewayClient.checkpoints(nextSnapshot.taskId, nextSnapshot.runId),
     ]);
     setSnapshot(nextSnapshot);
     setEvents(nextEvents);
     setTrajectory(nextTrajectory);
+    setWorkspaceArtifacts(nextArtifacts);
+    setCheckpoints(nextCheckpoints);
   };
 
   const submitIntent = async (): Promise<void> => {
@@ -439,7 +450,7 @@ export function App() {
               onProbe={probeProviderConnection}
               onInfer={inferProviderConnection}
             />}
-            {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录与控制面</h1><p>这些内容只读、按需加载，不再占用任务工作区。</p></div><TrajectoryBoard events={trajectory} messages={messages} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /></section>}
+            {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录与控制面</h1><p>这些内容只读、按需加载，不再占用任务工作区。</p></div><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /></section>}
             {activePage === 'security' && <section className="page-stack"><div className="page-heading"><span>SECURITY & SYSTEM</span><h1>安全与系统</h1><p>所有项目均为只读证据与审计摘要；此页不能自动修复、信任或执行。</p></div><SecurityPostureAuditBoard error={securityPostureAuditError} messages={messages} report={securityPostureAudit} /><ComponentLockBoard error={componentLockReportError} messages={messages} report={componentLockReport} /><ComponentManagementReceiptBoard error={componentManagementReportError} messages={messages} report={componentManagementReport} /><NativeHostAuthenticationBoard error={nativeHostAuthenticationReportError} messages={messages} report={nativeHostAuthenticationReport} /><WindowsNativeReleaseBoard error={windowsNativeReleaseReportError} messages={messages} report={windowsNativeReleaseReport} /></section>}
             {activePage === 'workspace' && <section className="event-section">
               <div className="section-heading">
