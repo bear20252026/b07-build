@@ -24,6 +24,8 @@ const DATABASE_VARIABLES = [
   'AWO_RUN_TRAJECTORY_DB',
   'AWO_ADMINISTRATOR_LEASE_DB',
   'AWO_TRUSTED_DESKTOP_ISSUER_DB',
+  'AWO_COMPONENT_PROVENANCE_DB',
+  'AWO_COMPONENT_LOCKFILE_DB',
 ] as const;
 
 async function withGateway<T>(run: (baseUrl: string) => Promise<T>): Promise<T> {
@@ -142,6 +144,22 @@ test('Gateway 将 external provenance 绑定到快照、轨迹与幂等指纹，
   });
 });
 
+
+test('Gateway Component Lock Report 只投影冷路径隔离决定，拒绝登记、修复或激活动作', async () => {
+  await withGateway(async (baseUrl) => {
+    const reportResponse = await fetch(`${baseUrl}/api/components/lock-report`);
+    assert.equal(reportResponse.status, 200);
+    const report = await reportResponse.json() as { schemaVersion: number; decisions: readonly unknown[]; canActivate: boolean; canAutoRepair: boolean; lockfile?: unknown };
+    assert.equal(report.schemaVersion, 1);
+    assert.deepEqual(report.decisions, []);
+    assert.equal(report.lockfile, undefined);
+    assert.equal(report.canActivate, false);
+    assert.equal(report.canAutoRepair, false);
+
+    const writeAttempt = await fetch(`${baseUrl}/api/components/lock-report`, { method: 'POST', body: '{}' });
+    assert.equal(writeAttempt.status, 404);
+  });
+});
 
 test('Gateway Security Posture Audit 只输出冷路径 finding，拒绝任何修复或控制方法', async () => {
   await withGateway(async (baseUrl) => {

@@ -419,3 +419,68 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
   .security-audit-heading { display: block; }
   .security-audit-count { display: inline-block; margin-top: 0.42rem; }
 }
+
+/* P6.2 Component provenance/lock：只读隔离决定，不能登记、修复或激活。 */
+.component-lock-board {
+  margin-top: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  background: var(--panel);
+}
+
+.component-lock-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.component-lock-heading span,
+.component-lock-meta,
+.component-lock-note,
+.component-lock-boundary,
+.component-lock-empty {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.component-lock-heading h2 {
+  margin: 0.18rem 0 0;
+  font-size: 1rem;
+}
+
+.component-lock-count {
+  color: var(--accent);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.component-lock-meta { margin: 0.48rem 0; }
+.component-lock-decisions { display: grid; gap: 0.48rem; }
+
+.component-lock-decision {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.72rem;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 0.58rem;
+}
+
+.component-lock-decision.eligible { border-left-color: var(--success); }
+.component-lock-decision.quarantined { border-left-color: var(--warning); }
+.component-lock-decision > div { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+.component-lock-decision code { color: var(--text); font-size: 0.72rem; }
+.component-lock-decision strong { color: var(--muted); font-size: 0.76rem; font-weight: 600; }
+.component-lock-decision small { color: var(--muted); font-size: 0.74rem; line-height: 1.42; }
+.component-lock-status { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; }
+.component-lock-decision.eligible .component-lock-status { color: var(--success); }
+.component-lock-decision.quarantined .component-lock-status { color: var(--warning); }
+.component-lock-note { margin: 0.78rem 0 0; line-height: 1.45; }
+.component-lock-boundary { margin: 0.34rem 0 0; font-weight: 650; }
+
+@media (max-width: 620px) {
+  .component-lock-heading { display: block; }
+  .component-lock-count { display: inline-block; margin-top: 0.42rem; }
+}

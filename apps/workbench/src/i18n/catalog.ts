@@ -90,6 +90,9 @@ export const catalog = {
     securityAudit: {
       aria: '安全态势审计', eyebrow: 'READ-ONLY SECURITY POSTURE', title: '安全态势审计', loading: '正在读取本地审计 metadata…', empty: '当前冷路径审计没有发现需要提示的安全态势项。', findings: (count: number) => `${count} 项结构化 finding`, auditedAt: '审计时间', severity: { info: '信息', warning: '注意' }, note: '审计只汇总已存在的脱敏控制面证据；不会修复配置、探测端点、加载插件、运行恢复演练、签发租约或执行命令。', cannotRemediate: 'finding 仅供审查，不能自动修复或授权。',
     },
+    componentLock: {
+      aria: '构件来源与锁定状态', eyebrow: 'READ-ONLY COMPONENT LOCK', title: '构件 provenance 与 lockfile', loading: '正在比对已登记构件与锁定 metadata…', empty: '当前没有处于可激活状态的构件。', locked: (revision: number) => `Lock revision ${revision}`, unlocked: '尚未登记 lockfile；任何可激活构件都将保持隔离。', decisions: (count: number) => `${count} 个构件决定`, eligible: '可进入后续受控规划', quarantined: '已隔离', reasons: '隔离原因', inspectedAt: '检查时间', note: '报告只读取既有 manifest、provenance 与 lock metadata；摘要或修订漂移会保持隔离，绝不静默升级。', cannotRepair: '此视图不能登记、评审、锁定、安装、修复或激活构件。',
+    },
     authority: {
       selectLabel: '执行权限', selectAria: '选择本次任务的执行权限', mode: {
         plan: { label: '只计划', description: '只允许模型、文档和只读工作区检查；高影响能力会被拒绝。' },
@@ -190,6 +193,9 @@ export const catalog = {
     },
     securityAudit: {
       aria: 'Security posture audit', eyebrow: 'READ-ONLY SECURITY POSTURE', title: 'Security posture audit', loading: 'Reading local audit metadata…', empty: 'This cold-path audit has no security posture finding to surface.', findings: (count: number) => `${count} structured findings`, auditedAt: 'Audited', severity: { info: 'Info', warning: 'Attention' }, note: 'The audit aggregates only existing, redacted control-plane evidence. It cannot fix configuration, probe endpoints, load plugins, run recovery drills, issue leases, or execute commands.', cannotRemediate: 'Findings are review-only; they cannot auto-remediate or grant authority.',
+    },
+    componentLock: {
+      aria: 'Component provenance and lock status', eyebrow: 'READ-ONLY COMPONENT LOCK', title: 'Component provenance and lockfile', loading: 'Comparing registered components with lock metadata…', empty: 'No component is currently in an activatable state.', locked: (revision: number) => `Lock revision ${revision}`, unlocked: 'No lockfile is recorded; every activatable component remains quarantined.', decisions: (count: number) => `${count} component decisions`, eligible: 'Eligible for later controlled planning', quarantined: 'Quarantined', reasons: 'Quarantine reasons', inspectedAt: 'Inspected', note: 'The report reads only existing manifest, provenance, and lock metadata. Digest or revision drift remains quarantined; it never upgrades silently.', cannotRepair: 'This view cannot register, review, lock, install, repair, or activate components.',
     },
     authority: {
       selectLabel: 'Execution authority', selectAria: 'Select execution authority for this task', mode: {

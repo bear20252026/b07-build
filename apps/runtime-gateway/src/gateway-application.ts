@@ -5,6 +5,8 @@ import type { AgentProfileId, CapabilityPolicyRule, InputProvenanceV1, TaskEvent
 import {
   AdministratorAuthorityLedger,
   AgentAdapterControlPlane,
+  ComponentLockfileLedger,
+  ComponentProvenanceRegistry,
   AuditedScheduleControlPlane,
   ExtensionActivationPlanner,
   ExtensionDoctor,
@@ -17,6 +19,8 @@ import {
   RunTrajectoryLedger,
   SqliteAdapterApprovalMailboxStore,
   SqliteAdministratorLeaseStore,
+  SqliteComponentLockfileStore,
+  SqliteComponentProvenanceStore,
   SqliteAgentAdapterManifestStore,
   SqliteAgentAdapterSessionStore,
   SqliteExtensionManifestStore,
@@ -44,6 +48,7 @@ import { LocalModelHealthRegistry, ProviderProfileRegistry, SqliteProviderProfil
 import type { GatewayDependencies } from './http/gateway-dependencies.js';
 import { createControlPlaneDiagnosticReport } from './control-plane-diagnostics.js';
 import { createGatewaySecurityPostureReport } from './security-posture-audit.js';
+import { createGatewayComponentLockReport, createGatewayExtensionProvenanceLockGuard } from './component-lock-report.js';
 import { handleGatewayRequest } from './http/router.js';
 
 const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318);
@@ -115,6 +120,8 @@ export function createGatewayComposition(): GatewayComposition {
   const runTrajectoryPath = resolve(process.env.AWO_RUN_TRAJECTORY_DB ?? '.awo/run-trajectories.sqlite');
   const administratorLeasePath = resolve(process.env.AWO_ADMINISTRATOR_LEASE_DB ?? '.awo/administrator-leases.sqlite');
   const trustedDesktopIssuerPath = resolve(process.env.AWO_TRUSTED_DESKTOP_ISSUER_DB ?? '.awo/trusted-desktop-issuers.sqlite');
+  const componentProvenancePath = resolve(process.env.AWO_COMPONENT_PROVENANCE_DB ?? '.awo/component-provenance.sqlite');
+  const componentLockfilePath = resolve(process.env.AWO_COMPONENT_LOCKFILE_DB ?? '.awo/component-lockfile.sqlite');
 
   const store = new SqliteTaskSnapshotStore(snapshotPath);
   const knowledgeWorkspaceStore = new SqliteKnowledgeWorkspaceStore(knowledgeWorkspacePath);
@@ -146,6 +153,10 @@ export function createGatewayComposition(): GatewayComposition {
   const administratorLeases = new AdministratorAuthorityLedger(administratorLeaseStore);
   const trustedDesktopIssuerStore = new SqliteTrustedDesktopIssuerStore(trustedDesktopIssuerPath);
   const trustedDesktopIssuers = new TrustedDesktopIssuerRegistry(trustedDesktopIssuerStore);
+  const componentProvenanceStore = new SqliteComponentProvenanceStore(componentProvenancePath);
+  const componentProvenances = new ComponentProvenanceRegistry(componentProvenanceStore);
+  const componentLockfileStore = new SqliteComponentLockfileStore(componentLockfilePath);
+  const componentLockfiles = new ComponentLockfileLedger(componentLockfileStore);
 
   if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
     knowledgeWorkspaces.create({
@@ -160,7 +171,12 @@ export function createGatewayComposition(): GatewayComposition {
   const requests = new Map<string, TaskRuntimeRequest>();
   const eventsByRun = new Map<string, TaskEvent[]>();
   const approvedActions = new Set<string>();
-  const extensionActivationPlanner = new ExtensionActivationPlanner(extensionRegistry, new RuleBasedCapabilityPolicy(BASELINE_RULES), extensionPlanStore);
+  const extensionActivationPlanner = new ExtensionActivationPlanner(
+    extensionRegistry,
+    new RuleBasedCapabilityPolicy(BASELINE_RULES),
+    extensionPlanStore,
+    createGatewayExtensionProvenanceLockGuard(componentProvenances, componentLockfiles),
+  );
   const extensionDoctor = new ExtensionDoctor(extensionRegistry);
 
   function createEvent(type: TaskEvent['type'], taskId: string, runId: string, payload: Record<string, unknown>): TaskEvent {
@@ -234,6 +250,8 @@ export function createGatewayComposition(): GatewayComposition {
       () => runTrajectoryStore.close(),
       () => administratorLeaseStore.close(),
       () => trustedDesktopIssuerStore.close(),
+      () => componentProvenanceStore.close(),
+      () => componentLockfileStore.close(),
     ];
     let closeFailure: unknown;
     for (const close of closers) {
@@ -258,6 +276,13 @@ export function createGatewayComposition(): GatewayComposition {
         providerProfiles,
         localModels: localModelHealth,
         trustedDesktopIssuers,
+      }),
+      componentLockReport: () => createGatewayComponentLockReport({
+        extensions: extensionRegistry,
+        skillPacks,
+        agentAdapters,
+        provenances: componentProvenances,
+        lockfiles: componentLockfiles,
       }),
       securityPostureAudit: () => createGatewaySecurityPostureReport({
         extensions: extensionRegistry,

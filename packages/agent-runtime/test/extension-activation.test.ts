@@ -65,6 +65,21 @@ test('activation planner 仅为已安装且满足任务边界的 extension 输�
   }]);
 });
 
+test('P6.2 provenance/lock guard 会在规划阶段隔离已安装 extension，且不触发加载或修复', () => {
+  const registry = new ExtensionRegistry(new InMemoryExtensionManifestStore());
+  install(registry, 'provider.locked');
+  const planner = new ExtensionActivationPlanner(
+    registry,
+    new RuleBasedCapabilityPolicy([{ capability: 'model.chat', decision: 'allow', reason: '允许' }]),
+    new InMemoryExtensionPlanStore(),
+    { inspect: () => new Map([['provider.locked', ['missing-lockfile', 'provenance-not-reviewed']]]) },
+  );
+  const plan = planner.plan({ taskId: 'task-lock-001', runId: 'run-lock-001', target: target(), at: 10, planId: 'plan-lock-001' });
+  assert.equal(plan.outcome, 'blocked');
+  assert.deepEqual(plan.entries[0].reasons.map((reason) => reason.code), ['PROVENANCE_LOCK_REQUIRED']);
+  assert.equal(plan.entries[0].canExecute, false);
+});
+
 test('planner 保留策略拒绝、审批要求、数据边界与未安装状态的结构化原因', () => {
   const registry = new ExtensionRegistry(new InMemoryExtensionManifestStore());
   install(registry, 'provider.external', { boundary: 'external-allowed' });

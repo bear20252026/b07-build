@@ -201,3 +201,35 @@ test('Security Posture Audit 客户端只读取固定冷路径 report，并拒�
     globalThis.fetch = originalFetch;
   }
 });
+
+test('Component Lock Report 客户端只读取固定冷路径隔离决定，并拒绝敏感或执行字段', async () => {
+  const originalFetch = globalThis.fetch;
+  let url = '';
+  const report = {
+    schemaVersion: 1,
+    inspectedAt: 1,
+    lockfile: { revision: 1, lockDigest: 'a'.repeat(64) },
+    decisions: [{
+      componentId: 'local-reader', componentKind: 'extension', eligibility: 'quarantined', lockRevision: 1,
+      reasons: ['missing-provenance'], canActivate: false, canAutoRepair: false,
+    }],
+    canActivate: false,
+    canAutoRepair: false,
+  };
+  globalThis.fetch = (async (nextUrl) => { url = String(nextUrl); return Response.json(report); }) as typeof fetch;
+  try {
+    const value = await new HttpWorkbenchTaskClient().componentLockReport();
+    assert.equal(url, '/api/components/lock-report');
+    assert.equal(value.decisions[0].eligibility, 'quarantined');
+    assert.equal(value.decisions[0].canActivate, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = (async () => Response.json({ ...report, decisions: [{ ...report.decisions[0], remediationCommand: 'install component' }] })) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().componentLockReport(), /未声明、敏感或可执行/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

@@ -3,6 +3,7 @@ import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider } from './components/layout/Sider';
 import { ControlPlaneInsights } from './components/observability/ControlPlaneInsights';
 import { ControlPlaneDiagnosticsBoard } from './components/observability/ControlPlaneDiagnosticsBoard';
+import { ComponentLockBoard } from './components/observability/ComponentLockBoard';
 import { ExtensionCenter } from './components/observability/ExtensionCenter';
 import { LocalModelHealthBoard } from './components/observability/LocalModelHealthBoard';
 import { SecurityPostureAuditBoard } from './components/observability/SecurityPostureAuditBoard';
@@ -13,6 +14,7 @@ import type { Translation } from './i18n/catalog';
 import {
   HttpWorkbenchTaskClient,
   type WorkbenchAuthorityMode,
+  type WorkbenchComponentLockReport,
   type WorkbenchControlPlaneDiagnostics,
   type WorkbenchLocalModelHealth,
   type WorkbenchTaskSnapshot,
@@ -82,6 +84,8 @@ export function App() {
   const [controlPlaneDiagnosticError, setControlPlaneDiagnosticError] = useState<string>();
   const [securityPostureAudit, setSecurityPostureAudit] = useState<WorkbenchSecurityPostureReport>();
   const [securityPostureAuditError, setSecurityPostureAuditError] = useState<string>();
+  const [componentLockReport, setComponentLockReport] = useState<WorkbenchComponentLockReport>();
+  const [componentLockReportError, setComponentLockReportError] = useState<string>();
   const [snapshot, setSnapshot] = useState<WorkbenchTaskSnapshot>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
@@ -108,6 +112,9 @@ export function App() {
     void taskClient.securityPostureAudit()
       .then((report) => { if (!disposed) setSecurityPostureAudit(report); })
       .catch((error: unknown) => { if (!disposed) setSecurityPostureAuditError(error instanceof Error ? error.message : 'Security posture audit unavailable'); });
+    void taskClient.componentLockReport()
+      .then((report) => { if (!disposed) setComponentLockReport(report); })
+      .catch((error: unknown) => { if (!disposed) setComponentLockReportError(error instanceof Error ? error.message : 'Component lock report unavailable'); });
     return () => { disposed = true; };
   }, []);
 
@@ -237,6 +244,7 @@ export function App() {
             <TrajectoryBoard events={trajectory} messages={messages} />
             <ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} />
             <SecurityPostureAuditBoard error={securityPostureAuditError} messages={messages} report={securityPostureAudit} />
+            <ComponentLockBoard error={componentLockReportError} messages={messages} report={componentLockReport} />
             <LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} />
             <ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} />
             <section className="event-section">

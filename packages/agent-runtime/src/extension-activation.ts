@@ -21,6 +21,7 @@ export type ExtensionPlanReasonCode =
   | 'CAPABILITY_MISSING'
   | 'POLICY_DENIED'
   | 'APPROVAL_REQUIRED'
+  | 'PROVENANCE_LOCK_REQUIRED'
   | 'EXCLUSIVE_KIND_CONFLICT';
 
 export interface ExtensionActivationTarget {
@@ -33,6 +34,11 @@ export interface ExtensionActivationTarget {
   requestedKinds?: readonly ExtensionKind[];
   /** 同种能力槽不能在一个计划中被隐式多选。 */
   exclusiveKinds?: readonly ExtensionKind[];
+}
+
+/** 将 P6.2 锁定决策投影到既有 extension 计划；guard 只返回 metadata，不能执行或修复。 */
+export interface ExtensionProvenanceLockGuard {
+  inspect(manifests: readonly ExtensionManifest[]): ReadonlyMap<string, readonly string[]>;
 }
 
 export interface ExtensionPlanEntry {
@@ -161,6 +167,7 @@ function createEntry(
   taskId: string,
   runId: string,
   policy: CapabilityPolicy,
+  lockReasons: readonly string[] | undefined,
 ): ExtensionPlanEntry {
   const reasons: { code: ExtensionPlanReasonCode; detail: string }[] = [];
   const requestedIds = target.requestedExtensionIds ? new Set(target.requestedExtensionIds) : undefined;
@@ -181,6 +188,9 @@ function createEntry(
     if (!manifest.declaredCapabilities.includes(capability)) reasons.push({ code: 'CAPABILITY_MISSING', detail: `未声明所需 capability ${capability}` });
   }
   reasons.push(...policyReasons(manifest, taskId, runId, policy));
+  if (lockReasons && lockReasons.length > 0) {
+    reasons.push({ code: 'PROVENANCE_LOCK_REQUIRED', detail: `构件 provenance/lock 未满足：${[...lockReasons].sort().join(', ')}` });
+  }
   const ignored = reasons.some((reason) => reason.code === 'REQUEST_NOT_SELECTED' || reason.code === 'KIND_NOT_REQUESTED');
   return {
     extensionId: manifest.id,
@@ -199,6 +209,7 @@ export class ExtensionActivationPlanner {
     private readonly registry: ExtensionRegistry,
     private readonly policy: CapabilityPolicy,
     private readonly store: ExtensionPlanStore,
+    private readonly provenanceLockGuard?: ExtensionProvenanceLockGuard,
   ) {}
 
   plan(request: PlanExtensionsRequest): ExtensionActivationPlan {
@@ -211,7 +222,9 @@ export class ExtensionActivationPlanner {
     if (target.requestedExtensionIds) unique(target.requestedExtensionIds, 'requestedExtensionIds');
     if (target.requestedKinds) unique(target.requestedKinds, 'requestedKinds');
     if (target.exclusiveKinds) unique(target.exclusiveKinds, 'exclusiveKinds');
-    const entries = this.registry.list().map((manifest) => createEntry(manifest, target, request.taskId, request.runId, this.policy));
+    const manifests = this.registry.list();
+    const lockReasons = this.provenanceLockGuard?.inspect(manifests) ?? new Map<string, readonly string[]>();
+    const entries = manifests.map((manifest) => createEntry(manifest, target, request.taskId, request.runId, this.policy, lockReasons.get(manifest.id)));
     const exclusiveKinds = new Set(target.exclusiveKinds ?? DEFAULT_EXCLUSIVE_KINDS);
     for (const kind of exclusiveKinds) {
       const selected = entries.filter((entry) => entry.kind === kind && entry.decision === 'selected');

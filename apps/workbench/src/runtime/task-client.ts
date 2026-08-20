@@ -89,6 +89,25 @@ export interface WorkbenchSecurityPostureReport {
   canAutoRemediate: false;
 }
 
+export interface WorkbenchComponentLockDecision {
+  componentId: string;
+  componentKind: 'extension' | 'skill-pack' | 'agent-adapter';
+  eligibility: 'eligible' | 'quarantined';
+  lockRevision?: number;
+  reasons: readonly ('missing-provenance' | 'kind-mismatch' | 'version-mismatch' | 'provenance-not-reviewed' | 'provenance-revoked' | 'provenance-digest-mismatch' | 'missing-lockfile' | 'missing-lock-entry' | 'lock-content-digest-mismatch' | 'lock-provenance-digest-mismatch')[];
+  canActivate: false;
+  canAutoRepair: false;
+}
+
+export interface WorkbenchComponentLockReport {
+  schemaVersion: 1;
+  inspectedAt: number;
+  lockfile?: Readonly<{ revision: number; lockDigest: string }>;
+  decisions: readonly WorkbenchComponentLockDecision[];
+  canActivate: false;
+  canAutoRepair: false;
+}
+
 export interface WorkbenchRunTrajectoryEvent {
   schemaVersion: 1;
   trajectoryEventId: string;
@@ -123,6 +142,7 @@ export interface WorkbenchTaskClient {
   localModelHealth(): Promise<readonly WorkbenchLocalModelHealth[]>;
   controlPlaneDiagnostics(): Promise<WorkbenchControlPlaneDiagnostics>;
   securityPostureAudit(): Promise<WorkbenchSecurityPostureReport>;
+  componentLockReport(): Promise<WorkbenchComponentLockReport>;
 }
 
 function assertLocalModelHealth(value: unknown): asserts value is WorkbenchLocalModelHealth {
@@ -203,6 +223,38 @@ function assertSecurityPostureAudit(value: unknown): asserts value is WorkbenchS
   }
 }
 
+function assertComponentLockReport(value: unknown): asserts value is WorkbenchComponentLockReport {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('构件锁定报告无效');
+  const report = value as Record<string, unknown>;
+  const allowedReasons = new Set(['missing-provenance', 'kind-mismatch', 'version-mismatch', 'provenance-not-reviewed', 'provenance-revoked', 'provenance-digest-mismatch', 'missing-lockfile', 'missing-lock-entry', 'lock-content-digest-mismatch', 'lock-provenance-digest-mismatch']);
+  const inspectedAt = report.inspectedAt;
+  const isNonNegativeSafeInteger = (candidate: unknown): candidate is number => typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate >= 0;
+  const isPositiveSafeInteger = (candidate: unknown): candidate is number => typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate >= 1;
+  const lockfile = report.lockfile as Record<string, unknown> | undefined;
+  const lockRevision = lockfile?.revision;
+  const lockDigest = lockfile?.lockDigest;
+  if (
+    Object.keys(report).some((key) => !['schemaVersion', 'inspectedAt', 'lockfile', 'decisions', 'canActivate', 'canAutoRepair'].includes(key))
+    || report.schemaVersion !== 1 || !isNonNegativeSafeInteger(inspectedAt)
+    || report.canActivate !== false || report.canAutoRepair !== false || !isSafeMetadataArray(report.decisions)
+    || (report.lockfile !== undefined && (!report.lockfile || typeof report.lockfile !== 'object' || Array.isArray(report.lockfile)
+      || Object.keys(report.lockfile as object).some((key) => !['revision', 'lockDigest'].includes(key))
+      || !isPositiveSafeInteger(lockRevision)
+      || typeof lockDigest !== 'string' || !/^[a-f0-9]{64}$/.test(lockDigest)))
+  ) throw new Error('构件锁定报告返回了不兼容或可执行的 metadata contract');
+  for (const decision of report.decisions) {
+    if (
+      Object.keys(decision).some((key) => !['componentId', 'componentKind', 'eligibility', 'lockRevision', 'reasons', 'canActivate', 'canAutoRepair'].includes(key))
+      || typeof decision.componentId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(decision.componentId)
+      || !['extension', 'skill-pack', 'agent-adapter'].includes(String(decision.componentKind))
+      || !['eligible', 'quarantined'].includes(String(decision.eligibility))
+      || (decision.lockRevision !== undefined && (!Number.isSafeInteger(decision.lockRevision) || (decision.lockRevision as number) < 1))
+      || !Array.isArray(decision.reasons) || !decision.reasons.every((reason) => typeof reason === 'string' && allowedReasons.has(reason))
+      || decision.canActivate !== false || decision.canAutoRepair !== false
+    ) throw new Error('构件锁定决策包含未声明、敏感或可执行字段');
+  }
+}
+
 function assertTrajectoryEvent(value: unknown): asserts value is WorkbenchRunTrajectoryEvent {
   if (!value || typeof value !== 'object') throw new Error('运行轨迹包含无效事件');
   const event = value as Partial<WorkbenchRunTrajectoryEvent>;
@@ -256,6 +308,7 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     private readonly localModelHealthUrl = '/api/local-models/health',
     private readonly controlPlaneDiagnosticUrl = '/api/control-plane/diagnostics',
     private readonly securityPostureAuditUrl = '/api/security-posture/audit',
+    private readonly componentLockReportUrl = '/api/components/lock-report',
   ) {}
 
   async submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot> {
@@ -330,6 +383,14 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     const payload: unknown = await response.json();
     assertSecurityPostureAudit(payload);
     return payload;
+  }
+
+  async componentLockReport(): Promise<WorkbenchComponentLockReport> {
+    const response = await fetch(this.componentLockReportUrl, { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(await response.text() || `构件锁定报告请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertComponentLockReport(payload);
+    return { ...payload, decisions: [...payload.decisions].sort((left, right) => left.componentId.localeCompare(right.componentId)) };
   }
 
   async snapshot(taskId: string, runId: string): Promise<WorkbenchTaskSnapshot | undefined> {
