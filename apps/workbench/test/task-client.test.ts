@@ -363,3 +363,67 @@ test('运行产出与检查点客户端仅接受受控 metadata，并拒绝路�
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test('任务文件与交付包客户端只接受 task/run 专属受控 DTO，并拒绝路径和自动执行字段', async () => {
+  const originalFetch = globalThis.fetch;
+  const file = {
+    schemaVersion: 1, taskFileId: 'task-file-1', taskId: 'task-1', runId: 'run-1', artifactLedgerId: 'artifact-ledger-1',
+    logicalPath: 'deliverables/report.md', displayName: 'report.md', mediaType: 'text/markdown', byteSize: 12, sha256: 'd'.repeat(64),
+    version: 1, createdAt: 10, status: 'available', containsSensitiveContent: false, canExecute: false,
+  };
+  const preview = { taskFileId: 'task-file-1', logicalPath: 'deliverables/report.md', language: 'markdown', content: '# Report\n', lineCount: 1, truncated: false, byteSize: 9, sha256: 'd'.repeat(64) };
+  const diff = { taskFileId: 'task-file-1', logicalPath: 'deliverables/report.md', previousVersion: undefined, currentVersion: 1, content: '--- a/deliverables/report.md\n', truncated: false };
+  const receipt = { schemaVersion: 1, deliveryId: 'delivery-1', taskId: 'task-1', runId: 'run-1', fileCount: 1, byteSize: 128, sha256: 'e'.repeat(64), createdAt: 11, status: 'available', canAutoExecute: false, canAutoExtract: false };
+  const requests: { url: string; init?: RequestInit }[] = [];
+  globalThis.fetch = (async (url, init) => {
+    const text = String(url);
+    requests.push({ url: text, init });
+    if (text.endsWith('/files')) return Response.json([file]);
+    if (text.endsWith('/preview')) return Response.json(preview);
+    if (text.endsWith('/diff')) return Response.json(diff);
+    if (init?.method === 'POST') return Response.json(receipt);
+    return Response.json([receipt]);
+  }) as typeof fetch;
+  try {
+    const client = new HttpWorkbenchTaskClient('/api/tasks');
+    assert.equal((await client.files('task-1', 'run-1'))[0]?.logicalPath, 'deliverables/report.md');
+    assert.equal((await client.filePreview('task-1', 'run-1', 'task-file-1')).content, '# Report\n');
+    assert.equal((await client.fileDiff('task-1', 'run-1', 'task-file-1')).currentVersion, 1);
+    assert.equal((await client.deliveries('task-1', 'run-1'))[0]?.deliveryId, 'delivery-1');
+    assert.equal((await client.createDelivery('task-1', 'run-1')).deliveryId, 'delivery-1');
+    assert.equal(client.deliveryDownloadUrl('task-1', 'run-1', 'delivery-1'), '/api/tasks/task-1/run-1/deliveries/delivery-1');
+    assert.deepEqual(requests.map((request) => request.url), [
+      '/api/tasks/task-1/run-1/files',
+      '/api/tasks/task-1/run-1/files/task-file-1/preview',
+      '/api/tasks/task-1/run-1/files/task-file-1/diff',
+      '/api/tasks/task-1/run-1/deliveries',
+      '/api/tasks/task-1/run-1/deliveries',
+    ]);
+    assert.equal(requests.at(-1)?.init?.headers instanceof Headers, false);
+    assert.equal(typeof (requests.at(-1)?.init?.headers as Record<string, string>)['idempotency-key'], 'string');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = (async () => Response.json([{ ...file, absolutePath: 'C:\\Users\\secret.txt' }])) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().files('task-1', 'run-1'), /敏感或可执行/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = (async () => Response.json({ ...preview, content: 'x'.repeat(32 * 1024 + 1) })) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().filePreview('task-1', 'run-1', 'task-file-1'), /超限内容/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = (async () => Response.json([{ ...receipt, canAutoExtract: true }])) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().deliveries('task-1', 'run-1'), /敏感或可执行/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

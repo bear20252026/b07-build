@@ -265,6 +265,59 @@ export interface WorkbenchRunCheckpoint {
   canReplaySideEffects: false;
 }
 
+/** task/run 专属的可审查文件 metadata；不含绝对路径、文件字节、prompt 或凭据。 */
+export interface WorkbenchTaskFile {
+  schemaVersion: 1;
+  taskFileId: string;
+  taskId: string;
+  runId: string;
+  artifactLedgerId: string;
+  logicalPath: string;
+  displayName: string;
+  mediaType: 'text/plain' | 'text/markdown' | 'application/json' | 'text/csv' | 'text/x-source';
+  byteSize: number;
+  sha256: string;
+  version: number;
+  createdAt: number;
+  status: 'available';
+  containsSensitiveContent: false;
+  canExecute: false;
+}
+
+export interface WorkbenchTaskFilePreview {
+  taskFileId: string;
+  logicalPath: string;
+  language: string;
+  content: string;
+  lineCount: number;
+  truncated: boolean;
+  byteSize: number;
+  sha256: string;
+}
+
+export interface WorkbenchTaskFileDiff {
+  taskFileId: string;
+  logicalPath: string;
+  previousVersion: number | undefined;
+  currentVersion: number;
+  content: string;
+  truncated: boolean;
+}
+
+export interface WorkbenchTaskDeliveryReceipt {
+  schemaVersion: 1;
+  deliveryId: string;
+  taskId: string;
+  runId: string;
+  fileCount: number;
+  byteSize: number;
+  sha256: string;
+  createdAt: number;
+  status: 'available';
+  canAutoExecute: false;
+  canAutoExtract: false;
+}
+
 /**
  * 浏览器端的唯一运行时入口。该接口故意不暴露节点、工具、审批许可或数据库操作；
  * 它们必须由本地服务端在可信边界内装配。
@@ -289,6 +342,12 @@ export interface WorkbenchTaskClient {
   trajectory(taskId: string, runId: string): Promise<readonly WorkbenchRunTrajectoryEvent[]>;
   workspaceArtifacts(taskId: string, runId: string): Promise<readonly WorkbenchRunWorkspaceArtifact[]>;
   checkpoints(taskId: string, runId: string): Promise<readonly WorkbenchRunCheckpoint[]>;
+  files(taskId: string, runId: string): Promise<readonly WorkbenchTaskFile[]>;
+  filePreview(taskId: string, runId: string, taskFileId: string): Promise<WorkbenchTaskFilePreview>;
+  fileDiff(taskId: string, runId: string, taskFileId: string): Promise<WorkbenchTaskFileDiff>;
+  deliveries(taskId: string, runId: string): Promise<readonly WorkbenchTaskDeliveryReceipt[]>;
+  createDelivery(taskId: string, runId: string): Promise<WorkbenchTaskDeliveryReceipt>;
+  deliveryDownloadUrl(taskId: string, runId: string, deliveryId: string): string;
   localModelHealth(): Promise<readonly WorkbenchLocalModelHealth[]>;
   providerConnections(): Promise<readonly WorkbenchProviderConnection[]>;
   registerProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection>;
@@ -585,6 +644,60 @@ function assertRunCheckpoint(value: unknown): asserts value is WorkbenchRunCheck
   ) throw new Error('运行检查点返回了不兼容、敏感或可执行字段');
 }
 
+function assertTaskFile(value: unknown): asserts value is WorkbenchTaskFile {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('任务文件包含无效条目');
+  const file = value as Partial<WorkbenchTaskFile>;
+  const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+  const logicalPath = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
+  if (
+    Object.keys(file).some((key) => !['schemaVersion', 'taskFileId', 'taskId', 'runId', 'artifactLedgerId', 'logicalPath', 'displayName', 'mediaType', 'byteSize', 'sha256', 'version', 'createdAt', 'status', 'containsSensitiveContent', 'canExecute'].includes(key))
+    || file.schemaVersion !== 1 || typeof file.taskFileId !== 'string' || !identifier.test(file.taskFileId)
+    || typeof file.taskId !== 'string' || !identifier.test(file.taskId) || typeof file.runId !== 'string' || !identifier.test(file.runId)
+    || typeof file.artifactLedgerId !== 'string' || !identifier.test(file.artifactLedgerId)
+    || typeof file.logicalPath !== 'string' || !logicalPath.test(file.logicalPath) || typeof file.displayName !== 'string' || file.displayName.length === 0 || file.displayName.length > 160
+    || !['text/plain', 'text/markdown', 'application/json', 'text/csv', 'text/x-source'].includes(String(file.mediaType))
+    || !isNonNegativeSafeInteger(file.byteSize) || typeof file.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(file.sha256)
+    || typeof file.version !== 'number' || !Number.isSafeInteger(file.version) || file.version < 1 || !isNonNegativeSafeInteger(file.createdAt)
+    || file.status !== 'available' || file.containsSensitiveContent !== false || file.canExecute !== false
+  ) throw new Error('任务文件返回了不兼容、敏感或可执行字段');
+}
+
+function assertTaskFilePreview(value: unknown): asserts value is WorkbenchTaskFilePreview {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('任务文件预览无效');
+  const preview = value as Partial<WorkbenchTaskFilePreview>;
+  if (
+    Object.keys(preview).some((key) => !['taskFileId', 'logicalPath', 'language', 'content', 'lineCount', 'truncated', 'byteSize', 'sha256'].includes(key))
+    || typeof preview.taskFileId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(preview.taskFileId)
+    || typeof preview.logicalPath !== 'string' || typeof preview.language !== 'string' || !preview.language || typeof preview.content !== 'string' || preview.content.length > 32 * 1024
+    || !isNonNegativeSafeInteger(preview.lineCount) || typeof preview.truncated !== 'boolean' || !isNonNegativeSafeInteger(preview.byteSize)
+    || typeof preview.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(preview.sha256)
+  ) throw new Error('任务文件预览返回了不兼容或超限内容');
+}
+
+function assertTaskFileDiff(value: unknown): asserts value is WorkbenchTaskFileDiff {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('任务文件差异无效');
+  const diff = value as Partial<WorkbenchTaskFileDiff>;
+  if (
+    Object.keys(diff).some((key) => !['taskFileId', 'logicalPath', 'previousVersion', 'currentVersion', 'content', 'truncated'].includes(key))
+    || typeof diff.taskFileId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(diff.taskFileId)
+    || typeof diff.logicalPath !== 'string' || (diff.previousVersion !== undefined && (!Number.isSafeInteger(diff.previousVersion) || diff.previousVersion < 1))
+    || !Number.isSafeInteger(diff.currentVersion) || (diff.currentVersion ?? 0) < 1 || typeof diff.content !== 'string' || diff.content.length > 64 * 1024 || typeof diff.truncated !== 'boolean'
+  ) throw new Error('任务文件差异返回了不兼容或超限内容');
+}
+
+function assertTaskDeliveryReceipt(value: unknown): asserts value is WorkbenchTaskDeliveryReceipt {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('任务交付包回执无效');
+  const receipt = value as Partial<WorkbenchTaskDeliveryReceipt>;
+  const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+  if (
+    Object.keys(receipt).some((key) => !['schemaVersion', 'deliveryId', 'taskId', 'runId', 'fileCount', 'byteSize', 'sha256', 'createdAt', 'status', 'canAutoExecute', 'canAutoExtract'].includes(key))
+    || receipt.schemaVersion !== 1 || typeof receipt.deliveryId !== 'string' || !identifier.test(receipt.deliveryId)
+    || typeof receipt.taskId !== 'string' || !identifier.test(receipt.taskId) || typeof receipt.runId !== 'string' || !identifier.test(receipt.runId)
+    || !isNonNegativeSafeInteger(receipt.fileCount) || !isNonNegativeSafeInteger(receipt.byteSize) || typeof receipt.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.sha256)
+    || !isNonNegativeSafeInteger(receipt.createdAt) || receipt.status !== 'available' || receipt.canAutoExecute !== false || receipt.canAutoExtract !== false
+  ) throw new Error('任务交付包回执返回了不兼容、敏感或可执行字段');
+}
+
 function assertRecordedInputProvenance(value: unknown): asserts value is WorkbenchRecordedInputProvenance {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('输入 provenance 摘要无效');
   const input = value as Partial<WorkbenchRecordedInputProvenance>;
@@ -722,6 +835,55 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     if (!Array.isArray(payload)) throw new Error('运行检查点返回了无效列表');
     payload.forEach(assertRunCheckpoint);
     return [...payload].sort((left, right) => right.attempt - left.attempt || right.createdAt - left.createdAt);
+  }
+
+  async files(taskId: string, runId: string): Promise<readonly WorkbenchTaskFile[]> {
+    const response = await fetch(`${this.baseUrl}/${encodeURIComponent(taskId)}/${encodeURIComponent(runId)}/files`, { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(await response.text() || `任务文件请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    if (!Array.isArray(payload)) throw new Error('任务文件返回了无效列表');
+    payload.forEach(assertTaskFile);
+    return [...payload].sort((left, right) => left.createdAt - right.createdAt || left.logicalPath.localeCompare(right.logicalPath) || left.version - right.version);
+  }
+
+  async filePreview(taskId: string, runId: string, taskFileId: string): Promise<WorkbenchTaskFilePreview> {
+    const response = await fetch(`${this.baseUrl}/${encodeURIComponent(taskId)}/${encodeURIComponent(runId)}/files/${encodeURIComponent(taskFileId)}/preview`, { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(await response.text() || `任务文件预览请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertTaskFilePreview(payload);
+    return payload;
+  }
+
+  async fileDiff(taskId: string, runId: string, taskFileId: string): Promise<WorkbenchTaskFileDiff> {
+    const response = await fetch(`${this.baseUrl}/${encodeURIComponent(taskId)}/${encodeURIComponent(runId)}/files/${encodeURIComponent(taskFileId)}/diff`, { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(await response.text() || `任务文件差异请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertTaskFileDiff(payload);
+    return payload;
+  }
+
+  async deliveries(taskId: string, runId: string): Promise<readonly WorkbenchTaskDeliveryReceipt[]> {
+    const response = await fetch(`${this.baseUrl}/${encodeURIComponent(taskId)}/${encodeURIComponent(runId)}/deliveries`, { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(await response.text() || `任务交付包请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    if (!Array.isArray(payload)) throw new Error('任务交付包返回了无效列表');
+    payload.forEach(assertTaskDeliveryReceipt);
+    return [...payload].sort((left, right) => right.createdAt - left.createdAt || left.deliveryId.localeCompare(right.deliveryId));
+  }
+
+  async createDelivery(taskId: string, runId: string): Promise<WorkbenchTaskDeliveryReceipt> {
+    const response = await fetch(`${this.baseUrl}/${encodeURIComponent(taskId)}/${encodeURIComponent(runId)}/deliveries`, {
+      method: 'POST', headers: { accept: 'application/json', 'idempotency-key': createIdempotencyKey('delivery') },
+    });
+    if (!response.ok) throw new Error(await response.text() || `创建任务交付包失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertTaskDeliveryReceipt(payload);
+    return payload;
+  }
+
+  deliveryDownloadUrl(taskId: string, runId: string, deliveryId: string): string {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(deliveryId)) throw new Error('任务交付包标识无效');
+    return `${this.baseUrl}/${encodeURIComponent(taskId)}/${encodeURIComponent(runId)}/deliveries/${encodeURIComponent(deliveryId)}`;
   }
 
   async localModelHealth(): Promise<readonly WorkbenchLocalModelHealth[]> {

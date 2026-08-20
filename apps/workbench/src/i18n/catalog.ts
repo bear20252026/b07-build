@@ -127,15 +127,13 @@ export const catalog = {
       blocked: (code: string, reason: string) => ({ title: '执行预算已阻断', detail: `${code} · ${reason}` }),
     },
     preview: {
-      aria: '产物预览', title: '交付预览', subtitle: '宿主级持久视图', tabsAria: '预览类型',
-      tabs: { markdown: '交付说明', html: '预览', diff: '变更', citations: '引用' },
-      markdown: { title: '任务产物将在这里持续更新', description: '运行时完成事件、产物引用和可编辑 Markdown 将通过 C6 事件流投递到此面板。' },
-      html: { title: '安全的单视图预览容器', description: '后续 HTML、文档和浏览器视图会保持宿主级持久化，不因会话切换而丢失状态。' },
-      diff: { title: '每一项变更都应可审查', description: '文件修改、审批决策与可回滚 diff 将与任务事件关联，成为可解释交付的一部分。' },
+      aria: '任务文件与代码预览', title: '任务专项文件', subtitle: '受控本地交付工作区', tabsAria: '任务文件操作',
+      tabs: { files: '文件', code: '代码', diff: '差异', delivery: '交付包', citations: '引用' },
+      files: { title: '当前任务文件', empty: '尚未生成可查看文件。只有通过受控 filesystem.write 且符合任务范围的文件会出现在这里。' },
+      code: { title: '只读代码预览', empty: '从左侧文件列表选择一个文本或代码文件。', truncated: '预览已按安全上限截断。' },
+      diff: { title: '版本差异', empty: '选择文件以查看与上一版本的受限差异；首次生成的文件没有上一版本。', truncated: '差异已按安全上限截断。' },
+      delivery: { title: '显式交付包', description: '创建 ZIP 会收集当前任务的受控文件并写入可验证收据；不会自动下载、解压或执行。', create: '创建 ZIP 交付包', creating: '正在创建交付包…', empty: '尚未创建交付包。文件就绪后由你显式创建。', download: '下载 ZIP', receipt: (files: number, bytes: number) => `${files} 个文件 · ${bytes} bytes` },
       knowledgeError: '本地知识检索失败',
-      draft: {
-        edit: '编辑草稿', preview: '预览草稿', aria: '本地交付说明草稿', placeholder: '在此记录可审查的交付说明、假设和下一步…', empty: '此草稿只存在于当前浏览器视图，尚未写入任务或知识库。', localOnly: '仅本地草稿', note: '草稿不会自动提交、授权工具、修改 Memory Ledger 或启动 MCP。',
-      },
     },
     extensionCenter: {
       aria: '扩展控制面', eyebrow: 'CONTROLLED EXTENSIONS', title: '扩展中心', refresh: '刷新状态', loading: '读取本地控制面…', empty: '尚未登记扩展。扩展必须先经过来源、审查和摘要核验，才可能进入激活计划。',
@@ -240,15 +238,13 @@ export const catalog = {
       blocked: (code: string, reason: string) => ({ title: 'Execution budget blocked', detail: `${code} · ${reason}` }),
     },
     preview: {
-      aria: 'Artifact preview', title: 'Delivery preview', subtitle: 'Host-level persistent view', tabsAria: 'Preview type',
-      tabs: { markdown: 'Delivery notes', html: 'Preview', diff: 'Changes', citations: 'Citations' },
-      markdown: { title: 'Task artifacts will update here', description: 'Runtime completion events, artifact references, and editable Markdown will reach this panel through the C6 event stream.' },
-      html: { title: 'A safe single-view preview container', description: 'Future HTML, document, and browser views remain persisted at the host level rather than losing state when sessions change.' },
-      diff: { title: 'Every change should be reviewable', description: 'File changes, approval decisions, and reversible diffs are linked to task events as explainable delivery.' },
+      aria: 'Task file and code preview', title: 'Task files', subtitle: 'Controlled local delivery workspace', tabsAria: 'Task file actions',
+      tabs: { files: 'Files', code: 'Code', diff: 'Diff', delivery: 'Delivery', citations: 'Citations' },
+      files: { title: 'Current task files', empty: 'No viewable file has been generated. Only task-scoped files from controlled filesystem.write are shown here.' },
+      code: { title: 'Read-only code preview', empty: 'Select a text or source file from the Files tab.', truncated: 'Preview has been truncated at the safety limit.' },
+      diff: { title: 'Version diff', empty: 'Select a file to review its bounded diff from the previous version. A first file has no prior version.', truncated: 'Diff has been truncated at the safety limit.' },
+      delivery: { title: 'Explicit delivery package', description: 'Creating a ZIP collects only controlled files from this task and writes a verifiable receipt. Nothing is automatically downloaded, extracted, or executed.', create: 'Create ZIP delivery', creating: 'Creating delivery…', empty: 'No delivery package exists. Create one explicitly after files are ready.', download: 'Download ZIP', receipt: (files: number, bytes: number) => `${files} files · ${bytes} bytes` },
       knowledgeError: 'Local knowledge retrieval failed',
-      draft: {
-        edit: 'Edit draft', preview: 'Preview draft', aria: 'Local delivery-notes draft', placeholder: 'Record reviewable delivery notes, assumptions, and next steps…', empty: 'This draft only exists in the current browser view; it has not been written to a task or knowledge workspace.', localOnly: 'Local-only draft', note: 'Drafts never auto-submit, authorize tools, alter the Memory Ledger, or launch MCP.',
-      },
     },
     extensionCenter: {
       aria: 'Extension control plane', eyebrow: 'CONTROLLED EXTENSIONS', title: 'Extension center', refresh: 'Refresh', loading: 'Reading local control plane…', empty: 'No extension is registered. An extension must pass source review and digest verification before it can enter an activation plan.',

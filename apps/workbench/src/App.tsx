@@ -35,6 +35,8 @@ import {
   type WorkbenchRunTrajectoryEvent,
   type WorkbenchRunCheckpoint,
   type WorkbenchRunWorkspaceArtifact,
+  type WorkbenchTaskFile,
+  type WorkbenchTaskDeliveryReceipt,
   type WorkbenchSecurityPostureReport,
 } from './runtime/task-client';
 
@@ -100,6 +102,8 @@ export function App() {
   const [trajectory, setTrajectory] = useState<readonly WorkbenchRunTrajectoryEvent[]>([]);
   const [workspaceArtifacts, setWorkspaceArtifacts] = useState<readonly WorkbenchRunWorkspaceArtifact[]>([]);
   const [checkpoints, setCheckpoints] = useState<readonly WorkbenchRunCheckpoint[]>([]);
+  const [taskFiles, setTaskFiles] = useState<readonly WorkbenchTaskFile[]>([]);
+  const [deliveries, setDeliveries] = useState<readonly WorkbenchTaskDeliveryReceipt[]>([]);
   const [localModels, setLocalModels] = useState<readonly WorkbenchLocalModelHealth[]>();
   const [localModelError, setLocalModelError] = useState<string>();
   const [providerConnections, setProviderConnections] = useState<readonly WorkbenchProviderConnection[]>();
@@ -217,6 +221,8 @@ export function App() {
     setWindowsNativeReleaseReport(undefined);
     setWorkspaceArtifacts([]);
     setCheckpoints([]);
+    setTaskFiles([]);
+    setDeliveries([]);
   };
 
   const refreshProviderConnections = (): void => {
@@ -299,17 +305,21 @@ export function App() {
   };
 
   const hydrate = async (nextSnapshot: WorkbenchTaskSnapshot): Promise<void> => {
-    const [nextEvents, nextTrajectory, nextArtifacts, nextCheckpoints] = await Promise.all([
+    const [nextEvents, nextTrajectory, nextArtifacts, nextCheckpoints, nextTaskFiles, nextDeliveries] = await Promise.all([
       localGatewayClient.events(nextSnapshot.taskId, nextSnapshot.runId),
       localGatewayClient.trajectory(nextSnapshot.taskId, nextSnapshot.runId),
       localGatewayClient.workspaceArtifacts(nextSnapshot.taskId, nextSnapshot.runId),
       localGatewayClient.checkpoints(nextSnapshot.taskId, nextSnapshot.runId),
+      localGatewayClient.files(nextSnapshot.taskId, nextSnapshot.runId),
+      localGatewayClient.deliveries(nextSnapshot.taskId, nextSnapshot.runId),
     ]);
     setSnapshot(nextSnapshot);
     setEvents(nextEvents);
     setTrajectory(nextTrajectory);
     setWorkspaceArtifacts(nextArtifacts);
     setCheckpoints(nextCheckpoints);
+    setTaskFiles(nextTaskFiles);
+    setDeliveries(nextDeliveries);
   };
 
   const submitIntent = async (): Promise<void> => {
@@ -357,6 +367,27 @@ export function App() {
     } finally {
       setPending(false);
     }
+  };
+
+  const loadTaskFilePreview = (taskFileId: string) => {
+    if (!snapshot) return Promise.reject(new Error('当前没有可预览的任务文件。'));
+    return localGatewayClient.filePreview(snapshot.taskId, snapshot.runId, taskFileId);
+  };
+
+  const loadTaskFileDiff = (taskFileId: string) => {
+    if (!snapshot) return Promise.reject(new Error('当前没有可比较的任务文件。'));
+    return localGatewayClient.fileDiff(snapshot.taskId, snapshot.runId, taskFileId);
+  };
+
+  const createTaskDelivery = async (): Promise<void> => {
+    if (!snapshot) throw new Error('当前没有可打包的任务文件。');
+    const receipt = await localGatewayClient.createDelivery(snapshot.taskId, snapshot.runId);
+    setDeliveries((current) => [receipt, ...current.filter((item) => item.deliveryId !== receipt.deliveryId)]);
+  };
+
+  const taskDeliveryDownloadUrl = (deliveryId: string): string => {
+    if (!snapshot) throw new Error('当前没有可下载的交付包。');
+    return localGatewayClient.deliveryDownloadUrl(snapshot.taskId, snapshot.runId, deliveryId);
   };
 
   return (
@@ -475,7 +506,7 @@ export function App() {
           </div>
         </div>}
       </main>
-      {activePage === 'workspace' && <PreviewPanel />}
+      {activePage === 'workspace' && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={loadTaskFilePreview} onFileDiff={loadTaskFileDiff} onCreateDelivery={createTaskDelivery} deliveryDownloadUrl={taskDeliveryDownloadUrl} />}
     </div>
   );
 }

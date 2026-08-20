@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { decodeTaskSubmitIntentV1 } from '@awo/protocol';
-import { readJsonBody, sendJson } from '../boundary.js';
+import { readJsonBody, sendAttachment, sendJson } from '../boundary.js';
 import type { GatewayRoute } from '../route-contract.js';
 
 function isReadOnlySubtaskRole(value: unknown): value is 'explore' | 'scout' {
@@ -23,7 +23,7 @@ function idempotencyKey(request: IncomingMessage): string | undefined {
 
 /** 任务 intent HTTP 适配器；所有执行仍经既有 Profile、Policy、审批与预算链路。 */
 export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, segments, dependencies }) => {
-  const { runtime, commandReceipts, requests, eventsByRun, approvedActions, readOnlySubtasks, runTrajectory, runWorkspace, createTaskRequest, createEvent } = dependencies;
+  const { runtime, commandReceipts, requests, eventsByRun, approvedActions, readOnlySubtasks, runTrajectory, runWorkspace, taskFiles, createTaskRequest, createEvent } = dependencies;
   if (request.method === 'POST' && url.pathname === '/api/tasks') {
     const body = await readJsonBody(request);
     let intent;
@@ -127,6 +127,66 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
     if (!snapshot) sendJson(response, 404, { error: '任务快照不存在' });
     else sendJson(response, 200, runWorkspace.listCheckpoints(taskId, runId));
     return true;
+  }
+  if (operation === 'files') {
+    const snapshot = runtime.snapshot(taskId, runId);
+    if (!snapshot) {
+      sendJson(response, 404, { error: '任务快照不存在' });
+      return true;
+    }
+    if (request.method === 'GET' && !nodeId && segments.length === 5) {
+      sendJson(response, 200, taskFiles.listFiles(taskId, runId));
+      return true;
+    }
+    if (request.method === 'GET' && nodeId && segments[6] === 'preview' && segments.length === 7) {
+      try {
+        sendJson(response, 200, taskFiles.preview(taskId, runId, nodeId));
+      } catch (error) {
+        sendJson(response, 404, { error: error instanceof Error ? error.message : '任务文件预览不可用' });
+      }
+      return true;
+    }
+    if (request.method === 'GET' && nodeId && segments[6] === 'diff' && segments.length === 7) {
+      try {
+        sendJson(response, 200, taskFiles.diff(taskId, runId, nodeId));
+      } catch (error) {
+        sendJson(response, 404, { error: error instanceof Error ? error.message : '任务文件差异不可用' });
+      }
+      return true;
+    }
+  }
+  if (operation === 'deliveries') {
+    const snapshot = runtime.snapshot(taskId, runId);
+    if (!snapshot) {
+      sendJson(response, 404, { error: '任务快照不存在' });
+      return true;
+    }
+    if (request.method === 'GET' && !nodeId && segments.length === 5) {
+      sendJson(response, 200, taskFiles.listDeliveries(taskId, runId));
+      return true;
+    }
+    if (request.method === 'POST' && !nodeId && segments.length === 5) {
+      const commandKey = idempotencyKey(request);
+      if (!commandKey) {
+        sendJson(response, 400, { error: '创建交付包必须提供 Idempotency-Key' });
+        return true;
+      }
+      try {
+        sendJson(response, 201, taskFiles.createDelivery(taskId, runId, Date.now(), commandKey));
+      } catch (error) {
+        sendJson(response, 400, { error: error instanceof Error ? error.message : '任务交付包创建失败' });
+      }
+      return true;
+    }
+    if (request.method === 'GET' && nodeId && segments.length === 6) {
+      try {
+        const delivery = taskFiles.readDelivery(taskId, runId, nodeId);
+        sendAttachment(response, delivery.content, `ai-work-os-${taskId}-${runId}-${nodeId}.zip`);
+      } catch (error) {
+        sendJson(response, 404, { error: error instanceof Error ? error.message : '任务交付包不可用' });
+      }
+      return true;
+    }
   }
   if (request.method === 'POST' && operation === 'subtasks' && segments.length === 5) {
     const parentSnapshot = runtime.snapshot(taskId, runId);

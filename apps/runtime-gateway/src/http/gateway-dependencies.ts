@@ -13,6 +13,7 @@ import type {
   SqliteTaskCommandReceiptStore,
   LocalTaskRuntimeService,
   TaskRuntimeRequest,
+  TaskFileWorkspace,
   TrustedDesktopIssuerRegistry,
 } from '@awo/agent-runtime';
 import type { KnowledgeWorkspaceService, SkillPackRegistry } from '@awo/knowledge-workflow';
@@ -48,6 +49,8 @@ export interface GatewayDependencies {
   readonly runTrajectory: RunTrajectoryLedger;
   /** 运行产出与检查点仅为脱敏、不可复放 metadata。 */
   readonly runWorkspace: RunWorkspaceLedger;
+  /** task/run 专属的受控文件、文本预览和显式 ZIP 交付服务；路由永远不获得裸文件系统。 */
+  readonly taskFiles: TaskFileWorkspace;
   readonly administratorLeases: AdministratorAuthorityLedger;
   readonly trustedDesktopIssuers: TrustedDesktopIssuerRegistry;
   readonly controlPlaneDiagnostics: () => ControlPlaneDiagnosticReportV1;

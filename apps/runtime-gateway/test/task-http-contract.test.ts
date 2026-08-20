@@ -23,6 +23,8 @@ const DATABASE_VARIABLES = [
   'AWO_SCHEDULE_RUN_DB',
   'AWO_RUN_TRAJECTORY_DB',
   'AWO_RUN_WORKSPACE_LEDGER_DB',
+  'AWO_TASK_FILE_WORKSPACE_DB',
+  'AWO_TASK_FILE_ROOT',
   'AWO_ADMINISTRATOR_LEASE_DB',
   'AWO_TRUSTED_DESKTOP_ISSUER_DB',
   'AWO_COMPONENT_PROVENANCE_DB',
@@ -41,6 +43,7 @@ async function withGateway<T>(run: (baseUrl: string) => Promise<T>): Promise<T> 
     process.env[key] = join(root, `${key.toLowerCase()}.sqlite`);
   }
   process.env.AWO_KNOWLEDGE_WORKSPACE_DIR = join(root, 'knowledge-workspaces');
+  process.env.AWO_TASK_FILE_ROOT = join(root, 'task-file-root');
   const application = startLocalGateway(0);
   try {
     const port = await application.ready;
@@ -247,5 +250,77 @@ test('Gateway Security Posture Audit 只输出冷路径 finding，拒绝任何�
 
     const writeAttempt = await fetch(`${baseUrl}/api/security-posture/audit`, { method: 'POST', body: '{}' });
     assert.equal(writeAttempt.status, 404);
+  });
+});
+
+test('Gateway 仅在已批准的 filesystem.write 后公开 task/run 专属文件，并提供显式 ZIP 交付', async () => {
+  await withGateway(async (baseUrl) => {
+    const submitted = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': 'p13-files-task-submit' },
+      body: JSON.stringify({ schemaVersion: 1, goal: '生成一份可审查的本地交付说明', profileId: 'build', authorityMode: 'review' }),
+    });
+    assert.equal(submitted.status, 201);
+    const snapshot = await submitted.json() as { taskId: string; runId: string; status: string };
+    assert.equal(snapshot.status, 'blocked');
+
+    const beforeApproval = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/files`);
+    assert.equal(beforeApproval.status, 200);
+    assert.deepEqual(await beforeApproval.json(), []);
+
+    const approved = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/approvals/deliver`, {
+      method: 'POST',
+      headers: { 'idempotency-key': 'p13-files-deliver-approval' },
+    });
+    assert.equal(approved.status, 200);
+    assert.equal((await approved.json() as { status: string }).status, 'completed');
+
+    const filesResponse = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/files`);
+    assert.equal(filesResponse.status, 200);
+    const files = await filesResponse.json() as readonly { taskFileId: string; logicalPath: string; sha256: string; canExecute: boolean; containsSensitiveContent: boolean }[];
+    assert.equal(files.length, 1);
+    const file = files[0];
+    assert.ok(file);
+    assert.equal(file.logicalPath, 'deliverables/task-delivery.md');
+    assert.equal(file.canExecute, false);
+    assert.equal(file.containsSensitiveContent, false);
+    assert.equal(/^[a-f0-9]{64}$/.test(file.sha256), true);
+    assert.equal(JSON.stringify(files).includes('生成一份可审查的本地交付说明'), false);
+
+    const preview = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/files/${file.taskFileId}/preview`);
+    assert.equal(preview.status, 200);
+    const previewJson = await preview.json() as { language: string; content: string; truncated: boolean };
+    assert.equal(previewJson.language, 'markdown');
+    assert.match(previewJson.content, /可自动执行：否/);
+    assert.equal(previewJson.truncated, false);
+
+    const diff = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/files/${file.taskFileId}/diff`);
+    assert.equal(diff.status, 200);
+    assert.equal((await diff.json() as { previousVersion?: number }).previousVersion, undefined);
+
+    const missingKey = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/deliveries`, { method: 'POST' });
+    assert.equal(missingKey.status, 400);
+    const deliveryRequest = { method: 'POST', headers: { 'idempotency-key': 'p13-delivery-create' } };
+    const deliveryResponse = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/deliveries`, deliveryRequest);
+    assert.equal(deliveryResponse.status, 201);
+    const receipt = await deliveryResponse.json() as { deliveryId: string; fileCount: number; sha256: string; canAutoExecute: boolean; canAutoExtract: boolean };
+    assert.equal(receipt.fileCount, 1);
+    assert.equal(receipt.canAutoExecute, false);
+    assert.equal(receipt.canAutoExtract, false);
+    assert.equal(/^[a-f0-9]{64}$/.test(receipt.sha256), true);
+
+    const repeated = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/deliveries`, deliveryRequest);
+    assert.equal(repeated.status, 201);
+    assert.equal((await repeated.json() as { deliveryId: string }).deliveryId, receipt.deliveryId);
+    const download = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/deliveries/${receipt.deliveryId}`);
+    assert.equal(download.status, 200);
+    assert.equal(download.headers.get('content-type'), 'application/zip');
+    assert.match(download.headers.get('content-disposition') ?? '', /^attachment; filename="ai-work-os-/);
+    const body = Buffer.from(await download.arrayBuffer());
+    assert.equal(body.subarray(0, 4).toString('hex'), '504b0304');
+    assert.match(body.toString('utf8'), /task-delivery\.md/);
+
+    const crossRun = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/run-not-this-one/files/${file.taskFileId}/preview`);
+    assert.equal(crossRun.status, 404);
   });
 });

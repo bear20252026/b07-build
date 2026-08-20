@@ -18,7 +18,6 @@ import {
   ReadOnlySubtaskService,
   RuleBasedCapabilityPolicy,
   RunTrajectoryLedger,
-  RunWorkspaceLedger,
   SqliteAdapterApprovalMailboxStore,
   SqliteAdministratorLeaseStore,
   SqliteComponentLockfileStore,
@@ -33,12 +32,10 @@ import {
   SqliteScheduledRunStore,
   SqliteSubtaskSnapshotStore,
   SqliteRunTrajectoryStore,
-  SqliteRunWorkspaceLedgerStore,
   SqliteTaskCommandReceiptStore,
   SqliteTaskSnapshotStore,
   SqliteTrustedDesktopIssuerStore,
   TrustedDesktopIssuerRegistry,
-  type DAGNode,
   type TaskRuntimeRequest,
 } from '@awo/agent-runtime';
 import {
@@ -65,6 +62,8 @@ import { createGatewayComponentLockReport, createGatewayExtensionProvenanceLockG
 import { createGatewayComponentManagementReport } from './component-management-report.js';
 import { createNativeHostAuthenticationComposition } from './native-host-authentication-composition.js';
 import { createWindowsNativeReleaseComposition } from './windows-native-release-composition.js';
+import { createTaskFileWorkspaceComposition } from './task-file-workspace-composition.js';
+import { createTaskNodes } from './task-node-factory.js';
 import { handleGatewayRequest } from './http/router.js';
 const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318);
 const DEFAULT_KNOWLEDGE_WORKSPACE_ID = 'default-local';
@@ -79,29 +78,6 @@ const BASELINE_RULES: readonly CapabilityPolicyRule[] = [
 ];
 function runKey(taskId: string, runId: string): string {
   return `${taskId}:${runId}`;
-}
-function createTaskNodes(profileId: AgentProfileId): readonly DAGNode[] {
-  const readOnly = [
-    {
-      id: 'understand', kind: 'model' as const,
-      tool: { name: 'local.task.understand', args: {}, capability: 'model.chat' as const, risk: 'low' as const },
-      idempotencyKey: 'understand:v1', deps: [],
-    },
-    {
-      id: 'inspect', kind: 'tool' as const,
-      tool: { name: 'workspace.inspect', args: {}, capability: 'filesystem.read' as const, risk: 'low' as const },
-      idempotencyKey: 'inspect:v1', deps: ['understand'],
-    },
-  ];
-  if (profileId !== 'build') return readOnly;
-  return [
-    ...readOnly,
-    {
-      id: 'deliver', kind: 'tool' as const,
-      tool: { name: 'workspace.write.intent', args: {}, capability: 'filesystem.write' as const, risk: 'medium' as const },
-      idempotencyKey: 'deliver:v1', deps: ['inspect'],
-    },
-  ];
 }
 /** 仅由已完成平台进程/二进制身份验证的 native adapter 持有；不传入 HTTP router 或 renderer。 */
 export interface GatewayNativeHostPort { readonly componentManagement: AuthenticatedNativeComponentManagementBridge; readonly releaseEvidence: import('@awo/agent-runtime').WindowsNativeHostReleaseEvidenceLedger; }
@@ -123,7 +99,10 @@ export function createGatewayComposition(): GatewayComposition {
   const agentAdapterMailboxPath = resolve(process.env.AWO_AGENT_ADAPTER_MAILBOX_DB ?? '.awo/agent-adapter-mailbox.sqlite');
   const scheduleManifestPath = resolve(process.env.AWO_SCHEDULE_MANIFEST_DB ?? '.awo/audited-schedules.sqlite');
   const scheduleRunPath = resolve(process.env.AWO_SCHEDULE_RUN_DB ?? '.awo/audited-schedule-runs.sqlite');
-  const runTrajectoryPath = resolve(process.env.AWO_RUN_TRAJECTORY_DB ?? '.awo/run-trajectories.sqlite'); const runWorkspaceLedgerPath = resolve(process.env.AWO_RUN_WORKSPACE_LEDGER_DB ?? '.awo/run-workspace-ledger.sqlite');
+  const runTrajectoryPath = resolve(process.env.AWO_RUN_TRAJECTORY_DB ?? '.awo/run-trajectories.sqlite');
+  const runWorkspaceLedgerPath = resolve(process.env.AWO_RUN_WORKSPACE_LEDGER_DB ?? '.awo/run-workspace-ledger.sqlite');
+  const taskFileWorkspacePath = resolve(process.env.AWO_TASK_FILE_WORKSPACE_DB ?? '.awo/task-file-workspace.sqlite');
+  const taskFileRoot = resolve(process.env.AWO_TASK_FILE_ROOT ?? '.awo/task-file-workspace');
   const administratorLeasePath = resolve(process.env.AWO_ADMINISTRATOR_LEASE_DB ?? '.awo/administrator-leases.sqlite');
   const trustedDesktopIssuerPath = resolve(process.env.AWO_TRUSTED_DESKTOP_ISSUER_DB ?? '.awo/trusted-desktop-issuers.sqlite');
   const componentProvenancePath = resolve(process.env.AWO_COMPONENT_PROVENANCE_DB ?? '.awo/component-provenance.sqlite');
@@ -158,7 +137,8 @@ export function createGatewayComposition(): GatewayComposition {
   const scheduledRunStore = new SqliteScheduledRunStore(scheduleRunPath);
   const schedules = new AuditedScheduleControlPlane(scheduleManifestStore, scheduledRunStore);
   const runTrajectoryStore = new SqliteRunTrajectoryStore(runTrajectoryPath); const runTrajectory = new RunTrajectoryLedger(runTrajectoryStore);
-  const runWorkspaceStore = new SqliteRunWorkspaceLedgerStore(runWorkspaceLedgerPath); const runWorkspace = new RunWorkspaceLedger(runWorkspaceStore);
+  const taskFileWorkspace = createTaskFileWorkspaceComposition(runWorkspaceLedgerPath, taskFileWorkspacePath, taskFileRoot);
+  const { runWorkspace, taskFiles } = taskFileWorkspace;
   const administratorLeaseStore = new SqliteAdministratorLeaseStore(administratorLeasePath);
   const administratorLeases = new AdministratorAuthorityLedger(administratorLeaseStore);
   const trustedDesktopIssuerStore = new SqliteTrustedDesktopIssuerStore(trustedDesktopIssuerPath);
@@ -217,6 +197,7 @@ export function createGatewayComposition(): GatewayComposition {
       },
       ...externalInputProvenance,
     ];
+    const generatedFilesByCall = new Map<string, readonly { logicalPath: string; content: string }[]>();
     const existingEvents = eventsByRun.get(runKey(taskId, runId));
     const events: TaskEvent[] = existingEvents ?? [
       createEvent('task.created', taskId, runId, { goal }),
@@ -232,11 +213,27 @@ export function createGatewayComposition(): GatewayComposition {
       taskId, runId, goal, profileId, authorityMode, inputProvenance, administratorLeases, nodes: createTaskNodes(profileId),
       baselinePolicy: new RuleBasedCapabilityPolicy(BASELINE_RULES),
       approvals: new InMemoryApprovalPort(approvedActions),
-      runner: { async run(node) { return { ok: true, outputRef: `local://task/${taskId}/${node.id}` }; } },
+      runner: {
+        async run(node) {
+          if (node.tool.capability === 'filesystem.write') {
+            generatedFilesByCall.set(node.id, [{
+              logicalPath: 'deliverables/task-delivery.md',
+              content: `# 受控任务交付\n\n本文件由已批准的 filesystem.write 工具在本地 task/run 专属目录中创建。\n\n- task: ${taskId}\n- run: ${runId}\n- 可自动执行：否\n- 可自动解压：否\n`,
+            }]);
+          }
+          return { ok: true, outputRef: `local://task/${taskId}/${node.id}` };
+        },
+      },
       emit(nextEvent) {
         events.push(nextEvent);
         runTrajectory.recordTaskEvent(nextEvent, 'task-runtime');
-        runWorkspace.recordTaskEvent(nextEvent);
+        const artifact = runWorkspace.recordTaskEvent(nextEvent);
+        if (nextEvent.type === 'tool.result' && nextEvent.status === 'ok' && artifact) {
+          for (const file of generatedFilesByCall.get(nextEvent.callId) ?? []) {
+            taskFiles.publishTextFile({ taskId, runId, artifactLedgerId: artifact.artifactLedgerId, ...file, createdAt: nextEvent.at });
+          }
+          generatedFilesByCall.delete(nextEvent.callId);
+        }
       },
     };
     eventsByRun.set(runKey(taskId, runId), events);
@@ -262,7 +259,7 @@ export function createGatewayComposition(): GatewayComposition {
       () => agentAdapterMailboxStore.close(),
       () => scheduleManifestStore.close(),
       () => scheduledRunStore.close(),
-      () => { runTrajectoryStore.close(); runWorkspaceStore.close(); },
+      () => { runTrajectoryStore.close(); taskFileWorkspace.close(); },
       () => administratorLeaseStore.close(),
       () => trustedDesktopIssuerStore.close(),
       () => componentProvenanceStore.close(),
@@ -285,7 +282,7 @@ export function createGatewayComposition(): GatewayComposition {
     dependencies: {
       runtime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
       extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, localModelHealth, knowledgeWorkspaces, skillPacks,
-      agentAdapters, schedules, runTrajectory, runWorkspace, administratorLeases, trustedDesktopIssuers,
+      agentAdapters, schedules, runTrajectory, runWorkspace, taskFiles, administratorLeases, trustedDesktopIssuers,
       controlPlaneDiagnostics: () => createControlPlaneDiagnosticReport({
         extensions: extensionRegistry,
         extensionDoctor,

@@ -40,6 +40,18 @@ export function sendJson(response: ServerResponse, status: number, body?: unknow
   response.end(body === undefined ? undefined : JSON.stringify(body));
 }
 
+/** 受控二进制下载适配器；调用者只可传入服务已验证的字节与固定 MIME/文件名。 */
+export function sendAttachment(response: ServerResponse, content: Buffer, fileName: string): void {
+  const safeFileName = fileName.replace(/[^A-Za-z0-9._-]/g, '_');
+  response.writeHead(200, {
+    'content-type': 'application/zip',
+    'content-length': content.length,
+    'content-disposition': `attachment; filename="${safeFileName}"`,
+    'x-content-type-options': 'nosniff',
+  });
+  response.end(content);
+}
+
 /** 受限 JSON body 适配器，拒绝超过本地 Gateway 边界的请求负载。 */
 export function readJsonBody(request: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
