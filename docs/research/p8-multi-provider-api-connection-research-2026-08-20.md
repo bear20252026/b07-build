@@ -59,3 +59,15 @@ OpenClaw 的核心可借鉴点是将 provider/model 引用、模型能力、默�
 [7] OpenClaw Model Providers — https://docs.openclaw.ai/concepts/model-providers
 
 [8] OpenClaw Authentication — https://docs.openclaw.ai/gateway/authentication
+
+## 已实现的实际推理路径
+
+P8.1 在既有连接控制面之上实现了**用户显式文本推理路径**：用户先在 Workbench 的固定供应商目录中登记 Provider Profile、由 Gateway host 检查其环境凭据引用、再显式启用 Profile。只有状态为 `active`、其 driver allowlist 与 `remote-allowed` 数据边界均匹配、且 Gateway host 能解析对应凭据时，界面才显示单次文本请求控件。用户可使用目录默认模型，或输入一个符合受限标识符规则的模型 ID；不能输入端点、API key、header、工具、MCP 配置或 agent 配置。
+
+推理由 `ProviderInferenceService` 在 Gateway 内调用既有 `OpenAICompatible` 或 `AnthropicMessages` Driver。服务限制 prompt 为 24,000 字符、输出为 32,000 字符和 4,096 个流式分块，并将失败统一映射为不包含供应商原始错误正文的本地提示。返回 WebView 的对象只包含 Provider/Profile 修订号、模型标识、数据边界、文本输出及 SHA-256 摘要、字符数与延迟；不会包含请求正文、endpoint、凭据、header 或可执行工具能力。实际输出只保留在当前 Workbench 会话状态，不写入 Provider Profile、任务事件或 SQLite 账本。
+
+> 该路径是单次文本聊天调用，不是自动化 Agent 执行。它不会自动连接、不会调用 MCP、不会执行工具、Shell、浏览器或文件操作，也不会用 Provider 输出改变本地权限。将 Provider 接入任务 DAG、工具调用或长时会话需要另行经过 capability、审批、预算、输入 provenance 与持久化设计审查。
+
+## 验证补充
+
+新增 Provider SDK 和 Gateway 端到端测试使用本地模拟 SSE，验证：未登记/未激活 Profile 不会启动 Driver；缺少凭据不会联网；Gateway 在远端请求中使用其内存密钥，但其 HTTP 响应和 Workbench DTO 均不回显密钥或 endpoint；带有 API key、端点或其他未声明字段的请求将被拒绝。

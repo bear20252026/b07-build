@@ -1,15 +1,18 @@
+import { useState } from 'react';
 import './ProviderConnectionCenter.css';
-import type { WorkbenchProviderConnection, WorkbenchProviderConnectionProbe } from '../../runtime/task-client';
+import type { WorkbenchProviderConnection, WorkbenchProviderConnectionProbe, WorkbenchProviderInference } from '../../runtime/task-client';
 
 export interface ProviderConnectionCenterProps {
   connections?: readonly WorkbenchProviderConnection[];
   probes: Readonly<Record<string, WorkbenchProviderConnectionProbe | undefined>>;
+  inferences: Readonly<Record<string, WorkbenchProviderInference | undefined>>;
   error?: string;
   pendingProviderId?: string;
   onRefresh(): void;
   onRegister(providerId: string): void;
   onActivate(providerId: string): void;
   onProbe(providerId: string): void;
+  onInfer(providerId: string, prompt: string, model?: string): void;
 }
 
 function statusLabel(status: WorkbenchProviderConnection['profileStatus']): string {
@@ -38,7 +41,9 @@ function probeLabel(probe: WorkbenchProviderConnectionProbe | undefined): string
  * 仅面向本地 Gateway 的受控多模型控制面。此组件没有密钥输入框、endpoint 编辑器、
  * 自动探测、自动激活或默认模型切换能力；每一次网络诊断均由操作者点击触发。
  */
-export function ProviderConnectionCenter({ connections, probes, error, pendingProviderId, onRefresh, onRegister, onActivate, onProbe }: ProviderConnectionCenterProps) {
+export function ProviderConnectionCenter({ connections, probes, inferences, error, pendingProviderId, onRefresh, onRegister, onActivate, onProbe, onInfer }: ProviderConnectionCenterProps) {
+  const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({});
+  const [models, setModels] = useState<Readonly<Record<string, string>>>({});
   return (
     <section className="provider-connection-center" aria-label="Commercial model provider connections">
       <div className="provider-connection-heading">
@@ -56,6 +61,9 @@ export function ProviderConnectionCenter({ connections, probes, error, pendingPr
         const probe = probes[connection.providerId];
         const canActivate = connection.profileStatus === 'registered' && connection.credentialAvailability === 'available';
         const canProbe = connection.profileStatus === 'active' && connection.credentialAvailability === 'available';
+        const draft = drafts[connection.providerId] ?? '';
+        const model = models[connection.providerId] ?? '';
+        const inference = inferences[connection.providerId];
         return (
           <article className="provider-connection-card" key={connection.providerId}>
             <div className="provider-connection-card-heading">
@@ -76,10 +84,22 @@ export function ProviderConnectionCenter({ connections, probes, error, pendingPr
               {connection.profileStatus === 'active' && <button type="button" disabled={!canProbe || pending} title={canProbe ? '显式发起一次只读模型目录探测' : 'Gateway 当前未发现凭据'} onClick={() => onProbe(connection.providerId)}>{pending ? '诊断中…' : '测试连接'}</button>}
               {(connection.profileStatus === 'disabled' || connection.profileStatus === 'revoked') && <span className="provider-connection-locked">此 Profile 已被显式限制，不能由 Workbench 重新启用。</span>}
             </div>
+            {connection.profileStatus === 'active' && (
+              <div className="provider-inference-box">
+                <label htmlFor={`provider-prompt-${connection.providerId}`}>向 {connection.displayName} 发送一次受控文本请求</label>
+                <textarea id={`provider-prompt-${connection.providerId}`} value={draft} maxLength={24000} onChange={(event) => setDrafts((current) => ({ ...current, [connection.providerId]: event.target.value }))} placeholder={`使用默认模型 ${connection.defaultModel}；不允许工具、端点或密钥输入。`} />
+                <input className="provider-model-input" aria-label={`${connection.displayName} 模型标识`} value={model} maxLength={128} onChange={(event) => setModels((current) => ({ ...current, [connection.providerId]: event.target.value }))} placeholder={`可选：覆写默认模型 ${connection.defaultModel}`} />
+                <div className="provider-inference-footer">
+                  <span>发送前请确认文本可离开本机。执行时不会自动调用工具或启动其他连接。</span>
+                  <button type="button" disabled={!draft.trim() || pending} onClick={() => onInfer(connection.providerId, draft, model.trim() || undefined)}>{pending ? '请求中…' : '发送文本请求'}</button>
+                </div>
+                {inference && <div className="provider-inference-result"><div><strong>{inference.model}</strong><span>{inference.outputCharacters} 字符 · {inference.latencyMs} ms · Profile r{inference.profileRevision}</span></div><pre>{inference.output || '模型未返回文本内容。'}</pre></div>}
+              </div>
+            )}
           </article>
         );
       })}
-      <p className="provider-connection-note">登记与启用均不会自动发送模型请求；“测试连接”只在你点击后对已启用供应商执行一次受限模型目录探测。此面板不能读取密钥，也不能扩大任务的数据边界。</p>
+      <p className="provider-connection-note">登记与启用均不会自动发送模型请求；“测试连接”只在你点击后对已启用供应商执行一次受限模型目录探测。“发送文本请求”仅执行一次受限聊天调用，不自动运行工具、MCP、Shell、浏览器或其他 Provider。</p>
     </section>
   );
 }

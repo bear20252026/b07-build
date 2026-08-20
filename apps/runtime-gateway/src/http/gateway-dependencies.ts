@@ -15,7 +15,7 @@ import type {
   TrustedDesktopIssuerRegistry,
 } from '@awo/agent-runtime';
 import type { KnowledgeWorkspaceService, SkillPackRegistry } from '@awo/knowledge-workflow';
-import type { LocalModelHealthRegistry, ProviderConnectionService, ProviderProfileRegistry } from '@awo/provider-sdk';
+import type { LocalModelHealthRegistry, ProviderConnectionService, ProviderInferenceService, ProviderProfileRegistry } from '@awo/provider-sdk';
 import type { InputProvenanceV1, TaskEvent } from '@awo/protocol';
 import type { ControlPlaneDiagnosticReportV1 } from '../control-plane-diagnostics.js';
 import type { SecurityPostureReportV1 } from '@awo/agent-runtime';
@@ -37,6 +37,8 @@ export interface GatewayDependencies {
   readonly providerProfiles: ProviderProfileRegistry;
   /** 只暴露登记、激活、脱敏状态与操作者显式 probe；密钥解析仍封装在服务内部。 */
   readonly providerConnections: ProviderConnectionService;
+  /** 实际推理仅接受现有 active Profile；route 不能传入凭据、端点、驱动或工具定义。 */
+  readonly providerInference: ProviderInferenceService;
   readonly localModelHealth: LocalModelHealthRegistry;
   readonly knowledgeWorkspaces: KnowledgeWorkspaceService;
   readonly skillPacks: SkillPackRegistry;

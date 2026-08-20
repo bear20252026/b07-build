@@ -51,6 +51,7 @@ import {
   EnvironmentCredentialResolver,
   LocalModelHealthRegistry,
   ProviderConnectionService,
+  ProviderInferenceService,
   ProviderProfileRegistry,
   SqliteProviderProfileStore,
 } from '@awo/provider-sdk';
@@ -142,6 +143,7 @@ export function createGatewayComposition(): GatewayComposition {
   // 仅 composition root 允许从本机 Gateway 进程环境取得凭据；route、Profile SQLite 与 WebView 均不可见。
   const providerCredentials = new EnvironmentCredentialResolver((name) => process.env[name]);
   const providerConnections = new ProviderConnectionService(BUILT_IN_PROVIDER_CATALOG, providerProfiles, providerCredentials);
+  const providerInference = new ProviderInferenceService(BUILT_IN_PROVIDER_CATALOG, providerProfiles, providerCredentials);
   const localModelHealth = new LocalModelHealthRegistry();
   const skillPackStore = new SqliteSkillPackStore(skillPackPath);
   const skillPacks = new SkillPackRegistry(skillPackStore);
@@ -278,7 +280,7 @@ export function createGatewayComposition(): GatewayComposition {
   return {
     dependencies: {
       runtime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
-      extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, localModelHealth, knowledgeWorkspaces, skillPacks,
+      extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, localModelHealth, knowledgeWorkspaces, skillPacks,
       agentAdapters, schedules, runTrajectory, administratorLeases, trustedDesktopIssuers,
       controlPlaneDiagnostics: () => createControlPlaneDiagnosticReport({
         extensions: extensionRegistry,

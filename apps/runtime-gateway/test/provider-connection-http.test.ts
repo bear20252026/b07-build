@@ -63,3 +63,45 @@ test('Provider connections API 只投影脱敏目录，注册与激活均需要�
     assert.equal(JSON.stringify(active).includes('sk-test-never-returned'), false);
   });
 });
+
+test('Provider infer API 只在显式激活后调用受控 Driver，并以脱敏会话结果返回流式文本', async () => {
+  await withGateway(async (baseUrl) => {
+    const headers = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };
+    const originalFetch = globalThis.fetch;
+    let authorization = '';
+    let remoteBody = '';
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const target = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (target === 'https://api.openai.com/v1/chat/completions') {
+        authorization = String((init?.headers as Record<string, string> | undefined)?.authorization ?? '');
+        remoteBody = String(init?.body ?? '');
+        return new Response('data: {"choices":[{"delta":{"content":"gateway "}}]}\n\ndata: {"choices":[{"delta":{"content":"output"}}]}\n\ndata: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      }
+      return originalFetch(input, init);
+    }) as typeof fetch;
+    try {
+      const malformed = await fetch(`${baseUrl}/api/providers/connections/openai/infer`, { method: 'POST', headers, body: JSON.stringify({ prompt: 'hello', apiKey: 'forbidden' }) });
+      assert.equal(malformed.status, 400);
+      const beforeActivation = await fetch(`${baseUrl}/api/providers/connections/openai/infer`, { method: 'POST', headers, body: JSON.stringify({ prompt: 'hello' }) });
+      assert.equal(beforeActivation.status, 400);
+      assert.equal(authorization, '');
+      assert.equal((await fetch(`${baseUrl}/api/providers/connections/openai/register`, { method: 'POST', headers, body: JSON.stringify({ reviewedBy: 'desktop-owner' }) })).status, 201);
+      assert.equal((await fetch(`${baseUrl}/api/providers/connections/openai/activate`, { method: 'POST', headers, body: JSON.stringify({ reviewedBy: 'desktop-owner' }) })).status, 200);
+      const inferred = await fetch(`${baseUrl}/api/providers/connections/openai/infer`, { method: 'POST', headers, body: JSON.stringify({ prompt: 'hello from workbench' }) });
+      assert.equal(inferred.status, 200);
+      const result = await inferred.json() as Record<string, unknown>;
+      assert.equal(result.output, 'gateway output');
+      assert.equal(result.model, 'gpt-5.6');
+      assert.equal(result.canReadSecret, false);
+      assert.equal(result.canAutoExecuteTools, false);
+      assert.equal(result.canAutoConnect, false);
+      assert.equal(JSON.stringify(result).includes('sk-test-never-returned'), false);
+      assert.equal(JSON.stringify(result).includes('https://api.openai.com'), false);
+      assert.equal(authorization, 'Bearer sk-test-never-returned');
+      assert.equal(remoteBody.includes('hello from workbench'), true);
+      assert.equal(remoteBody.includes('sk-test-never-returned'), false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

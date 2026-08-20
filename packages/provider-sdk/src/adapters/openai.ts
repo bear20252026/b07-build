@@ -8,6 +8,8 @@ interface OpenAIDelta {
 export interface OpenAICompatibleOptions {
   id?: string;
   capabilities?: ModelCapabilities;
+  /** 默认兼容 OpenAI、DeepSeek、Mistral 与 OpenRouter；Gemini 兼容层使用 /chat/completions。 */
+  chatCompletionsPath?: '/v1/chat/completions' | '/chat/completions';
 }
 
 const REMOTE_DEFAULT_CAPABILITIES: ModelCapabilities = {
@@ -21,6 +23,7 @@ const REMOTE_DEFAULT_CAPABILITIES: ModelCapabilities = {
 export class OpenAICompatible implements ModelDriver {
   private readonly driverId: string;
   private readonly modelCapabilities: ModelCapabilities;
+  private readonly chatCompletionsPath: '/v1/chat/completions' | '/chat/completions';
 
   constructor(
     private readonly baseUrl: string,
@@ -28,6 +31,7 @@ export class OpenAICompatible implements ModelDriver {
   ) {
     this.driverId = options.id ?? 'openai';
     this.modelCapabilities = options.capabilities ?? REMOTE_DEFAULT_CAPABILITIES;
+    this.chatCompletionsPath = options.chatCompletionsPath ?? '/v1/chat/completions';
   }
 
   id(): string {
@@ -39,7 +43,7 @@ export class OpenAICompatible implements ModelDriver {
   }
 
   async *chat(req: ChatRequest, apiKey: string): AsyncIterable<string> {
-    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/v1/chat/completions`, {
+    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}${this.chatCompletionsPath}`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

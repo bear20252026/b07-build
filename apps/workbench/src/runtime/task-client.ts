@@ -82,6 +82,23 @@ export interface WorkbenchProviderConnectionProbe {
   canAutoConnect: false;
 }
 
+/** 实际模型输出仅留在本次 WebView 状态；结果不含请求、endpoint、header、API key 或工具能力。 */
+export interface WorkbenchProviderInference {
+  schemaVersion: 1;
+  providerId: string;
+  profileId: string;
+  profileRevision: number;
+  model: string;
+  dataBoundary: 'remote-allowed';
+  output: string;
+  outputDigest: string;
+  outputCharacters: number;
+  latencyMs: number;
+  canReadSecret: false;
+  canAutoExecuteTools: false;
+  canAutoConnect: false;
+}
+
 export interface WorkbenchControlPlaneDiagnostics {
   schemaVersion: 1;
   generatedAt: number;
@@ -238,6 +255,7 @@ export interface WorkbenchTaskClient {
   registerProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection>;
   activateProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection>;
   probeProviderConnection(providerId: string): Promise<WorkbenchProviderConnectionProbe>;
+  inferProviderConnection(providerId: string, prompt: string, model?: string): Promise<WorkbenchProviderInference>;
   controlPlaneDiagnostics(): Promise<WorkbenchControlPlaneDiagnostics>;
   securityPostureAudit(): Promise<WorkbenchSecurityPostureReport>;
   componentLockReport(): Promise<WorkbenchComponentLockReport>;
@@ -288,6 +306,23 @@ function assertProviderConnectionProbe(value: unknown): asserts value is Workben
     || (item.latencyMs !== undefined && (!Number.isSafeInteger(item.latencyMs) || (item.latencyMs as number) < 0))
     || item.canReadSecret !== false || item.canAutoConnect !== false
   ) throw new Error('供应商连接探测包含未声明、敏感或可自动连接字段');
+}
+
+function assertProviderInference(value: unknown): asserts value is WorkbenchProviderInference {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('供应商推理结果无效');
+  const item = value as Record<string, unknown>;
+  if (
+    Object.keys(item).some((key) => !['schemaVersion', 'providerId', 'profileId', 'profileRevision', 'model', 'dataBoundary', 'output', 'outputDigest', 'outputCharacters', 'latencyMs', 'canReadSecret', 'canAutoExecuteTools', 'canAutoConnect'].includes(key))
+    || item.schemaVersion !== 1 || typeof item.providerId !== 'string' || !/^[a-z][a-z0-9-]{1,63}$/.test(item.providerId)
+    || typeof item.profileId !== 'string' || !/^provider\.[a-z][a-z0-9-]{1,63}$/.test(item.profileId)
+    || !Number.isSafeInteger(item.profileRevision) || (item.profileRevision as number) < 1
+    || typeof item.model !== 'string' || item.dataBoundary !== 'remote-allowed'
+    || typeof item.output !== 'string' || item.output.length > 32_000
+    || typeof item.outputDigest !== 'string' || !/^[a-f0-9]{64}$/.test(item.outputDigest)
+    || !Number.isSafeInteger(item.outputCharacters) || item.outputCharacters !== item.output.length
+    || !Number.isSafeInteger(item.latencyMs) || (item.latencyMs as number) < 0
+    || item.canReadSecret !== false || item.canAutoExecuteTools !== false || item.canAutoConnect !== false
+  ) throw new Error('供应商推理结果包含未声明、敏感或可执行字段');
 }
 
 function isSafeMetadataArray(value: unknown): value is readonly Record<string, unknown>[] {
@@ -611,6 +646,20 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     if (!response.ok) throw new Error(await response.text() || `供应商连接探测失败 (${response.status})`);
     const payload: unknown = await response.json();
     assertProviderConnectionProbe(payload);
+    return payload;
+  }
+
+  async inferProviderConnection(providerId: string, prompt: string, model?: string): Promise<WorkbenchProviderInference> {
+    if (!/^[a-z][a-z0-9-]{1,63}$/.test(providerId) || !prompt.trim() || prompt.trim().length > 24_000) throw new Error('供应商或 prompt 无效');
+    if (model !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:/-]{1,127}$/.test(model)) throw new Error('模型标识无效');
+    const response = await fetch(`${this.providerConnectionsUrl}/${encodeURIComponent(providerId)}/infer`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1', 'idempotency-key': createIdempotencyKey('provider-infer') },
+      body: JSON.stringify({ prompt: prompt.trim(), ...(model?.trim() ? { model: model.trim() } : {}) }),
+    });
+    if (!response.ok) throw new Error(await response.text() || `供应商推理失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertProviderInference(payload);
     return payload;
   }
 

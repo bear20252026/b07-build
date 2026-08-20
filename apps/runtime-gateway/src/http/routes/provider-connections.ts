@@ -13,10 +13,18 @@ function readReview(body: unknown): { reviewedBy: string; note?: string } | unde
   return { reviewedBy: candidate.reviewedBy, note: candidate.note as string | undefined };
 }
 
+function readInference(body: unknown): { prompt: string; model?: string } | undefined {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
+  const candidate = body as Record<string, unknown>;
+  if (Object.keys(candidate).some((key) => key !== 'prompt' && key !== 'model')) return undefined;
+  if (typeof candidate.prompt !== 'string' || (candidate.model !== undefined && typeof candidate.model !== 'string')) return undefined;
+  return { prompt: candidate.prompt, model: candidate.model as string | undefined };
+}
+
 /**
  * Provider connection 管道：Profile metadata 与 credential availability 的显式控制面。
- * 它不读取运行时环境配置，不接收密钥、token、URL 或模型请求正文；远程探测也只能由带有
- * operator-intent header 的显式 POST 发起，且服务只返回脱敏 outcome。
+ * 它不读取运行时环境配置，不接收密钥、token、URL、工具或 agent 配置；远程探测与推理均只能由
+ * operator-intent header 的显式 POST 发起。推理仅接收一个受限文本 prompt 与可选模型标识。
  */
 export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, response, url, segments, dependencies }) => {
   if (request.method === 'GET' && url.pathname === '/api/providers/connections') {
@@ -39,8 +47,17 @@ export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, re
       sendJson(response, 200, await dependencies.providerConnections.probe(providerId));
       return true;
     }
+    if (operation === 'infer') {
+      const inference = readInference(await readJsonBody(request));
+      if (!inference) {
+        sendJson(response, 400, { error: 'infer 只接受 prompt 与可选 model；不得提交 API key、token、endpoint、工具或 agent 配置' });
+        return true;
+      }
+      sendJson(response, 200, await dependencies.providerInference.infer({ providerId, ...inference }));
+      return true;
+    }
     if (operation !== 'register' && operation !== 'activate') {
-      sendJson(response, 404, { error: '供应商连接操作必须是 register、activate 或 probe' });
+      sendJson(response, 404, { error: '供应商连接操作必须是 register、activate、probe 或 infer' });
       return true;
     }
     const review = readReview(await readJsonBody(request));

@@ -24,6 +24,7 @@ import {
   type WorkbenchLocalModelHealth,
   type WorkbenchProviderConnection,
   type WorkbenchProviderConnectionProbe,
+  type WorkbenchProviderInference,
   type WorkbenchNativeHostAuthenticationReport,
   type WorkbenchWindowsNativeReleaseReport,
   type WorkbenchTaskSnapshot,
@@ -91,6 +92,7 @@ export function App() {
   const [localModelError, setLocalModelError] = useState<string>();
   const [providerConnections, setProviderConnections] = useState<readonly WorkbenchProviderConnection[]>();
   const [providerConnectionProbes, setProviderConnectionProbes] = useState<Readonly<Record<string, WorkbenchProviderConnectionProbe | undefined>>>({});
+  const [providerInferences, setProviderInferences] = useState<Readonly<Record<string, WorkbenchProviderInference | undefined>>>({});
   const [providerConnectionError, setProviderConnectionError] = useState<string>();
   const [pendingProviderId, setPendingProviderId] = useState<string>();
   const [controlPlaneDiagnostics, setControlPlaneDiagnostics] = useState<WorkbenchControlPlaneDiagnostics>();
@@ -180,6 +182,15 @@ export function App() {
     void taskClient.probeProviderConnection(providerId)
       .then((probe) => setProviderConnectionProbes((current) => ({ ...current, [providerId]: probe })))
       .catch((error: unknown) => setProviderConnectionError(error instanceof Error ? error.message : 'Provider probe failed'))
+      .finally(() => setPendingProviderId(undefined));
+  };
+
+  const inferProviderConnection = (providerId: string, prompt: string, model?: string): void => {
+    setPendingProviderId(providerId);
+    setProviderConnectionError(undefined);
+    void taskClient.inferProviderConnection(providerId, prompt, model)
+      .then((result) => setProviderInferences((current) => ({ ...current, [providerId]: result })))
+      .catch((error: unknown) => setProviderConnectionError(error instanceof Error ? error.message : 'Provider inference failed'))
       .finally(() => setPendingProviderId(undefined));
   };
 
@@ -317,7 +328,9 @@ export function App() {
             <ProviderConnectionCenter
               connections={providerConnections}
               error={providerConnectionError}
+              inferences={providerInferences}
               onActivate={activateProviderConnection}
+              onInfer={inferProviderConnection}
               onProbe={probeProviderConnection}
               onRefresh={refreshProviderConnections}
               onRegister={registerProviderConnection}
