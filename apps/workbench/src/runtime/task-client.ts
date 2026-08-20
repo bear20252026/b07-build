@@ -552,6 +552,22 @@ function assertSnapshot(value: unknown): asserts value is WorkbenchTaskSnapshot 
 }
 
 export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
+  /** 桌面壳只能显式附着固定 loopback Gateway；不提供任意 URL、端口或远程主机输入。 */
+  static forLocalGateway(): HttpWorkbenchTaskClient {
+    const origin = 'http://127.0.0.1:4318';
+    return new HttpWorkbenchTaskClient(
+      `${origin}/api/tasks`,
+      `${origin}/api/local-models/health`,
+      `${origin}/api/control-plane/diagnostics`,
+      `${origin}/api/security-posture/audit`,
+      `${origin}/api/components/lock-report`,
+      `${origin}/api/components/management-receipts`,
+      `${origin}/api/native-host-authentication`,
+      `${origin}/api/windows/native-release-evidence`,
+      `${origin}/api/providers/connections`,
+    );
+  }
+
   constructor(
     private readonly baseUrl = '/api/tasks',
     private readonly localModelHealthUrl = '/api/local-models/health',

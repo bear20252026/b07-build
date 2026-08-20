@@ -105,3 +105,21 @@ test('Provider infer API 只在显式激活后调用受控 Driver，并以脱敏
     }
   });
 });
+
+test('Gateway 桌面附着仅接受已审核 Tauri 或本地开发来源的 CORS 预检', async () => {
+  await withGateway(async (baseUrl) => {
+    const accepted = await fetch(`${baseUrl}/api/providers/connections`, {
+      method: 'OPTIONS',
+      headers: { origin: 'tauri://localhost', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type,x-awo-operator-intent' },
+    });
+    assert.equal(accepted.status, 204);
+    assert.equal(accepted.headers.get('access-control-allow-origin'), 'tauri://localhost');
+    assert.equal(accepted.headers.get('access-control-allow-credentials'), null);
+    assert.equal(accepted.headers.get('access-control-allow-headers')?.includes('x-awo-operator-intent'), true);
+    const rejected = await fetch(`${baseUrl}/api/providers/connections`, {
+      method: 'OPTIONS', headers: { origin: 'https://untrusted.example', 'access-control-request-method': 'POST' },
+    });
+    assert.equal(rejected.status, 403);
+    assert.equal(rejected.headers.get('access-control-allow-origin'), null);
+  });
+});

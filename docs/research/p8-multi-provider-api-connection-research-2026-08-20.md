@@ -71,3 +71,11 @@ P8.1 在既有连接控制面之上实现了**用户显式文本推理路径**�
 ## 验证补充
 
 新增 Provider SDK 和 Gateway 端到端测试使用本地模拟 SSE，验证：未登记/未激活 Profile 不会启动 Driver；缺少凭据不会联网；Gateway 在远端请求中使用其内存密钥，但其 HTTP 响应和 Workbench DTO 均不回显密钥或 endpoint；带有 API key、端点或其他未声明字段的请求将被拒绝。
+
+## 桌面显式 Gateway 附着
+
+为使已打包 Windows Workbench 可使用第三方模型，同时不违反“桌面启动不自动连接、不启动 helper、不授予 bridge trust”的约束，P8.2 将桌面行为定义为**默认断开、用户显式附着**。Workbench 启动时不发起任何 Gateway 请求；标题栏与状态卡仅提供“附着本机 Gateway”按钮。按钮被点击后，客户端才尝试读取固定 `http://127.0.0.1:4318` 的脱敏供应商目录。它不允许输入任意 URL、端口或远程主机；失败不会重试、不会启动进程，并明确提示用户先自行启动 Gateway。
+
+Gateway 为该 WebView 通道增加仅预检用途的严格 CORS allowlist：Tauri 的 `tauri://localhost`/`*.tauri.localhost` 等本地来源与既有 Vite 开发来源可使用 `GET`、`POST`、`OPTIONS` 及必要的 idempotency/operator-intent headers。它不使用 `*` 和 `Access-Control-Allow-Credentials`，未知来源的 `OPTIONS` 直接拒绝。桌面 CSP 仍只允许 `self` 与固定的 `http://127.0.0.1:4318` 连接地址，不包含 `unsafe-eval`。
+
+断开操作只清除 Workbench 的内存态，既不停止 Gateway，也不撤销 Provider Profile、凭据或发布信任。此分离使桌面 UI 始终是事件/意图消费者，而 Gateway 仍然是唯一拥有凭据、SQLite、网络调用与执行控制面的进程。

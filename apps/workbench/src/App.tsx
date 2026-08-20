@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import './components/observability/GatewayAttachment.css';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider } from './components/layout/Sider';
 import { ControlPlaneInsights } from './components/observability/ControlPlaneInsights';
@@ -32,7 +33,7 @@ import {
   type WorkbenchSecurityPostureReport,
 } from './runtime/task-client';
 
-const taskClient = new HttpWorkbenchTaskClient();
+const localGatewayClient = HttpWorkbenchTaskClient.forLocalGateway();
 
 function profileUi(messages: Translation): Record<AgentProfileId, { label: string; description: string }> {
   return messages.profile;
@@ -86,6 +87,9 @@ function statusLabel(status: WorkbenchTaskSnapshot['status'] | undefined, messag
 }
 
 export function App() {
+  const [gatewayAttached, setGatewayAttached] = useState(false);
+  const [gatewayAttachmentError, setGatewayAttachmentError] = useState<string>();
+  const [attachingGateway, setAttachingGateway] = useState(false);
   const [events, setEvents] = useState<readonly TaskEvent[]>([]);
   const [trajectory, setTrajectory] = useState<readonly WorkbenchRunTrajectoryEvent[]>([]);
   const [localModels, setLocalModels] = useState<readonly WorkbenchLocalModelHealth[]>();
@@ -123,72 +127,118 @@ export function App() {
   const untrustedInputCount = provenance.filter((input) => input.trust === 'external-untrusted' || input.trust === 'derived-untrusted').length;
 
   useEffect(() => {
+    if (!gatewayAttached) return;
     let disposed = false;
-    void taskClient.localModelHealth()
+    void localGatewayClient.localModelHealth()
       .then((models) => { if (!disposed) setLocalModels(models); })
       .catch((error: unknown) => { if (!disposed) setLocalModelError(error instanceof Error ? error.message : 'Local model health unavailable'); });
-    void taskClient.providerConnections()
+    void localGatewayClient.providerConnections()
       .then((connections) => { if (!disposed) setProviderConnections(connections); })
       .catch((error: unknown) => { if (!disposed) setProviderConnectionError(error instanceof Error ? error.message : 'Provider connections unavailable'); });
-    void taskClient.controlPlaneDiagnostics()
+    void localGatewayClient.controlPlaneDiagnostics()
       .then((report) => { if (!disposed) setControlPlaneDiagnostics(report); })
       .catch((error: unknown) => { if (!disposed) setControlPlaneDiagnosticError(error instanceof Error ? error.message : 'Control plane diagnostics unavailable'); });
-    void taskClient.securityPostureAudit()
+    void localGatewayClient.securityPostureAudit()
       .then((report) => { if (!disposed) setSecurityPostureAudit(report); })
       .catch((error: unknown) => { if (!disposed) setSecurityPostureAuditError(error instanceof Error ? error.message : 'Security posture audit unavailable'); });
-    void taskClient.componentLockReport()
+    void localGatewayClient.componentLockReport()
       .then((report) => { if (!disposed) setComponentLockReport(report); })
       .catch((error: unknown) => { if (!disposed) setComponentLockReportError(error instanceof Error ? error.message : 'Component lock report unavailable'); });
-    void taskClient.componentManagementReport()
+    void localGatewayClient.componentManagementReport()
       .then((report) => { if (!disposed) setComponentManagementReport(report); })
       .catch((error: unknown) => { if (!disposed) setComponentManagementReportError(error instanceof Error ? error.message : 'Component management report unavailable'); });
-    void taskClient.nativeHostAuthenticationReport()
+    void localGatewayClient.nativeHostAuthenticationReport()
       .then((report) => { if (!disposed) setNativeHostAuthenticationReport(report); })
       .catch((error: unknown) => { if (!disposed) setNativeHostAuthenticationReportError(error instanceof Error ? error.message : 'Native host authentication report unavailable'); });
-    void taskClient.windowsNativeReleaseReport()
+    void localGatewayClient.windowsNativeReleaseReport()
       .then((report) => { if (!disposed) setWindowsNativeReleaseReport(report); })
       .catch((error: unknown) => { if (!disposed) setWindowsNativeReleaseReportError(error instanceof Error ? error.message : 'Windows native release report unavailable'); });
     return () => { disposed = true; };
-  }, []);
+  }, [gatewayAttached]);
+
+  const attachGateway = (): void => {
+    if (attachingGateway || gatewayAttached) return;
+    setAttachingGateway(true);
+    setGatewayAttachmentError(undefined);
+    void localGatewayClient.providerConnections()
+      .then(() => setGatewayAttached(true))
+      .catch((error: unknown) => setGatewayAttachmentError(error instanceof Error ? error.message : '本地 Gateway 未响应'))
+      .finally(() => setAttachingGateway(false));
+  };
+
+  const detachGateway = (): void => {
+    setGatewayAttached(false);
+    setGatewayAttachmentError(undefined);
+    setProviderConnections(undefined);
+    setProviderConnectionProbes({});
+    setProviderInferences({});
+    setLocalModels(undefined);
+    setControlPlaneDiagnostics(undefined);
+    setSecurityPostureAudit(undefined);
+    setComponentLockReport(undefined);
+    setComponentManagementReport(undefined);
+    setNativeHostAuthenticationReport(undefined);
+    setWindowsNativeReleaseReport(undefined);
+  };
 
   const refreshProviderConnections = (): void => {
+    if (!gatewayAttached) {
+      setProviderConnectionError('请先显式附着本机 Gateway。');
+      return;
+    }
     setProviderConnectionError(undefined);
-    void taskClient.providerConnections()
+    void localGatewayClient.providerConnections()
       .then((connections) => setProviderConnections(connections))
       .catch((error: unknown) => setProviderConnectionError(error instanceof Error ? error.message : 'Provider connections unavailable'));
   };
 
   const registerProviderConnection = (providerId: string): void => {
+    if (!gatewayAttached) {
+      setProviderConnectionError('请先显式附着本机 Gateway。');
+      return;
+    }
     setPendingProviderId(providerId);
     setProviderConnectionError(undefined);
-    void taskClient.registerProviderConnection(providerId, 'desktop-owner', 'Workbench explicit registration.')
+    void localGatewayClient.registerProviderConnection(providerId, 'desktop-owner', 'Workbench explicit registration.')
       .then((connection) => { setProviderConnections((current) => (current ?? []).map((item) => item.providerId === providerId ? connection : item)); })
       .catch((error: unknown) => setProviderConnectionError(error instanceof Error ? error.message : 'Provider registration failed'))
       .finally(() => setPendingProviderId(undefined));
   };
 
   const activateProviderConnection = (providerId: string): void => {
+    if (!gatewayAttached) {
+      setProviderConnectionError('请先显式附着本机 Gateway。');
+      return;
+    }
     setPendingProviderId(providerId);
     setProviderConnectionError(undefined);
-    void taskClient.activateProviderConnection(providerId, 'desktop-owner', 'Workbench explicit activation; no automatic model call.')
+    void localGatewayClient.activateProviderConnection(providerId, 'desktop-owner', 'Workbench explicit activation; no automatic model call.')
       .then((connection) => { setProviderConnections((current) => (current ?? []).map((item) => item.providerId === providerId ? connection : item)); })
       .catch((error: unknown) => setProviderConnectionError(error instanceof Error ? error.message : 'Provider activation failed'))
       .finally(() => setPendingProviderId(undefined));
   };
 
   const probeProviderConnection = (providerId: string): void => {
+    if (!gatewayAttached) {
+      setProviderConnectionError('请先显式附着本机 Gateway。');
+      return;
+    }
     setPendingProviderId(providerId);
     setProviderConnectionError(undefined);
-    void taskClient.probeProviderConnection(providerId)
+    void localGatewayClient.probeProviderConnection(providerId)
       .then((probe) => setProviderConnectionProbes((current) => ({ ...current, [providerId]: probe })))
       .catch((error: unknown) => setProviderConnectionError(error instanceof Error ? error.message : 'Provider probe failed'))
       .finally(() => setPendingProviderId(undefined));
   };
 
   const inferProviderConnection = (providerId: string, prompt: string, model?: string): void => {
+    if (!gatewayAttached) {
+      setProviderConnectionError('请先显式附着本机 Gateway。');
+      return;
+    }
     setPendingProviderId(providerId);
     setProviderConnectionError(undefined);
-    void taskClient.inferProviderConnection(providerId, prompt, model)
+    void localGatewayClient.inferProviderConnection(providerId, prompt, model)
       .then((result) => setProviderInferences((current) => ({ ...current, [providerId]: result })))
       .catch((error: unknown) => setProviderConnectionError(error instanceof Error ? error.message : 'Provider inference failed'))
       .finally(() => setPendingProviderId(undefined));
@@ -196,8 +246,8 @@ export function App() {
 
   const hydrate = async (nextSnapshot: WorkbenchTaskSnapshot): Promise<void> => {
     const [nextEvents, nextTrajectory] = await Promise.all([
-      taskClient.events(nextSnapshot.taskId, nextSnapshot.runId),
-      taskClient.trajectory(nextSnapshot.taskId, nextSnapshot.runId),
+      localGatewayClient.events(nextSnapshot.taskId, nextSnapshot.runId),
+      localGatewayClient.trajectory(nextSnapshot.taskId, nextSnapshot.runId),
     ]);
     setSnapshot(nextSnapshot);
     setEvents(nextEvents);
@@ -207,10 +257,14 @@ export function App() {
   const submitIntent = async (): Promise<void> => {
     const goal = draft.trim();
     if (!goal || pending) return;
+    if (!gatewayAttached) {
+      setServiceError('请先显式附着本机 Gateway；桌面应用不会自动启动或连接服务。');
+      return;
+    }
     setPending(true);
     setServiceError(undefined);
     try {
-      const nextSnapshot = await taskClient.submit({ goal, profileId: activeProfile, authorityMode });
+      const nextSnapshot = await localGatewayClient.submit({ goal, profileId: activeProfile, authorityMode });
       await hydrate(nextSnapshot);
       setActiveGoal(goal);
       setDraft('');
@@ -226,7 +280,7 @@ export function App() {
     setPending(true);
     setServiceError(undefined);
     try {
-      await hydrate(await taskClient.resume(snapshot.taskId, snapshot.runId));
+      await hydrate(await localGatewayClient.resume(snapshot.taskId, snapshot.runId));
     } catch (error) {
       setServiceError(error instanceof Error ? error.message : messages.task.error.resume);
     } finally {
@@ -239,7 +293,7 @@ export function App() {
     setPending(true);
     setServiceError(undefined);
     try {
-      await hydrate(await taskClient.approve(snapshot.taskId, snapshot.runId, blockedNodeId));
+      await hydrate(await localGatewayClient.approve(snapshot.taskId, snapshot.runId, blockedNodeId));
     } catch (error) {
       setServiceError(error instanceof Error ? error.message : messages.task.error.approve);
     } finally {
@@ -261,6 +315,9 @@ export function App() {
             <div className="titlebar-title">{messages.task.title}</div>
           </div>
           <div className="titlebar-actions">
+            <button className={`gateway-attach-button${gatewayAttached ? ' attached' : ''}`} type="button" onClick={gatewayAttached ? detachGateway : attachGateway} disabled={attachingGateway}>
+              {attachingGateway ? '正在附着…' : gatewayAttached ? '断开本机 Gateway' : '附着本机 Gateway'}
+            </button>
             <div className="profile-switcher" aria-label={messages.profile.selectAria}>
               {(Object.keys(profiles) as AgentProfileId[]).map((profileId) => (
                 <button
@@ -292,6 +349,11 @@ export function App() {
                 <span className="capability-badge">{messages.authority.mode[authorityMode].label}</span>
               </div>
             </div>
+            <section className={`gateway-attach-card${gatewayAttached ? ' attached' : ''}`} aria-label="Local Gateway attachment">
+              <div><span>LOCAL GATEWAY</span><strong>{gatewayAttached ? '已显式附着到 127.0.0.1:4318' : '尚未附着本机 Gateway'}</strong><p>{gatewayAttached ? '已建立仅回环的 Workbench 数据通道；不会启动 Gateway、native helper 或信任桥。' : '启动后的默认状态。请先在本机单独启动 Gateway，再点击“附着本机 Gateway”。'}</p></div>
+              {!gatewayAttached && <button type="button" onClick={attachGateway} disabled={attachingGateway}>{attachingGateway ? '正在检查…' : '检查并附着'}</button>}
+            </section>
+            {gatewayAttachmentError && <div className="runtime-error" role="alert">本机 Gateway：{gatewayAttachmentError}</div>}
             {serviceError && <div className="runtime-error" role="alert">{messages.common.local}: {serviceError}</div>}
             <section className="runtime-snapshot" aria-label={messages.task.snapshotAria}>
               <div>
@@ -326,7 +388,7 @@ export function App() {
             <WindowsNativeReleaseBoard error={windowsNativeReleaseReportError} messages={messages} report={windowsNativeReleaseReport} />
             <LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} />
             <ProviderConnectionCenter
-              connections={providerConnections}
+              connections={gatewayAttached ? providerConnections : []}
               error={providerConnectionError}
               inferences={providerInferences}
               onActivate={activateProviderConnection}

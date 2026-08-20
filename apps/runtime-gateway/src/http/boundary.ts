@@ -2,6 +2,25 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 export const MAX_JSON_BODY_BYTES = 64 * 1024;
 
+/** 只允许本地 Vite 开发窗口与 Tauri WebView；不使用通配符或 Access-Control-Allow-Credentials。 */
+const ALLOWED_WORKBENCH_ORIGINS = new Set([
+  'http://127.0.0.1:5173',
+  'http://tauri.localhost',
+  'https://tauri.localhost',
+  'tauri://localhost',
+]);
+
+export function applyWorkbenchCors(request: IncomingMessage, response: ServerResponse): boolean {
+  const origin = request.headers.origin;
+  if (typeof origin !== 'string' || !ALLOWED_WORKBENCH_ORIGINS.has(origin)) return false;
+  response.setHeader('access-control-allow-origin', origin);
+  response.setHeader('vary', 'origin');
+  response.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
+  response.setHeader('access-control-allow-headers', 'content-type, idempotency-key, x-awo-operator-intent');
+  response.setHeader('access-control-max-age', '600');
+  return true;
+}
+
 export interface HttpRequestContext {
   readonly request: IncomingMessage;
   readonly response: ServerResponse;

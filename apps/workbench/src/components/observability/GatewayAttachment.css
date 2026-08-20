@@ -1,0 +1,13 @@
+.gateway-attach-button { min-height: 29px; padding: 0 10px; color: var(--text-strong); font: inherit; font-size: 12px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--panel); transition: border-color 140ms ease, background 140ms ease; }
+.gateway-attach-button:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.gateway-attach-button.attached { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, var(--border)); background: var(--success-soft); }
+.gateway-attach-button:disabled { cursor: wait; opacity: 0.62; }
+.gateway-attach-card { margin-top: 16px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px dashed var(--border-strong); border-radius: 14px; background: var(--panel-subtle); }
+.gateway-attach-card.attached { border-style: solid; border-color: color-mix(in srgb, var(--success) 42%, var(--border)); background: color-mix(in srgb, var(--success-soft) 45%, var(--panel)); }
+.gateway-attach-card > div { display: grid; gap: 4px; }
+.gateway-attach-card span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.09em; }
+.gateway-attach-card strong { color: var(--text-strong); font-size: 13px; }
+.gateway-attach-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.gateway-attach-card button { flex: 0 0 auto; padding: 8px 10px; color: #fff; font: inherit; font-size: 12px; font-weight: 650; border: 1px solid var(--accent-strong); border-radius: 8px; background: var(--accent-strong); }
+.gateway-attach-card button:disabled { cursor: wait; opacity: 0.52; }
+@media (max-width: 760px) { .gateway-attach-card { align-items: flex-start; flex-direction: column; } }

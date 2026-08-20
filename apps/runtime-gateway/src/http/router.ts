@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { createHttpRequestContext, errorStatus, sendJson } from './boundary.js';
+import { applyWorkbenchCors, createHttpRequestContext, errorStatus, sendJson } from './boundary.js';
 import type { GatewayDependencies } from './gateway-dependencies.js';
 import type { GatewayRoute } from './route-contract.js';
 import { handleAgentAdapterRoutes } from './routes/agent-adapters.js';
@@ -43,6 +43,12 @@ export async function handleGatewayRequest(
   response: ServerResponse,
   dependencies: GatewayDependencies,
 ): Promise<void> {
+  const corsAllowed = applyWorkbenchCors(request, response);
+  if (request.method === 'OPTIONS') {
+    if (!corsAllowed) sendJson(response, 403, { error: 'Gateway 仅允许已审核的本地 Workbench 来源附着' });
+    else response.writeHead(204).end();
+    return;
+  }
   const context = { ...createHttpRequestContext(request, response), dependencies };
   try {
     for (const route of ROUTE_PIPELINE) {
