@@ -96,6 +96,9 @@ export const catalog = {
     componentManagement: {
       aria: '构件管理回执', eyebrow: 'NATIVE-HOST MANAGEMENT AUDIT', title: '受控构件管理回执', loading: '正在读取本地宿主管理审计摘要…', empty: '尚无已记录的构件管理操作。', count: (count: number) => `${count} 条宿主管理回执`, generatedAt: '生成时间', applied: '已应用', rejected: '已拒绝', browserDenied: '浏览器不能登记、核验、评审、锁定、撤销或激活构件。', note: '此卡片只显示脱敏管理回执；不暴露 attestation、payload digest、来源、路径、制品、许可证或命令。',
     },
+    nativeHostAuthentication: {
+      aria: '原生宿主认证摘要', eyebrow: 'NATIVE HOST AUTHENTICATION', title: '可信原生宿主认证桥', loading: '正在读取原生 bridge 的脱敏认证摘要…', empty: '尚无已登记的原生宿主 bridge。', count: (count: number) => `${count} 个原生宿主 bridge`, generatedAt: '生成时间', nonce: { issued: '待处理 nonce', verified: '已验证 nonce', rejected: '已拒绝 nonce' }, trusted: '受信', registered: '待验证', disabled: '已停用', revoked: '已撤销', browserDenied: '浏览器不能认证、签发 challenge、提交签名或推进构件管理。', note: '此卡片不暴露 caller origin、公钥、nonce、签名、challenge、payload digest 或 attestation。认证成功本身不安装、不加载、不激活构件。',
+    },
     authority: {
       selectLabel: '执行权限', selectAria: '选择本次任务的执行权限', mode: {
         plan: { label: '只计划', description: '只允许模型、文档和只读工作区检查；高影响能力会被拒绝。' },
@@ -202,6 +205,9 @@ export const catalog = {
     },
     componentManagement: {
       aria: 'Component management receipts', eyebrow: 'NATIVE-HOST MANAGEMENT AUDIT', title: 'Controlled component management receipts', loading: 'Reading local host management audit summaries…', empty: 'No component management operation is recorded yet.', count: (count: number) => `${count} host management receipts`, generatedAt: 'Generated', applied: 'Applied', rejected: 'Rejected', browserDenied: 'Browsers cannot register, verify, review, lock, revoke, or activate components.', note: 'This card shows only redacted management receipts. It never exposes attestations, payload digests, source, paths, artifacts, licenses, or commands.',
+    },
+    nativeHostAuthentication: {
+      aria: 'Native host authentication summary', eyebrow: 'NATIVE HOST AUTHENTICATION', title: 'Trusted native host authentication bridge', loading: 'Reading redacted native bridge authentication summary…', empty: 'No native host bridge is registered yet.', count: (count: number) => `${count} native host bridges`, generatedAt: 'Generated', nonce: { issued: 'Pending nonces', verified: 'Verified nonces', rejected: 'Rejected nonces' }, trusted: 'Trusted', registered: 'Pending trust', disabled: 'Disabled', revoked: 'Revoked', browserDenied: 'Browsers cannot authenticate, issue challenges, submit signatures, or advance component management.', note: 'This card never exposes caller origin, public keys, nonces, signatures, challenges, payload digests, or attestations. Authentication alone never installs, loads, or activates a component.',
     },
     authority: {
       selectLabel: 'Execution authority', selectAria: 'Select execution authority for this task', mode: {

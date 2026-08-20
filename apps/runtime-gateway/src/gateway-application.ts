@@ -6,7 +6,7 @@ import {
   AdministratorAuthorityLedger,
   AgentAdapterControlPlane,
   ComponentLockfileLedger,
-  ComponentManagementAuthority,
+  AuthenticatedNativeComponentManagementBridge, ComponentManagementAuthority,
   ComponentProvenanceRegistry,
   AuditedScheduleControlPlane,
   ExtensionActivationPlanner,
@@ -52,6 +52,7 @@ import { createControlPlaneDiagnosticReport } from './control-plane-diagnostics.
 import { createGatewaySecurityPostureReport } from './security-posture-audit.js';
 import { createGatewayComponentLockReport, createGatewayExtensionProvenanceLockGuard } from './component-lock-report.js';
 import { createGatewayComponentManagementReport } from './component-management-report.js';
+import { createNativeHostAuthenticationComposition } from './native-host-authentication-composition.js';
 import { handleGatewayRequest } from './http/router.js';
 
 const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318);
@@ -95,10 +96,9 @@ function createTaskNodes(profileId: AgentProfileId): readonly DAGNode[] {
   ];
 }
 
-export interface GatewayComposition {
-  readonly dependencies: GatewayDependencies;
-  close(): void;
-}
+/** 仅由已完成平台进程/二进制身份验证的 native adapter 持有；不传入 HTTP router 或 renderer。 */
+export interface GatewayNativeHostPort { readonly componentManagement: AuthenticatedNativeComponentManagementBridge; }
+export interface GatewayComposition { readonly dependencies: GatewayDependencies; readonly nativeHost: GatewayNativeHostPort; close(): void; }
 
 /**
  * 唯一 composition root：读取本地配置、创建具体 SQLite adapter、把它们注入领域控制面。
@@ -162,8 +162,13 @@ export function createGatewayComposition(): GatewayComposition {
   const componentLockfileStore = new SqliteComponentLockfileStore(componentLockfilePath);
   const componentLockfiles = new ComponentLockfileLedger(componentLockfileStore);
   const componentManagementReceiptStore = new SqliteComponentManagementReceiptStore(componentManagementReceiptPath);
-  // 仅供未来 native desktop host 在进程内调用；loopback HTTP/renderer 永远不暴露 manage()。
   const componentManagement = new ComponentManagementAuthority(trustedDesktopIssuers, componentProvenances, componentLockfiles, componentManagementReceiptStore);
+  const nativeHostAuthentication = createNativeHostAuthenticationComposition({
+    bridgeTrustPath: resolve(process.env.AWO_NATIVE_HOST_BRIDGE_TRUST_DB ?? '.awo/native-host-bridge-trust.sqlite'),
+    challengePath: resolve(process.env.AWO_NATIVE_HOST_CHALLENGE_DB ?? '.awo/native-host-challenges.sqlite'),
+    issuers: trustedDesktopIssuers,
+    componentManagement,
+  });
 
   if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
     knowledgeWorkspaces.create({
@@ -260,6 +265,7 @@ export function createGatewayComposition(): GatewayComposition {
       () => componentProvenanceStore.close(),
       () => componentLockfileStore.close(),
       () => componentManagementReceiptStore.close(),
+      () => nativeHostAuthentication.close(),
     ];
     let closeFailure: unknown;
     for (const close of closers) {
@@ -285,7 +291,7 @@ export function createGatewayComposition(): GatewayComposition {
         localModels: localModelHealth,
         trustedDesktopIssuers,
       }),
-      componentManagement,
+      nativeHostAuthenticationReport: () => nativeHostAuthentication.report(),
       componentManagementReport: () => createGatewayComponentManagementReport(componentManagement),
       componentLockReport: () => createGatewayComponentLockReport({
         extensions: extensionRegistry,
@@ -304,6 +310,7 @@ export function createGatewayComposition(): GatewayComposition {
       defaultKnowledgeWorkspaceId: DEFAULT_KNOWLEDGE_WORKSPACE_ID,
       requests, eventsByRun, approvedActions, createTaskRequest, createEvent,
     },
+    nativeHost: nativeHostAuthentication.nativeHost,
     close: closeResources,
   };
 }

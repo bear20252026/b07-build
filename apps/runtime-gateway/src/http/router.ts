@@ -6,6 +6,7 @@ import { handleAgentAdapterRoutes } from './routes/agent-adapters.js';
 import { handleControlPlaneDiagnosticRoutes } from './routes/control-plane-diagnostics.js';
 import { handleComponentLockReportRoutes } from './routes/component-lock-report.js';
 import { handleComponentManagementReportRoutes } from './routes/component-management-report.js';
+import { handleNativeHostAuthenticationReportRoutes } from './routes/native-host-authentication-report.js';
 import { handleExtensionRoutes } from './routes/extensions.js';
 import { handleKnowledgeRoutes } from './routes/knowledge.js';
 import { handleLocalModelRoutes } from './routes/local-models.js';
@@ -23,6 +24,7 @@ const ROUTE_PIPELINE: readonly GatewayRoute[] = [
   handleSecurityPostureAuditRoutes,
   handleComponentLockReportRoutes,
   handleComponentManagementReportRoutes,
+  handleNativeHostAuthenticationReportRoutes,
   handleScheduleRoutes,
   handleAgentAdapterRoutes,
   handleLocalModelRoutes,

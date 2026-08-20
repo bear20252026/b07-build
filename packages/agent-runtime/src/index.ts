@@ -31,6 +31,8 @@ export * from './security-posture-audit.js';
 export * from './infrastructure/sqlite/security-posture-audit-store.js';
 export * from './component-provenance.js';
 export * from './component-management.js';
+export * from './native-host-authentication.js';
+export * from './infrastructure/sqlite/native-host-authentication-store.js';
 export * from './infrastructure/sqlite/component-management-receipt-store.js';
 export * from './infrastructure/sqlite/component-provenance-store.js';
 export * from './trusted-desktop-issuer.js';

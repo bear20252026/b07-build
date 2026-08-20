@@ -7,6 +7,7 @@ import { ComponentLockBoard } from './components/observability/ComponentLockBoar
 import { ComponentManagementReceiptBoard } from './components/observability/ComponentManagementReceiptBoard';
 import { ExtensionCenter } from './components/observability/ExtensionCenter';
 import { LocalModelHealthBoard } from './components/observability/LocalModelHealthBoard';
+import { NativeHostAuthenticationBoard } from './components/observability/NativeHostAuthenticationBoard';
 import { SecurityPostureAuditBoard } from './components/observability/SecurityPostureAuditBoard';
 import { TrajectoryBoard } from './components/observability/TrajectoryBoard';
 import { PreviewPanel } from './components/preview/PreviewPanel';
@@ -19,6 +20,7 @@ import {
   type WorkbenchComponentManagementReport,
   type WorkbenchControlPlaneDiagnostics,
   type WorkbenchLocalModelHealth,
+  type WorkbenchNativeHostAuthenticationReport,
   type WorkbenchTaskSnapshot,
   type WorkbenchRunTrajectoryEvent,
   type WorkbenchSecurityPostureReport,
@@ -90,6 +92,8 @@ export function App() {
   const [componentLockReportError, setComponentLockReportError] = useState<string>();
   const [componentManagementReport, setComponentManagementReport] = useState<WorkbenchComponentManagementReport>();
   const [componentManagementReportError, setComponentManagementReportError] = useState<string>();
+  const [nativeHostAuthenticationReport, setNativeHostAuthenticationReport] = useState<WorkbenchNativeHostAuthenticationReport>();
+  const [nativeHostAuthenticationReportError, setNativeHostAuthenticationReportError] = useState<string>();
   const [snapshot, setSnapshot] = useState<WorkbenchTaskSnapshot>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
@@ -122,6 +126,9 @@ export function App() {
     void taskClient.componentManagementReport()
       .then((report) => { if (!disposed) setComponentManagementReport(report); })
       .catch((error: unknown) => { if (!disposed) setComponentManagementReportError(error instanceof Error ? error.message : 'Component management report unavailable'); });
+    void taskClient.nativeHostAuthenticationReport()
+      .then((report) => { if (!disposed) setNativeHostAuthenticationReport(report); })
+      .catch((error: unknown) => { if (!disposed) setNativeHostAuthenticationReportError(error instanceof Error ? error.message : 'Native host authentication report unavailable'); });
     return () => { disposed = true; };
   }, []);
 
@@ -253,6 +260,7 @@ export function App() {
             <SecurityPostureAuditBoard error={securityPostureAuditError} messages={messages} report={securityPostureAudit} />
             <ComponentLockBoard error={componentLockReportError} messages={messages} report={componentLockReport} />
             <ComponentManagementReceiptBoard error={componentManagementReportError} messages={messages} report={componentManagementReport} />
+            <NativeHostAuthenticationBoard error={nativeHostAuthenticationReportError} messages={messages} report={nativeHostAuthenticationReport} />
             <LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} />
             <ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} />
             <section className="event-section">

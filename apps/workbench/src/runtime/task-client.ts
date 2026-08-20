@@ -108,6 +108,27 @@ export interface WorkbenchComponentLockReport {
   canAutoRepair: false;
 }
 
+export interface WorkbenchNativeHostBridgeStatus {
+  issuerId: string;
+  bridgeId: string;
+  transport: 'native-messaging' | 'webview2-isolated-host' | 'desktop-ipc';
+  status: 'registered' | 'trusted' | 'disabled' | 'revoked';
+  revision: number;
+  allowedActions: readonly ('register-candidate' | 'verify-digest' | 'review-provenance' | 'record-lockfile' | 'revoke-provenance')[];
+  canAuthenticateComponentManagement: true;
+  canExecute: false;
+}
+
+export interface WorkbenchNativeHostAuthenticationReport {
+  schemaVersion: 1;
+  generatedAt: number;
+  bridges: readonly WorkbenchNativeHostBridgeStatus[];
+  challengeSummary: { issued: number; consumedVerified: number; consumedRejected: number; };
+  browserCanAuthenticate: false;
+  canIssueChallenge: false;
+  canExecute: false;
+}
+
 export interface WorkbenchComponentManagementReceipt {
   operationId: string;
   issuerId: string;
@@ -165,6 +186,7 @@ export interface WorkbenchTaskClient {
   securityPostureAudit(): Promise<WorkbenchSecurityPostureReport>;
   componentLockReport(): Promise<WorkbenchComponentLockReport>;
   componentManagementReport(): Promise<WorkbenchComponentManagementReport>;
+  nativeHostAuthenticationReport(): Promise<WorkbenchNativeHostAuthenticationReport>;
 }
 
 function assertLocalModelHealth(value: unknown): asserts value is WorkbenchLocalModelHealth {
@@ -277,6 +299,38 @@ function assertComponentLockReport(value: unknown): asserts value is WorkbenchCo
   }
 }
 
+function assertNativeHostAuthenticationReport(value: unknown): asserts value is WorkbenchNativeHostAuthenticationReport {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('原生宿主认证摘要无效');
+  const report = value as Record<string, unknown>;
+  const actions = new Set(['register-candidate', 'verify-digest', 'review-provenance', 'record-lockfile', 'revoke-provenance']);
+  const transports = new Set(['native-messaging', 'webview2-isolated-host', 'desktop-ipc']);
+  const statuses = new Set(['registered', 'trusted', 'disabled', 'revoked']);
+  const isNonNegativeSafeInteger = (candidate: unknown): candidate is number => typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate >= 0;
+  const isStringArray = (candidate: unknown): candidate is readonly string[] => Array.isArray(candidate) && candidate.every((item) => typeof item === 'string');
+  if (
+    Object.keys(report).some((key) => !['schemaVersion', 'generatedAt', 'bridges', 'challengeSummary', 'browserCanAuthenticate', 'canIssueChallenge', 'canExecute'].includes(key))
+    || report.schemaVersion !== 1 || !isNonNegativeSafeInteger(report.generatedAt) || !isSafeMetadataArray(report.bridges)
+    || !report.challengeSummary || typeof report.challengeSummary !== 'object' || Array.isArray(report.challengeSummary)
+    || Object.keys(report.challengeSummary as object).some((key) => !['issued', 'consumedVerified', 'consumedRejected'].includes(key))
+    || !isNonNegativeSafeInteger((report.challengeSummary as Record<string, unknown>).issued)
+    || !isNonNegativeSafeInteger((report.challengeSummary as Record<string, unknown>).consumedVerified)
+    || !isNonNegativeSafeInteger((report.challengeSummary as Record<string, unknown>).consumedRejected)
+    || report.browserCanAuthenticate !== false || report.canIssueChallenge !== false || report.canExecute !== false
+  ) throw new Error('原生宿主认证摘要返回了不兼容或可执行的 metadata contract');
+  for (const bridge of report.bridges) {
+    if (
+      Object.keys(bridge).some((key) => !['issuerId', 'bridgeId', 'transport', 'status', 'revision', 'allowedActions', 'canAuthenticateComponentManagement', 'canExecute'].includes(key))
+      || typeof bridge.issuerId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(bridge.issuerId)
+      || typeof bridge.bridgeId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(bridge.bridgeId)
+      || typeof bridge.transport !== 'string' || !transports.has(bridge.transport)
+      || typeof bridge.status !== 'string' || !statuses.has(bridge.status)
+      || !isNonNegativeSafeInteger(bridge.revision) || bridge.revision < 1
+      || !isStringArray(bridge.allowedActions) || bridge.allowedActions.length === 0 || bridge.allowedActions.some((action) => !actions.has(action))
+      || bridge.canAuthenticateComponentManagement !== true || bridge.canExecute !== false
+    ) throw new Error('原生宿主认证 bridge 包含未声明、敏感或可执行字段');
+  }
+}
+
 function assertComponentManagementReport(value: unknown): asserts value is WorkbenchComponentManagementReport {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('构件管理回执报告无效');
   const report = value as Record<string, unknown>;
@@ -358,6 +412,7 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     private readonly securityPostureAuditUrl = '/api/security-posture/audit',
     private readonly componentLockReportUrl = '/api/components/lock-report',
     private readonly componentManagementReportUrl = '/api/components/management-receipts',
+    private readonly nativeHostAuthenticationReportUrl = '/api/native-host-authentication',
   ) {}
 
   async submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot> {
@@ -440,6 +495,14 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     const payload: unknown = await response.json();
     assertComponentLockReport(payload);
     return { ...payload, decisions: [...payload.decisions].sort((left, right) => left.componentId.localeCompare(right.componentId)) };
+  }
+
+  async nativeHostAuthenticationReport(): Promise<WorkbenchNativeHostAuthenticationReport> {
+    const response = await fetch(this.nativeHostAuthenticationReportUrl, { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(await response.text() || `原生宿主认证摘要请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertNativeHostAuthenticationReport(payload);
+    return { ...payload, bridges: [...payload.bridges].sort((left, right) => left.issuerId.localeCompare(right.issuerId) || left.bridgeId.localeCompare(right.bridgeId)) };
   }
 
   async componentManagementReport(): Promise<WorkbenchComponentManagementReport> {

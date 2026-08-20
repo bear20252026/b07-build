@@ -549,3 +549,69 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
   .component-management-heading { display: block; }
   .component-management-count { display: inline-block; margin-top: 0.42rem; }
 }
+
+/* P6.4 Native host authentication：浏览器仅可读取脱敏 bridge 状态，不能签发 challenge 或提交签名。 */
+.native-host-auth-board {
+  margin-top: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  background: var(--panel);
+}
+
+.native-host-auth-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.native-host-auth-heading span,
+.native-host-auth-meta,
+.native-host-auth-note,
+.native-host-auth-boundary,
+.native-host-auth-empty,
+.native-host-auth-summary {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.native-host-auth-heading h2 {
+  margin: 0.18rem 0 0;
+  font-size: 1rem;
+}
+
+.native-host-auth-count { color: var(--accent); font-weight: 650; white-space: nowrap; }
+.native-host-auth-meta { margin: 0.7rem 0 0.48rem; }
+.native-host-auth-summary { display: flex; gap: 0.65rem; flex-wrap: wrap; margin-bottom: 0.7rem; }
+.native-host-auth-bridges { display: grid; gap: 0.48rem; }
+
+.native-host-auth-bridge {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.72rem;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 0.58rem;
+}
+
+.native-host-auth-bridge.trusted { border-left-color: var(--success); }
+.native-host-auth-bridge.registered { border-left-color: var(--accent); }
+.native-host-auth-bridge.disabled { border-left-color: var(--warning); }
+.native-host-auth-bridge.revoked { border-left-color: var(--danger); }
+.native-host-auth-bridge > div { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+.native-host-auth-bridge code { color: var(--text); font-size: 0.72rem; }
+.native-host-auth-bridge strong { color: var(--muted); font-size: 0.76rem; font-weight: 600; }
+.native-host-auth-bridge small { color: var(--muted); font-size: 0.74rem; line-height: 1.42; }
+.native-host-auth-status { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; }
+.native-host-auth-bridge.trusted .native-host-auth-status { color: var(--success); }
+.native-host-auth-bridge.registered .native-host-auth-status { color: var(--accent); }
+.native-host-auth-bridge.disabled .native-host-auth-status { color: var(--warning); }
+.native-host-auth-bridge.revoked .native-host-auth-status { color: var(--danger); }
+.native-host-auth-note { margin: 0.78rem 0 0; line-height: 1.45; }
+.native-host-auth-boundary { margin: 0.34rem 0 0; font-weight: 650; }
+
+@media (max-width: 620px) {
+  .native-host-auth-heading { display: block; }
+  .native-host-auth-count { display: inline-block; margin-top: 0.42rem; }
+}

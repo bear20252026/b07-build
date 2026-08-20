@@ -202,6 +202,35 @@ test('Security Posture Audit 客户端只读取固定冷路径 report，并拒�
   }
 });
 
+test('Native Host Authentication 客户端只读取固定冷路径摘要，并拒绝 origin、公钥或 nonce 等敏感字段', async () => {
+  const originalFetch = globalThis.fetch;
+  let url = '';
+  const report = {
+    schemaVersion: 1, generatedAt: 2, browserCanAuthenticate: false, canIssueChallenge: false, canExecute: false,
+    challengeSummary: { issued: 0, consumedVerified: 1, consumedRejected: 2 },
+    bridges: [{
+      issuerId: 'desktop-host', bridgeId: 'local-bridge', transport: 'desktop-ipc', status: 'trusted', revision: 2,
+      allowedActions: ['register-candidate'], canAuthenticateComponentManagement: true, canExecute: false,
+    }],
+  };
+  globalThis.fetch = (async (nextUrl) => { url = String(nextUrl); return Response.json(report); }) as typeof fetch;
+  try {
+    const value = await new HttpWorkbenchTaskClient().nativeHostAuthenticationReport();
+    assert.equal(url, '/api/native-host-authentication');
+    assert.equal(value.browserCanAuthenticate, false);
+    assert.equal(value.bridges[0].canExecute, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = (async () => Response.json({ ...report, bridges: [{ ...report.bridges[0], callerOrigin: 'app://awo-local' }] })) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().nativeHostAuthenticationReport(), /未声明、敏感或可执行/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('Component Management Receipt 客户端只读取固定冷路径审计摘要，并拒绝 attestation 或敏感字段', async () => {
   const originalFetch = globalThis.fetch;
   let url = '';

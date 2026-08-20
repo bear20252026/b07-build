@@ -86,6 +86,11 @@ function canonicalDigest(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
+/** P6.3/P6.4 共用的 payload 摘要：仅约束受限 metadata，永不接受或保存构件文件、路径、URL、凭据或命令。 */
+export function componentManagementPayloadDigest(payload: ComponentManagementPayload): string {
+  return canonicalDigest(intentPayloadForDigest(payload));
+}
+
 function assertIdentifier(value: string, label: string): void {
   if (!IDENTIFIER.test(value)) throw new Error(`${label} 必须是 1-128 位安全标识符`);
 }
@@ -150,7 +155,7 @@ export class ComponentManagementAuthority {
     assertIdentifier(attestation.operationId, 'attestation.operationId');
     if (this.receipts.load(attestation.operationId)) throw new Error('Component Management operationId 已处理；重放被拒绝');
 
-    const requestDigest = canonicalDigest(intentPayloadForDigest(intent.payload));
+    const requestDigest = componentManagementPayloadDigest(intent.payload);
     let rejectionCode: ComponentManagementRejectionCode | undefined;
     try {
       if (intent.schemaVersion !== COMPONENT_MANAGEMENT_SCHEMA_VERSION) throw new Error('Component Management intent 版本不兼容');

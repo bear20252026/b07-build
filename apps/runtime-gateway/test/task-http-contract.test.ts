@@ -27,6 +27,8 @@ const DATABASE_VARIABLES = [
   'AWO_COMPONENT_PROVENANCE_DB',
   'AWO_COMPONENT_LOCKFILE_DB',
   'AWO_COMPONENT_MANAGEMENT_RECEIPT_DB',
+  'AWO_NATIVE_HOST_BRIDGE_TRUST_DB',
+  'AWO_NATIVE_HOST_CHALLENGE_DB',
 ] as const;
 
 async function withGateway<T>(run: (baseUrl: string) => Promise<T>): Promise<T> {
@@ -158,6 +160,23 @@ test('Gateway Component Lock Report 只投影冷路径隔离决定，拒绝登�
     assert.equal(report.canAutoRepair, false);
 
     const writeAttempt = await fetch(`${baseUrl}/api/components/lock-report`, { method: 'POST', body: '{}' });
+    assert.equal(writeAttempt.status, 404);
+  });
+});
+
+test('Gateway Native Host Authentication Report 仅投影脱敏 bridge/nonce 摘要，普通 HTTP 无法认证或获取 challenge', async () => {
+  await withGateway(async (baseUrl) => {
+    const reportResponse = await fetch(`${baseUrl}/api/native-host-authentication`);
+    assert.equal(reportResponse.status, 200);
+    const report = await reportResponse.json() as { schemaVersion: number; bridges: readonly unknown[]; challengeSummary: { issued: number; consumedVerified: number; consumedRejected: number }; browserCanAuthenticate: boolean; canIssueChallenge: boolean; canExecute: boolean };
+    assert.equal(report.schemaVersion, 1);
+    assert.deepEqual(report.bridges, []);
+    assert.deepEqual(report.challengeSummary, { issued: 0, consumedVerified: 0, consumedRejected: 0 });
+    assert.equal(report.browserCanAuthenticate, false);
+    assert.equal(report.canIssueChallenge, false);
+    assert.equal(report.canExecute, false);
+
+    const writeAttempt = await fetch(`${baseUrl}/api/native-host-authentication`, { method: 'POST', body: JSON.stringify({ nonce: 'a'.repeat(64), signatureBase64: 'forbidden' }) });
     assert.equal(writeAttempt.status, 404);
   });
 });

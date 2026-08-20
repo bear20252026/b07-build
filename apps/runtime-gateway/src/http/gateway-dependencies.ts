@@ -1,6 +1,5 @@
 import type {
   AdministratorAuthorityLedger,
-  ComponentManagementAuthority,
   AgentAdapterControlPlane,
   AuditedScheduleControlPlane,
   ExtensionActivationPlanner,
@@ -22,6 +21,7 @@ import type { ControlPlaneDiagnosticReportV1 } from '../control-plane-diagnostic
 import type { SecurityPostureReportV1 } from '@awo/agent-runtime';
 import type { GatewayComponentLockReportV1 } from '../component-lock-report.js';
 import type { GatewayComponentManagementReportV1 } from '../component-management-report.js';
+import type { GatewayNativeHostAuthenticationReportV1 } from '../native-host-authentication-report.js';
 
 /** Gateway route 使用的组合对象；只能由 composition root 创建并注入。 */
 export interface GatewayDependencies {
@@ -44,8 +44,8 @@ export interface GatewayDependencies {
   readonly trustedDesktopIssuers: TrustedDesktopIssuerRegistry;
   readonly controlPlaneDiagnostics: () => ControlPlaneDiagnosticReportV1;
   readonly securityPostureAudit: () => SecurityPostureReportV1;
-  /** 仅由进程内已认证 native host 调用；HTTP router 与 Workbench 不暴露 manage()。 */
-  readonly componentManagement: ComponentManagementAuthority;
+  /** 仅投影脱敏认证摘要；HTTP router 不持有 challenge、envelope 或 component management mutation 端口。 */
+  readonly nativeHostAuthenticationReport: () => GatewayNativeHostAuthenticationReportV1;
   readonly componentManagementReport: () => GatewayComponentManagementReportV1;
   readonly componentLockReport: () => GatewayComponentLockReportV1;
   readonly defaultKnowledgeWorkspaceId: string;
