@@ -1,0 +1,31 @@
+.provider-connection-center {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+.provider-connection-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.provider-connection-heading h2 { margin: 4px 0 6px; color: var(--text-strong); font-size: 17px; letter-spacing: -0.02em; }
+.provider-connection-heading p, .provider-connection-note, .provider-connection-empty { max-width: 760px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
+.panel-eyebrow { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; }
+.panel-refresh-button, .provider-connection-actions button { border: 1px solid var(--border-strong); border-radius: 9px; padding: 7px 11px; background: var(--panel); color: var(--text-strong); cursor: pointer; font: inherit; font-size: 12px; transition: border-color 140ms ease, background 140ms ease, transform 140ms ease; }
+.panel-refresh-button:hover, .provider-connection-actions button:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
+.provider-connection-actions button:disabled { cursor: not-allowed; opacity: 0.48; }
+.provider-connection-card { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 13px; background: color-mix(in srgb, var(--panel-subtle) 92%, var(--accent-soft)); }
+.provider-connection-card-heading, .provider-connection-details, .provider-connection-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.provider-connection-card-heading > div { display: grid; gap: 3px; }
+.provider-connection-card-heading strong { color: var(--text-strong); font-size: 14px; }
+.provider-connection-card-heading span:not(.provider-connection-status) { color: var(--muted); font-size: 11px; }
+.provider-connection-status, .provider-credential-status, .provider-probe-result { border-radius: 999px; padding: 4px 8px; font-size: 11px; line-height: 1; white-space: nowrap; }
+.provider-connection-status.not-registered { background: var(--panel-muted); color: var(--muted); }
+.provider-connection-status.registered, .provider-probe-result.not-active, .provider-probe-result.not-registered, .provider-probe-result.missing-credential { background: var(--warning-soft); color: var(--warning); }
+.provider-connection-status.active, .provider-credential-status.available, .provider-probe-result.reachable { background: var(--success-soft); color: var(--success); }
+.provider-connection-status.disabled, .provider-connection-status.revoked, .provider-credential-status.missing, .provider-credential-status.unsupported-reference, .provider-probe-result.rejected, .provider-probe-result.unreachable { background: var(--danger-soft); color: var(--danger); }
+.provider-connection-details { justify-content: flex-start; flex-wrap: wrap; color: var(--muted); font-size: 11px; }
+.provider-connection-locked { color: var(--muted); font-size: 12px; }
+.provider-connection-error { margin: 0; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); border-radius: 9px; padding: 9px 11px; color: var(--danger); background: var(--danger-soft); font-size: 12px; }
+@media (max-width: 760px) { .provider-connection-heading, .provider-connection-card-heading, .provider-connection-actions { align-items: flex-start; flex-direction: column; } }

@@ -35,3 +35,16 @@ export { LocalOpenAICompatible } from './adapters/local-openai';
 export type { LocalOpenAIOptions } from './adapters/local-openai';
 export { AnthropicMessages } from './adapters/anthropic';
 export type { AnthropicOptions } from './adapters/anthropic';
+export { ProviderCatalog, BUILT_IN_PROVIDER_CATALOG } from './provider-catalog';
+export type { ProviderCatalogEntry, ProviderTransportKind } from './provider-catalog';
+export { EnvironmentCredentialResolver, summarizeProviderCredentials } from './credential-resolver';
+export type { CredentialAvailability, CredentialAvailabilitySummary, CredentialResolver, ProviderCredentialStatus } from './credential-resolver';
+export { ProviderConnectionService } from './provider-connection-service';
+export type {
+  ActivateCatalogProviderRequest,
+  ProviderConnectionProbeOutcome,
+  ProviderConnectionProbeResult,
+  ProviderConnectionProfileStatus,
+  ProviderConnectionStatus,
+  RegisterCatalogProviderRequest,
+} from './provider-connection-service';

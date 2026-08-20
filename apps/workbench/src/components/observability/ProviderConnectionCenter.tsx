@@ -1,0 +1,85 @@
+import './ProviderConnectionCenter.css';
+import type { WorkbenchProviderConnection, WorkbenchProviderConnectionProbe } from '../../runtime/task-client';
+
+export interface ProviderConnectionCenterProps {
+  connections?: readonly WorkbenchProviderConnection[];
+  probes: Readonly<Record<string, WorkbenchProviderConnectionProbe | undefined>>;
+  error?: string;
+  pendingProviderId?: string;
+  onRefresh(): void;
+  onRegister(providerId: string): void;
+  onActivate(providerId: string): void;
+  onProbe(providerId: string): void;
+}
+
+function statusLabel(status: WorkbenchProviderConnection['profileStatus']): string {
+  const labels: Record<WorkbenchProviderConnection['profileStatus'], string> = {
+    'not-registered': '未登记', registered: '已登记', active: '已启用', disabled: '已停用', revoked: '已撤销',
+  };
+  return labels[status];
+}
+
+function credentialLabel(status: WorkbenchProviderConnection['credentialAvailability']): string {
+  const labels: Record<WorkbenchProviderConnection['credentialAvailability'], string> = {
+    available: 'Gateway 凭据已就绪', missing: 'Gateway 未发现凭据', 'unsupported-reference': '凭据引用不受支持',
+  };
+  return labels[status];
+}
+
+function probeLabel(probe: WorkbenchProviderConnectionProbe | undefined): string | undefined {
+  if (!probe) return undefined;
+  const labels: Record<WorkbenchProviderConnectionProbe['outcome'], string> = {
+    reachable: '连接可达', 'missing-credential': '未发现凭据', 'not-registered': '尚未登记', 'not-active': '尚未启用', rejected: '认证、配额或账户策略拒绝', unreachable: '网络不可达或超时',
+  };
+  return probe.latencyMs === undefined ? labels[probe.outcome] : `${labels[probe.outcome]} · ${probe.latencyMs} ms`;
+}
+
+/**
+ * 仅面向本地 Gateway 的受控多模型控制面。此组件没有密钥输入框、endpoint 编辑器、
+ * 自动探测、自动激活或默认模型切换能力；每一次网络诊断均由操作者点击触发。
+ */
+export function ProviderConnectionCenter({ connections, probes, error, pendingProviderId, onRefresh, onRegister, onActivate, onProbe }: ProviderConnectionCenterProps) {
+  return (
+    <section className="provider-connection-center" aria-label="Commercial model provider connections">
+      <div className="provider-connection-heading">
+        <div>
+          <div className="panel-eyebrow">CONTROLLED MODEL CONNECTIONS</div>
+          <h2>商业模型连接</h2>
+          <p>仅通过本地 Gateway 显式连接；密钥始终留在 Gateway host，不写入工作台、Profile 账本或任务事件。</p>
+        </div>
+        <button className="panel-refresh-button" type="button" onClick={onRefresh}>刷新状态</button>
+      </div>
+      {error && <p className="provider-connection-error" role="alert">{error}</p>}
+      {!connections && <p className="provider-connection-empty">正在读取本地 Gateway 的供应商目录…</p>}
+      {connections?.map((connection) => {
+        const pending = pendingProviderId === connection.providerId;
+        const probe = probes[connection.providerId];
+        const canActivate = connection.profileStatus === 'registered' && connection.credentialAvailability === 'available';
+        const canProbe = connection.profileStatus === 'active' && connection.credentialAvailability === 'available';
+        return (
+          <article className="provider-connection-card" key={connection.providerId}>
+            <div className="provider-connection-card-heading">
+              <div>
+                <strong>{connection.displayName}</strong>
+                <span>{connection.defaultModel} · {connection.driverId}</span>
+              </div>
+              <span className={`provider-connection-status ${connection.profileStatus}`}>{statusLabel(connection.profileStatus)}</span>
+            </div>
+            <div className="provider-connection-details">
+              <span className={`provider-credential-status ${connection.credentialAvailability}`}>{credentialLabel(connection.credentialAvailability)}</span>
+              <span>引用：{connection.credentialReference}</span>
+              {probeLabel(probe) && <span className={`provider-probe-result ${probe?.outcome}`}>{probeLabel(probe)}</span>}
+            </div>
+            <div className="provider-connection-actions">
+              {connection.profileStatus === 'not-registered' && <button type="button" disabled={pending} onClick={() => onRegister(connection.providerId)}>{pending ? '处理中…' : '登记连接'}</button>}
+              {connection.profileStatus === 'registered' && <button type="button" disabled={!canActivate || pending} title={canActivate ? '显式启用此供应商 Profile；不测试连接' : '请先在 Gateway host 配置凭据引用'} onClick={() => onActivate(connection.providerId)}>{pending ? '处理中…' : '启用 Profile'}</button>}
+              {connection.profileStatus === 'active' && <button type="button" disabled={!canProbe || pending} title={canProbe ? '显式发起一次只读模型目录探测' : 'Gateway 当前未发现凭据'} onClick={() => onProbe(connection.providerId)}>{pending ? '诊断中…' : '测试连接'}</button>}
+              {(connection.profileStatus === 'disabled' || connection.profileStatus === 'revoked') && <span className="provider-connection-locked">此 Profile 已被显式限制，不能由 Workbench 重新启用。</span>}
+            </div>
+          </article>
+        );
+      })}
+      <p className="provider-connection-note">登记与启用均不会自动发送模型请求；“测试连接”只在你点击后对已启用供应商执行一次受限模型目录探测。此面板不能读取密钥，也不能扩大任务的数据边界。</p>
+    </section>
+  );
+}

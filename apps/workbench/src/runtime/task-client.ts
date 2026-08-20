@@ -57,6 +57,31 @@ export interface WorkbenchLocalModelHealth {
   }>;
 }
 
+/** 供应商连接 DTO 故意没有 endpoint、API key、token、错误正文或模型输入。 */
+export interface WorkbenchProviderConnection {
+  schemaVersion: 1;
+  providerId: string;
+  displayName: string;
+  driverId: string;
+  defaultModel: string;
+  credentialReference: string;
+  credentialAvailability: 'available' | 'missing' | 'unsupported-reference';
+  profileStatus: 'not-registered' | 'registered' | 'active' | 'disabled' | 'revoked';
+  profileRevision?: number;
+  canReadSecret: false;
+  canAutoConnect: false;
+}
+
+export interface WorkbenchProviderConnectionProbe {
+  schemaVersion: 1;
+  providerId: string;
+  outcome: 'reachable' | 'missing-credential' | 'not-registered' | 'not-active' | 'rejected' | 'unreachable';
+  checkedAt: number;
+  latencyMs?: number;
+  canReadSecret: false;
+  canAutoConnect: false;
+}
+
 export interface WorkbenchControlPlaneDiagnostics {
   schemaVersion: 1;
   generatedAt: number;
@@ -209,6 +234,10 @@ export interface WorkbenchTaskClient {
   events(taskId: string, runId: string): Promise<readonly TaskEvent[]>;
   trajectory(taskId: string, runId: string): Promise<readonly WorkbenchRunTrajectoryEvent[]>;
   localModelHealth(): Promise<readonly WorkbenchLocalModelHealth[]>;
+  providerConnections(): Promise<readonly WorkbenchProviderConnection[]>;
+  registerProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection>;
+  activateProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection>;
+  probeProviderConnection(providerId: string): Promise<WorkbenchProviderConnectionProbe>;
   controlPlaneDiagnostics(): Promise<WorkbenchControlPlaneDiagnostics>;
   securityPostureAudit(): Promise<WorkbenchSecurityPostureReport>;
   componentLockReport(): Promise<WorkbenchComponentLockReport>;
@@ -231,6 +260,34 @@ function assertLocalModelHealth(value: unknown): asserts value is WorkbenchLocal
     || (health.probeMethod !== undefined && health.probeMethod !== 'HEAD' && health.probeMethod !== 'GET')
     || (health.error !== undefined && typeof health.error !== 'string')
   ) throw new Error('本地模型健康摘要返回了不兼容的 metadata contract');
+}
+
+function assertProviderConnection(value: unknown): asserts value is WorkbenchProviderConnection {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('供应商连接摘要无效');
+  const item = value as Record<string, unknown>;
+  if (
+    Object.keys(item).some((key) => !['schemaVersion', 'providerId', 'displayName', 'driverId', 'defaultModel', 'credentialReference', 'credentialAvailability', 'profileStatus', 'profileRevision', 'canReadSecret', 'canAutoConnect'].includes(key))
+    || item.schemaVersion !== 1 || typeof item.providerId !== 'string' || !/^[a-z][a-z0-9-]{1,63}$/.test(item.providerId)
+    || typeof item.displayName !== 'string' || typeof item.driverId !== 'string' || typeof item.defaultModel !== 'string'
+    || typeof item.credentialReference !== 'string' || !/^env\.[a-z][a-z0-9-]{1,63}$/.test(item.credentialReference)
+    || !['available', 'missing', 'unsupported-reference'].includes(String(item.credentialAvailability))
+    || !['not-registered', 'registered', 'active', 'disabled', 'revoked'].includes(String(item.profileStatus))
+    || (item.profileRevision !== undefined && (!Number.isSafeInteger(item.profileRevision) || (item.profileRevision as number) < 1))
+    || item.canReadSecret !== false || item.canAutoConnect !== false
+  ) throw new Error('供应商连接摘要包含未声明、敏感或可自动连接字段');
+}
+
+function assertProviderConnectionProbe(value: unknown): asserts value is WorkbenchProviderConnectionProbe {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('供应商连接探测摘要无效');
+  const item = value as Record<string, unknown>;
+  if (
+    Object.keys(item).some((key) => !['schemaVersion', 'providerId', 'outcome', 'checkedAt', 'latencyMs', 'canReadSecret', 'canAutoConnect'].includes(key))
+    || item.schemaVersion !== 1 || typeof item.providerId !== 'string' || !/^[a-z][a-z0-9-]{1,63}$/.test(item.providerId)
+    || !['reachable', 'missing-credential', 'not-registered', 'not-active', 'rejected', 'unreachable'].includes(String(item.outcome))
+    || !Number.isSafeInteger(item.checkedAt) || (item.checkedAt as number) < 0
+    || (item.latencyMs !== undefined && (!Number.isSafeInteger(item.latencyMs) || (item.latencyMs as number) < 0))
+    || item.canReadSecret !== false || item.canAutoConnect !== false
+  ) throw new Error('供应商连接探测包含未声明、敏感或可自动连接字段');
 }
 
 function isSafeMetadataArray(value: unknown): value is readonly Record<string, unknown>[] {
@@ -469,6 +526,7 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     private readonly componentManagementReportUrl = '/api/components/management-receipts',
     private readonly nativeHostAuthenticationReportUrl = '/api/native-host-authentication',
     private readonly windowsNativeReleaseReportUrl = '/api/windows/native-release-evidence',
+    private readonly providerConnectionsUrl = '/api/providers/connections',
   ) {}
 
   async submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot> {
@@ -529,6 +587,33 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     return [...payload].sort((left, right) => left.id.localeCompare(right.id));
   }
 
+  async providerConnections(): Promise<readonly WorkbenchProviderConnection[]> {
+    const response = await fetch(this.providerConnectionsUrl, { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(await response.text() || `供应商连接读取失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    if (!Array.isArray(payload)) throw new Error('供应商连接返回了无效列表');
+    payload.forEach(assertProviderConnection);
+    return [...payload].sort((left, right) => left.displayName.localeCompare(right.displayName) || left.providerId.localeCompare(right.providerId));
+  }
+
+  async registerProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection> {
+    return this.providerConnectionMutation(providerId, 'register', reviewedBy, note);
+  }
+
+  async activateProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection> {
+    return this.providerConnectionMutation(providerId, 'activate', reviewedBy, note);
+  }
+
+  async probeProviderConnection(providerId: string): Promise<WorkbenchProviderConnectionProbe> {
+    const response = await fetch(`${this.providerConnectionsUrl}/${encodeURIComponent(providerId)}/probe`, {
+      method: 'POST', headers: { accept: 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' },
+    });
+    if (!response.ok) throw new Error(await response.text() || `供应商连接探测失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertProviderConnectionProbe(payload);
+    return payload;
+  }
+
   async controlPlaneDiagnostics(): Promise<WorkbenchControlPlaneDiagnostics> {
     const response = await fetch(this.controlPlaneDiagnosticUrl, { headers: { accept: 'application/json' } });
     if (!response.ok) throw new Error(await response.text() || `控制面诊断请求失败 (${response.status})`);
@@ -585,6 +670,19 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     if (!response.ok) throw new Error(await response.text() || `任务服务请求失败 (${response.status})`);
     const payload: unknown = await response.json();
     assertSnapshot(payload);
+    return payload;
+  }
+
+  private async providerConnectionMutation(providerId: string, operation: 'register' | 'activate', reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection> {
+    if (!/^[a-z][a-z0-9-]{1,63}$/.test(providerId) || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(reviewedBy)) throw new Error('供应商或审核人标识无效');
+    const response = await fetch(`${this.providerConnectionsUrl}/${encodeURIComponent(providerId)}/${operation}`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1', 'idempotency-key': createIdempotencyKey(`provider-${operation}`) },
+      body: JSON.stringify({ reviewedBy, ...(note?.trim() ? { note: note.trim() } : {}) }),
+    });
+    if (!response.ok) throw new Error(await response.text() || `供应商连接${operation}失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertProviderConnection(payload);
     return payload;
   }
 

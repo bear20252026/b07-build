@@ -1,0 +1,60 @@
+import { readJsonBody, sendJson } from '../boundary.js';
+import type { GatewayRoute } from '../route-contract.js';
+
+function isOperatorRequest(request: { headers: { [key: string]: string | string[] | undefined } }): boolean {
+  return request.headers['x-awo-operator-intent'] === 'provider-connection-v1';
+}
+
+function readReview(body: unknown): { reviewedBy: string; note?: string } | undefined {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
+  const candidate = body as Record<string, unknown>;
+  if (Object.keys(candidate).some((key) => key !== 'reviewedBy' && key !== 'note')) return undefined;
+  if (typeof candidate.reviewedBy !== 'string' || (candidate.note !== undefined && typeof candidate.note !== 'string')) return undefined;
+  return { reviewedBy: candidate.reviewedBy, note: candidate.note as string | undefined };
+}
+
+/**
+ * Provider connection 管道：Profile metadata 与 credential availability 的显式控制面。
+ * 它不读取运行时环境配置，不接收密钥、token、URL 或模型请求正文；远程探测也只能由带有
+ * operator-intent header 的显式 POST 发起，且服务只返回脱敏 outcome。
+ */
+export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, response, url, segments, dependencies }) => {
+  if (request.method === 'GET' && url.pathname === '/api/providers/connections') {
+    sendJson(response, 200, dependencies.providerConnections.list());
+    return true;
+  }
+  if (segments[0] !== 'api' || segments[1] !== 'providers' || segments[2] !== 'connections' || !segments[3] || !segments[4] || segments.length !== 5) return false;
+  if (request.method !== 'POST' || !isOperatorRequest(request)) {
+    sendJson(response, request.method === 'POST' ? 403 : 404, { error: '供应商连接操作必须由本地操作者显式发起' });
+    return true;
+  }
+  const providerId = segments[3];
+  const operation = segments[4];
+  try {
+    if (operation === 'probe') {
+      if (request.headers['content-length'] && request.headers['content-length'] !== '0') {
+        sendJson(response, 400, { error: 'probe 不接受请求正文；不会接收密钥或模型输入' });
+        return true;
+      }
+      sendJson(response, 200, await dependencies.providerConnections.probe(providerId));
+      return true;
+    }
+    if (operation !== 'register' && operation !== 'activate') {
+      sendJson(response, 404, { error: '供应商连接操作必须是 register、activate 或 probe' });
+      return true;
+    }
+    const review = readReview(await readJsonBody(request));
+    if (!review) {
+      sendJson(response, 400, { error: '供应商连接变更只接受 reviewedBy 与可选 note；不得提交 API key、token 或 endpoint' });
+      return true;
+    }
+    const at = Date.now();
+    const status = operation === 'register'
+      ? dependencies.providerConnections.register({ providerId, ...review, at })
+      : dependencies.providerConnections.activate({ providerId, ...review, at });
+    sendJson(response, operation === 'register' ? 201 : 200, status);
+  } catch (error) {
+    sendJson(response, 400, { error: error instanceof Error ? error.message : '供应商连接操作无效' });
+  }
+  return true;
+};

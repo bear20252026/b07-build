@@ -46,7 +46,14 @@ import {
   SqliteSkillPackStore,
   SqliteWorkspaceKnowledgeStoreFactory,
 } from '@awo/knowledge-workflow';
-import { LocalModelHealthRegistry, ProviderProfileRegistry, SqliteProviderProfileStore } from '@awo/provider-sdk';
+import {
+  BUILT_IN_PROVIDER_CATALOG,
+  EnvironmentCredentialResolver,
+  LocalModelHealthRegistry,
+  ProviderConnectionService,
+  ProviderProfileRegistry,
+  SqliteProviderProfileStore,
+} from '@awo/provider-sdk';
 import type { GatewayDependencies } from './http/gateway-dependencies.js';
 import { createControlPlaneDiagnosticReport } from './control-plane-diagnostics.js';
 import { createGatewaySecurityPostureReport } from './security-posture-audit.js';
@@ -55,10 +62,8 @@ import { createGatewayComponentManagementReport } from './component-management-r
 import { createNativeHostAuthenticationComposition } from './native-host-authentication-composition.js';
 import { createWindowsNativeReleaseComposition } from './windows-native-release-composition.js';
 import { handleGatewayRequest } from './http/router.js';
-
 const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318);
 const DEFAULT_KNOWLEDGE_WORKSPACE_ID = 'default-local';
-
 const BASELINE_RULES: readonly CapabilityPolicyRule[] = [
   { capability: 'document.parse', decision: 'allow', reason: '本地任务模板允许文档解析' },
   { capability: 'model.chat', decision: 'allow', reason: '本地任务模板允许受控模型推理' },
@@ -68,11 +73,9 @@ const BASELINE_RULES: readonly CapabilityPolicyRule[] = [
   { capability: 'shell.execute', decision: 'require_approval', reason: 'Shell 执行必须经本地审批' },
   { capability: 'browser.control', decision: 'require_approval', reason: '浏览器控制必须经本地审批' },
 ];
-
 function runKey(taskId: string, runId: string): string {
   return `${taskId}:${runId}`;
 }
-
 function createTaskNodes(profileId: AgentProfileId): readonly DAGNode[] {
   const readOnly = [
     {
@@ -96,7 +99,6 @@ function createTaskNodes(profileId: AgentProfileId): readonly DAGNode[] {
     },
   ];
 }
-
 /** 仅由已完成平台进程/二进制身份验证的 native adapter 持有；不传入 HTTP router 或 renderer。 */
 export interface GatewayNativeHostPort { readonly componentManagement: AuthenticatedNativeComponentManagementBridge; readonly releaseEvidence: import('@awo/agent-runtime').WindowsNativeHostReleaseEvidenceLedger; }
 export interface GatewayComposition { readonly dependencies: GatewayDependencies; readonly nativeHost: GatewayNativeHostPort; close(): void; }
@@ -123,7 +125,6 @@ export function createGatewayComposition(): GatewayComposition {
   const componentProvenancePath = resolve(process.env.AWO_COMPONENT_PROVENANCE_DB ?? '.awo/component-provenance.sqlite');
   const componentLockfilePath = resolve(process.env.AWO_COMPONENT_LOCKFILE_DB ?? '.awo/component-lockfile.sqlite');
   const componentManagementReceiptPath = resolve(process.env.AWO_COMPONENT_MANAGEMENT_RECEIPT_DB ?? '.awo/component-management-receipts.sqlite');
-
   const store = new SqliteTaskSnapshotStore(snapshotPath);
   const knowledgeWorkspaceStore = new SqliteKnowledgeWorkspaceStore(knowledgeWorkspacePath);
   const knowledgeStoreFactory = new SqliteWorkspaceKnowledgeStoreFactory(knowledgeWorkspaceDir);
@@ -138,6 +139,9 @@ export function createGatewayComposition(): GatewayComposition {
   const extensionPlanStore = new SqliteExtensionPlanStore(extensionPlanPath);
   const providerProfileStore = new SqliteProviderProfileStore(providerProfilePath);
   const providerProfiles = new ProviderProfileRegistry(providerProfileStore);
+  // 仅 composition root 允许从本机 Gateway 进程环境取得凭据；route、Profile SQLite 与 WebView 均不可见。
+  const providerCredentials = new EnvironmentCredentialResolver((name) => process.env[name]);
+  const providerConnections = new ProviderConnectionService(BUILT_IN_PROVIDER_CATALOG, providerProfiles, providerCredentials);
   const localModelHealth = new LocalModelHealthRegistry();
   const skillPackStore = new SqliteSkillPackStore(skillPackPath);
   const skillPacks = new SkillPackRegistry(skillPackStore);
@@ -167,7 +171,6 @@ export function createGatewayComposition(): GatewayComposition {
     componentManagement,
   });
   const windowsNativeRelease = createWindowsNativeReleaseComposition(resolve(process.env.AWO_WINDOWS_NATIVE_RELEASE_EVIDENCE_DB ?? '.awo/windows-native-release-evidence.sqlite'));
-
   if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
     knowledgeWorkspaces.create({
       id: DEFAULT_KNOWLEDGE_WORKSPACE_ID,
@@ -176,7 +179,6 @@ export function createGatewayComposition(): GatewayComposition {
       at: Date.now(),
     });
   }
-
   const runtime = new LocalTaskRuntimeService(store);
   const requests = new Map<string, TaskRuntimeRequest>();
   const eventsByRun = new Map<string, TaskEvent[]>();
@@ -188,11 +190,9 @@ export function createGatewayComposition(): GatewayComposition {
     createGatewayExtensionProvenanceLockGuard(componentProvenances, componentLockfiles),
   );
   const extensionDoctor = new ExtensionDoctor(extensionRegistry);
-
   function createEvent(type: TaskEvent['type'], taskId: string, runId: string, payload: Record<string, unknown>): TaskEvent {
     return { protocolVersion: '1.0', eventId: `gateway:${runId}:${type}:${randomUUID()}`, taskId, runId, at: Date.now(), type, ...payload } as TaskEvent;
   }
-
   function createTaskRequest(
     goal: string,
     profileId: AgentProfileId,
@@ -236,7 +236,6 @@ export function createGatewayComposition(): GatewayComposition {
     eventsByRun.set(runKey(taskId, runId), events);
     return request;
   }
-
   let closed = false;
   const closeResources = (): void => {
     if (closed) return;
@@ -276,11 +275,10 @@ export function createGatewayComposition(): GatewayComposition {
     }
     if (closeFailure) throw closeFailure;
   };
-
   return {
     dependencies: {
       runtime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
-      extensionActivationPlanner, extensionDoctor, providerProfiles, localModelHealth, knowledgeWorkspaces, skillPacks,
+      extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, localModelHealth, knowledgeWorkspaces, skillPacks,
       agentAdapters, schedules, runTrajectory, administratorLeases, trustedDesktopIssuers,
       controlPlaneDiagnostics: () => createControlPlaneDiagnosticReport({
         extensions: extensionRegistry,
@@ -314,13 +312,11 @@ export function createGatewayComposition(): GatewayComposition {
     close: closeResources,
   };
 }
-
 export interface LocalGatewayApplication {
   /** 仅在绑定 loopback port 后 resolve；对外不暴露 server、socket 或执行能力。 */
   readonly ready: Promise<number>;
   close(): void;
 }
-
 /** 进程无关的 HTTP host：组合根只在启动时创建，信号处理仍由 main.ts 单独负责。 */
 export function startLocalGateway(port = PORT): LocalGatewayApplication {
   const composition = createGatewayComposition();

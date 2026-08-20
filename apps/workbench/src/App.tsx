@@ -7,6 +7,7 @@ import { ComponentLockBoard } from './components/observability/ComponentLockBoar
 import { ComponentManagementReceiptBoard } from './components/observability/ComponentManagementReceiptBoard';
 import { ExtensionCenter } from './components/observability/ExtensionCenter';
 import { LocalModelHealthBoard } from './components/observability/LocalModelHealthBoard';
+import { ProviderConnectionCenter } from './components/observability/ProviderConnectionCenter';
 import { NativeHostAuthenticationBoard } from './components/observability/NativeHostAuthenticationBoard';
 import { WindowsNativeReleaseBoard } from './components/observability/WindowsNativeReleaseBoard';
 import { SecurityPostureAuditBoard } from './components/observability/SecurityPostureAuditBoard';
@@ -21,6 +22,8 @@ import {
   type WorkbenchComponentManagementReport,
   type WorkbenchControlPlaneDiagnostics,
   type WorkbenchLocalModelHealth,
+  type WorkbenchProviderConnection,
+  type WorkbenchProviderConnectionProbe,
   type WorkbenchNativeHostAuthenticationReport,
   type WorkbenchWindowsNativeReleaseReport,
   type WorkbenchTaskSnapshot,
@@ -86,6 +89,10 @@ export function App() {
   const [trajectory, setTrajectory] = useState<readonly WorkbenchRunTrajectoryEvent[]>([]);
   const [localModels, setLocalModels] = useState<readonly WorkbenchLocalModelHealth[]>();
   const [localModelError, setLocalModelError] = useState<string>();
+  const [providerConnections, setProviderConnections] = useState<readonly WorkbenchProviderConnection[]>();
+  const [providerConnectionProbes, setProviderConnectionProbes] = useState<Readonly<Record<string, WorkbenchProviderConnectionProbe | undefined>>>({});
+  const [providerConnectionError, setProviderConnectionError] = useState<string>();
+  const [pendingProviderId, setPendingProviderId] = useState<string>();
   const [controlPlaneDiagnostics, setControlPlaneDiagnostics] = useState<WorkbenchControlPlaneDiagnostics>();
   const [controlPlaneDiagnosticError, setControlPlaneDiagnosticError] = useState<string>();
   const [securityPostureAudit, setSecurityPostureAudit] = useState<WorkbenchSecurityPostureReport>();
@@ -118,6 +125,9 @@ export function App() {
     void taskClient.localModelHealth()
       .then((models) => { if (!disposed) setLocalModels(models); })
       .catch((error: unknown) => { if (!disposed) setLocalModelError(error instanceof Error ? error.message : 'Local model health unavailable'); });
+    void taskClient.providerConnections()
+      .then((connections) => { if (!disposed) setProviderConnections(connections); })
+      .catch((error: unknown) => { if (!disposed) setProviderConnectionError(error instanceof Error ? error.message : 'Provider connections unavailable'); });
     void taskClient.controlPlaneDiagnostics()
       .then((report) => { if (!disposed) setControlPlaneDiagnostics(report); })
       .catch((error: unknown) => { if (!disposed) setControlPlaneDiagnosticError(error instanceof Error ? error.message : 'Control plane diagnostics unavailable'); });
@@ -138,6 +148,40 @@ export function App() {
       .catch((error: unknown) => { if (!disposed) setWindowsNativeReleaseReportError(error instanceof Error ? error.message : 'Windows native release report unavailable'); });
     return () => { disposed = true; };
   }, []);
+
+  const refreshProviderConnections = (): void => {
+    setProviderConnectionError(undefined);
+    void taskClient.providerConnections()
+      .then((connections) => setProviderConnections(connections))
+      .catch((error: unknown) => setProviderConnectionError(error instanceof Error ? error.message : 'Provider connections unavailable'));
+  };
+
+  const registerProviderConnection = (providerId: string): void => {
+    setPendingProviderId(providerId);
+    setProviderConnectionError(undefined);
+    void taskClient.registerProviderConnection(providerId, 'desktop-owner', 'Workbench explicit registration.')
+      .then((connection) => { setProviderConnections((current) => (current ?? []).map((item) => item.providerId === providerId ? connection : item)); })
+      .catch((error: unknown) => setProviderConnectionError(error instanceof Error ? error.message : 'Provider registration failed'))
+      .finally(() => setPendingProviderId(undefined));
+  };
+
+  const activateProviderConnection = (providerId: string): void => {
+    setPendingProviderId(providerId);
+    setProviderConnectionError(undefined);
+    void taskClient.activateProviderConnection(providerId, 'desktop-owner', 'Workbench explicit activation; no automatic model call.')
+      .then((connection) => { setProviderConnections((current) => (current ?? []).map((item) => item.providerId === providerId ? connection : item)); })
+      .catch((error: unknown) => setProviderConnectionError(error instanceof Error ? error.message : 'Provider activation failed'))
+      .finally(() => setPendingProviderId(undefined));
+  };
+
+  const probeProviderConnection = (providerId: string): void => {
+    setPendingProviderId(providerId);
+    setProviderConnectionError(undefined);
+    void taskClient.probeProviderConnection(providerId)
+      .then((probe) => setProviderConnectionProbes((current) => ({ ...current, [providerId]: probe })))
+      .catch((error: unknown) => setProviderConnectionError(error instanceof Error ? error.message : 'Provider probe failed'))
+      .finally(() => setPendingProviderId(undefined));
+  };
 
   const hydrate = async (nextSnapshot: WorkbenchTaskSnapshot): Promise<void> => {
     const [nextEvents, nextTrajectory] = await Promise.all([
@@ -270,6 +314,16 @@ export function App() {
             <NativeHostAuthenticationBoard error={nativeHostAuthenticationReportError} messages={messages} report={nativeHostAuthenticationReport} />
             <WindowsNativeReleaseBoard error={windowsNativeReleaseReportError} messages={messages} report={windowsNativeReleaseReport} />
             <LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} />
+            <ProviderConnectionCenter
+              connections={providerConnections}
+              error={providerConnectionError}
+              onActivate={activateProviderConnection}
+              onProbe={probeProviderConnection}
+              onRefresh={refreshProviderConnections}
+              onRegister={registerProviderConnection}
+              pendingProviderId={pendingProviderId}
+              probes={providerConnectionProbes}
+            />
             <ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} />
             <section className="event-section">
               <div className="section-heading">

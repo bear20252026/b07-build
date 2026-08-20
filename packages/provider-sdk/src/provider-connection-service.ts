@@ -1,0 +1,161 @@
+import type { CredentialResolver } from './credential-resolver.js';
+import type { ProviderCatalog, ProviderCatalogEntry } from './provider-catalog.js';
+import type { ProviderProfile, ProviderProfileRegistry, ProviderProfileStatus } from './provider-profile.js';
+
+export type ProviderConnectionProfileStatus = ProviderProfileStatus | 'not-registered';
+export type ProviderConnectionProbeOutcome = 'reachable' | 'missing-credential' | 'not-registered' | 'not-active' | 'rejected' | 'unreachable';
+
+export interface ProviderConnectionStatus {
+  schemaVersion: 1;
+  providerId: string;
+  displayName: string;
+  driverId: string;
+  defaultModel: string;
+  credentialReference: string;
+  credentialAvailability: 'available' | 'missing' | 'unsupported-reference';
+  profileStatus: ProviderConnectionProfileStatus;
+  profileRevision?: number;
+  canReadSecret: false;
+  canAutoConnect: false;
+}
+
+export interface ProviderConnectionProbeResult {
+  schemaVersion: 1;
+  providerId: string;
+  outcome: ProviderConnectionProbeOutcome;
+  checkedAt: number;
+  latencyMs?: number;
+  canReadSecret: false;
+  canAutoConnect: false;
+}
+
+export interface RegisterCatalogProviderRequest {
+  providerId: string;
+  reviewedBy: string;
+  note?: string;
+  at: number;
+}
+
+export interface ActivateCatalogProviderRequest {
+  providerId: string;
+  reviewedBy: string;
+  note?: string;
+  at: number;
+}
+
+const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+function profileId(provider: ProviderCatalogEntry): string {
+  return `provider.${provider.id}`;
+}
+
+function requireReview(value: string): string {
+  if (!IDENTIFIER.test(value)) throw new Error('reviewedBy 必须是安全标识符');
+  return value;
+}
+
+function statusFor(provider: ProviderCatalogEntry, profile: ProviderProfile | undefined, resolver: CredentialResolver): ProviderConnectionStatus {
+  return {
+    schemaVersion: 1,
+    providerId: provider.id,
+    displayName: provider.displayName,
+    driverId: provider.driverId,
+    defaultModel: provider.defaultModel,
+    credentialReference: provider.credentialReference,
+    credentialAvailability: resolver.availability(provider.credentialReference).availability,
+    profileStatus: profile?.status ?? 'not-registered',
+    ...(profile ? { profileRevision: profile.revision } : {}),
+    canReadSecret: false,
+    canAutoConnect: false,
+  };
+}
+
+function probePath(provider: ProviderCatalogEntry): string {
+  if (provider.transport === 'anthropic-messages') return '/v1/models';
+  if (provider.id === 'google-gemini' || provider.id === 'deepseek') return '/models';
+  return '/v1/models';
+}
+
+function authHeaders(provider: ProviderCatalogEntry, apiKey: string): HeadersInit {
+  if (provider.transport === 'anthropic-messages') {
+    return { accept: 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': apiKey };
+  }
+  return { accept: 'application/json', authorization: `Bearer ${apiKey}` };
+}
+
+/**
+ * 连接控制面不执行推理任务。探测仅请求官方 model-list endpoint，且必须由操作者显式触发；
+ * 它不会持久化探测结果、不自动注册 profile、不自动激活 profile，也不会透露 endpoint 或 key。
+ */
+export class ProviderConnectionService {
+  constructor(
+    private readonly catalog: ProviderCatalog,
+    private readonly profiles: ProviderProfileRegistry,
+    private readonly credentials: CredentialResolver,
+    private readonly fetcher: typeof fetch = globalThis.fetch,
+    private readonly now: () => number = () => Date.now(),
+  ) {}
+
+  list(): readonly ProviderConnectionStatus[] {
+    return this.catalog.list().map((provider) => statusFor(provider, this.profiles.get(profileId(provider)), this.credentials));
+  }
+
+  register(request: RegisterCatalogProviderRequest): ProviderConnectionStatus {
+    const provider = this.requireProvider(request.providerId);
+    const existing = this.profiles.get(profileId(provider));
+    if (existing) throw new Error(`${provider.displayName} 已登记；请显式激活、停用、撤销或更新既有 Profile`);
+    this.profiles.register({
+      id: profileId(provider),
+      displayName: provider.displayName,
+      driverIds: [provider.driverId],
+      maximumDataBoundary: provider.maximumDataBoundary,
+      credentialReference: provider.credentialReference,
+      reviewedBy: requireReview(request.reviewedBy),
+      note: request.note ?? '由本地操作者显式登记的目录供应商；API key 不进入 Provider Profile。',
+      at: request.at,
+    });
+    return statusFor(provider, this.profiles.get(profileId(provider)), this.credentials);
+  }
+
+  activate(request: ActivateCatalogProviderRequest): ProviderConnectionStatus {
+    const provider = this.requireProvider(request.providerId);
+    const credential = this.credentials.availability(provider.credentialReference).availability;
+    if (credential !== 'available') throw new Error(`${provider.displayName} 缺少 Gateway host 的凭据引用；不会激活远程 Profile`);
+    const current = this.profiles.get(profileId(provider));
+    if (!current) throw new Error(`${provider.displayName} 尚未登记；必须先由操作者显式登记`);
+    if (current.status !== 'active') this.profiles.activate(profileId(provider), requireReview(request.reviewedBy), request.at, request.note);
+    return statusFor(provider, this.profiles.get(profileId(provider)), this.credentials);
+  }
+
+  async probe(providerId: string): Promise<ProviderConnectionProbeResult> {
+    const provider = this.requireProvider(providerId);
+    const checkedAt = this.now();
+    const profile = this.profiles.get(profileId(provider));
+    if (!profile) return { schemaVersion: 1, providerId, outcome: 'not-registered', checkedAt, canReadSecret: false, canAutoConnect: false };
+    if (profile.status !== 'active') return { schemaVersion: 1, providerId, outcome: 'not-active', checkedAt, canReadSecret: false, canAutoConnect: false };
+    const apiKey = this.credentials.resolve(provider.credentialReference);
+    if (!apiKey) return { schemaVersion: 1, providerId, outcome: 'missing-credential', checkedAt, canReadSecret: false, canAutoConnect: false };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8_000);
+    const startedAt = this.now();
+    try {
+      const response = await this.fetcher(`${provider.baseUrl.replace(/\/$/, '')}${probePath(provider)}`, {
+        method: 'GET', headers: authHeaders(provider, apiKey), signal: controller.signal,
+      });
+      const latencyMs = Math.max(0, this.now() - startedAt);
+      if (response.ok) return { schemaVersion: 1, providerId, outcome: 'reachable', checkedAt, latencyMs, canReadSecret: false, canAutoConnect: false };
+      return { schemaVersion: 1, providerId, outcome: 'rejected', checkedAt, latencyMs, canReadSecret: false, canAutoConnect: false };
+    } catch {
+      return { schemaVersion: 1, providerId, outcome: 'unreachable', checkedAt, latencyMs: Math.max(0, this.now() - startedAt), canReadSecret: false, canAutoConnect: false };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private requireProvider(providerId: string): ProviderCatalogEntry {
+    if (!/^[a-z][a-z0-9-]{1,63}$/.test(providerId)) throw new Error('providerId 无效');
+    const provider = this.catalog.get(providerId);
+    if (!provider) throw new Error('providerId 不在已审核目录中');
+    return provider;
+  }
+}
