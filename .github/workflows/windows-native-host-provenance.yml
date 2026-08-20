@@ -7,7 +7,7 @@ on:
       - 'v*'
 
 # The workflow needs only repository read access plus the OIDC and attestation permissions required
-# to bind the immutable ZIP to this GitHub Actions build. It never receives signing certificates.
+# to bind the immutable ZIP and Setup.exe to this GitHub Actions build. It never receives signing certificates.
 permissions:
   contents: read
   id-token: write
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   build-and-attest:
-    name: Build and attest Windows x64 candidate
+    name: Build and attest Windows x64 candidates
     runs-on: windows-latest
     steps:
       - name: Check out exact source revision
@@ -26,38 +26,63 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Build quarantined candidate package
+      - name: Install pinned Inno Setup compiler
+        shell: pwsh
+        run: choco install InnoSetup --version=6.7.1 --yes --no-progress --limit-output
+
+      - name: Build quarantined candidate ZIP and Setup.exe
         id: package
         shell: pwsh
         run: |
           $version = if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}'.TrimStart('v') } else { '0.1.0-dev.${{ github.run_number }}' }
           if ($version -notmatch '^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$') { throw "Unsupported candidate version: $version" }
-          & .\scripts\windows\build-release-candidate.ps1 -Version $version
-          if (-not $?) { throw 'Candidate packaging failed.' }
+          & .\scripts\windows\build-setup-candidate.ps1 -Version $version
+          if (-not $?) { throw 'Setup.exe candidate packaging failed.' }
+          $candidate = Get-ChildItem -LiteralPath .\artifacts\windows-x64 -Directory -Filter 'awo-native-host-helper-*-windows-x64' | Select-Object -First 1
           $archive = Get-ChildItem -LiteralPath .\artifacts\windows-x64 -File -Filter 'awo-native-host-helper-*-windows-x64.zip' | Select-Object -First 1
           $checksum = Get-ChildItem -LiteralPath .\artifacts\windows-x64 -File -Filter 'awo-native-host-helper-*-windows-x64.zip.SHA256SUMS.txt' | Select-Object -First 1
-          if ($null -eq $archive -or $null -eq $checksum) { throw 'Expected candidate ZIP or SHA-256 checksum was not generated.' }
+          $setupDirectory = Join-Path $PWD 'artifacts\windows-x64\setup'
+          $installer = Get-ChildItem -LiteralPath $setupDirectory -File -Filter 'AI-Work-OS-Native-Host-Helper-*-Installer.exe' | Select-Object -First 1
+          $setupManifest = Get-Item -LiteralPath (Join-Path $setupDirectory 'setup-manifest.json') -ErrorAction SilentlyContinue
+          $setupChecksum = Get-Item -LiteralPath (Join-Path $setupDirectory 'SHA256SUMS.txt') -ErrorAction SilentlyContinue
+          if ($null -eq $candidate -or $null -eq $archive -or $null -eq $checksum -or $null -eq $installer -or $null -eq $setupManifest -or $null -eq $setupChecksum) { throw 'Expected candidate ZIP or Setup.exe package outputs were not generated.' }
+          "candidate=$($candidate.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "archive=$($archive.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "checksum=$($checksum.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "installer=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "setup_manifest=$($setupManifest.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "setup_checksum=$($setupChecksum.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Verify extracted candidate remains quarantined
+      - name: Verify candidate ZIP remains quarantined
         shell: pwsh
         run: |
-          $candidate = Get-ChildItem -LiteralPath .\artifacts\windows-x64 -Directory -Filter 'awo-native-host-helper-*-windows-x64' | Select-Object -First 1
-          if ($null -eq $candidate) { throw 'Candidate directory was not generated.' }
-          & .\scripts\windows\VERIFY-CANDIDATE.ps1 -CandidateDirectory $candidate.FullName
-          if (-not $?) { throw 'Candidate verification failed.' }
+          & .\scripts\windows\VERIFY-CANDIDATE.ps1 -CandidateDirectory '${{ steps.package.outputs.candidate }}'
+          if (-not $?) { throw 'Candidate ZIP verification failed.' }
 
-      - name: Upload candidate package and checksum
+      - name: Verify Setup.exe is manually installable only
+        shell: pwsh
+        run: |
+          & .\scripts\windows\VERIFY-SETUP-CANDIDATE.ps1 -SetupDirectory (Split-Path -Parent '${{ steps.package.outputs.installer }}')
+          if (-not $?) { throw 'Setup.exe candidate verification failed.' }
+
+      - name: Upload candidate ZIP and Setup.exe package
         uses: actions/upload-artifact@v4
         with:
-          name: awo-native-host-helper-windows-x64-candidate
+          name: awo-native-host-helper-windows-x64-candidates
           if-no-files-found: error
           path: |
             ${{ steps.package.outputs.archive }}
             ${{ steps.package.outputs.checksum }}
+            ${{ steps.package.outputs.installer }}
+            ${{ steps.package.outputs.setup_manifest }}
+            ${{ steps.package.outputs.setup_checksum }}
 
       - name: Generate SLSA build provenance for candidate ZIP
         uses: actions/attest@v4
         with:
           subject-path: ${{ steps.package.outputs.archive }}
+
+      - name: Generate SLSA build provenance for Setup.exe
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.package.outputs.installer }}

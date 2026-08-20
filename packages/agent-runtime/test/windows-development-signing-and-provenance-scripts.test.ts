@@ -54,13 +54,17 @@ test('GitHub Windows provenance 工作流只构建候选包并生成 SLSA 来源
     'contents: read',
     'id-token: write',
     'attestations: write',
-    'build-release-candidate.ps1',
+    'build-setup-candidate.ps1',
     'VERIFY-CANDIDATE.ps1',
+    'VERIFY-SETUP-CANDIDATE.ps1',
+    'choco install InnoSetup --version=6.7.1',
     'actions/upload-artifact@v4',
+    'name: awo-native-host-helper-windows-x64-candidates',
     'actions/attest@v4',
     'subject-path: ${{ steps.package.outputs.archive }}',
+    'subject-path: ${{ steps.package.outputs.installer }}',
   ]) assert.ok(provenanceWorkflow.includes(required), `来源证明工作流缺少约束：${required}`);
-  for (const forbidden of ['sign-development-copy.ps1', 'Set-AuthenticodeSignature', 'New-SelfSignedCertificate', 'Import-Certificate', 'Add-AppxPackage', 'gh release create']) {
+  for (const forbidden of ['sign-development-copy.ps1', 'Set-AuthenticodeSignature', 'New-SelfSignedCertificate', 'Import-Certificate', 'Add-AppxPackage', 'gh release create', 'Start-Process', '& $installer']) {
     assert.equal(provenanceWorkflow.includes(forbidden), false, `来源证明工作流不得包含签名/安装/发布副作用：${forbidden}`);
   }
 });
