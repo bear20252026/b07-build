@@ -22,6 +22,7 @@ import type { SecurityPostureReportV1 } from '@awo/agent-runtime';
 import type { GatewayComponentLockReportV1 } from '../component-lock-report.js';
 import type { GatewayComponentManagementReportV1 } from '../component-management-report.js';
 import type { GatewayNativeHostAuthenticationReportV1 } from '../native-host-authentication-report.js';
+import type { GatewayWindowsNativeReleaseReportV1 } from '../windows-native-release-report.js';
 
 /** Gateway route 使用的组合对象；只能由 composition root 创建并注入。 */
 export interface GatewayDependencies {
@@ -46,6 +47,8 @@ export interface GatewayDependencies {
   readonly securityPostureAudit: () => SecurityPostureReportV1;
   /** 仅投影脱敏认证摘要；HTTP router 不持有 challenge、envelope 或 component management mutation 端口。 */
   readonly nativeHostAuthenticationReport: () => GatewayNativeHostAuthenticationReportV1;
+  /** Windows-only 脱敏发布摘要；HTTP router 不持有 release evidence、expected digest 或 bridge trust mutation。 */
+  readonly windowsNativeReleaseReport: () => GatewayWindowsNativeReleaseReportV1;
   readonly componentManagementReport: () => GatewayComponentManagementReportV1;
   readonly componentLockReport: () => GatewayComponentLockReportV1;
   readonly defaultKnowledgeWorkspaceId: string;

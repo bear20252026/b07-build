@@ -99,6 +99,9 @@ export const catalog = {
     nativeHostAuthentication: {
       aria: '原生宿主认证摘要', eyebrow: 'NATIVE HOST AUTHENTICATION', title: '可信原生宿主认证桥', loading: '正在读取原生 bridge 的脱敏认证摘要…', empty: '尚无已登记的原生宿主 bridge。', count: (count: number) => `${count} 个原生宿主 bridge`, generatedAt: '生成时间', nonce: { issued: '待处理 nonce', verified: '已验证 nonce', rejected: '已拒绝 nonce' }, trusted: '受信', registered: '待验证', disabled: '已停用', revoked: '已撤销', browserDenied: '浏览器不能认证、签发 challenge、提交签名或推进构件管理。', note: '此卡片不暴露 caller origin、公钥、nonce、签名、challenge、payload digest 或 attestation。认证成功本身不安装、不加载、不激活构件。',
     },
+    windowsRelease: {
+      aria: 'Windows 原生发布证据', eyebrow: 'WINDOWS-ONLY RELEASE EVIDENCE', title: 'Windows 原生宿主发布证据', loading: '正在读取脱敏的 Windows 发布证据摘要…', empty: '尚无已记录的 Windows 发布证据。', count: (count: number) => `${count} 条 Windows 发布证据`, generatedAt: '生成时间', valid: 'Authenticode 有效', notSigned: '未签名', invalid: '签名无效', unknown: '签名未知', browserDenied: '浏览器不能采集 Windows 证据、运行 release gate、登记 bridge 或授予 trust。', note: '此卡片不暴露二进制摘要、签名者摘要、路径、证书、签名或发布期望。release-ready 仍不等同于 bridge 受信或构件激活。',
+    },
     authority: {
       selectLabel: '执行权限', selectAria: '选择本次任务的执行权限', mode: {
         plan: { label: '只计划', description: '只允许模型、文档和只读工作区检查；高影响能力会被拒绝。' },
@@ -208,6 +211,9 @@ export const catalog = {
     },
     nativeHostAuthentication: {
       aria: 'Native host authentication summary', eyebrow: 'NATIVE HOST AUTHENTICATION', title: 'Trusted native host authentication bridge', loading: 'Reading redacted native bridge authentication summary…', empty: 'No native host bridge is registered yet.', count: (count: number) => `${count} native host bridges`, generatedAt: 'Generated', nonce: { issued: 'Pending nonces', verified: 'Verified nonces', rejected: 'Rejected nonces' }, trusted: 'Trusted', registered: 'Pending trust', disabled: 'Disabled', revoked: 'Revoked', browserDenied: 'Browsers cannot authenticate, issue challenges, submit signatures, or advance component management.', note: 'This card never exposes caller origin, public keys, nonces, signatures, challenges, payload digests, or attestations. Authentication alone never installs, loads, or activates a component.',
+    },
+    windowsRelease: {
+      aria: 'Windows native release evidence', eyebrow: 'WINDOWS-ONLY RELEASE EVIDENCE', title: 'Windows native host release evidence', loading: 'Reading redacted Windows release evidence summary…', empty: 'No Windows release evidence is recorded yet.', count: (count: number) => `${count} Windows release evidence records`, generatedAt: 'Generated', valid: 'Authenticode valid', notSigned: 'Not signed', invalid: 'Signature invalid', unknown: 'Signature unknown', browserDenied: 'Browsers cannot capture Windows evidence, run the release gate, register a bridge, or grant trust.', note: 'This card never exposes binary digests, signer digests, paths, certificates, signatures, or release expectations. Release-ready still does not make a bridge trusted or activate a component.',
     },
     authority: {
       selectLabel: 'Execution authority', selectAria: 'Select execution authority for this task', mode: {

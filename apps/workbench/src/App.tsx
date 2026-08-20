@@ -8,6 +8,7 @@ import { ComponentManagementReceiptBoard } from './components/observability/Comp
 import { ExtensionCenter } from './components/observability/ExtensionCenter';
 import { LocalModelHealthBoard } from './components/observability/LocalModelHealthBoard';
 import { NativeHostAuthenticationBoard } from './components/observability/NativeHostAuthenticationBoard';
+import { WindowsNativeReleaseBoard } from './components/observability/WindowsNativeReleaseBoard';
 import { SecurityPostureAuditBoard } from './components/observability/SecurityPostureAuditBoard';
 import { TrajectoryBoard } from './components/observability/TrajectoryBoard';
 import { PreviewPanel } from './components/preview/PreviewPanel';
@@ -21,6 +22,7 @@ import {
   type WorkbenchControlPlaneDiagnostics,
   type WorkbenchLocalModelHealth,
   type WorkbenchNativeHostAuthenticationReport,
+  type WorkbenchWindowsNativeReleaseReport,
   type WorkbenchTaskSnapshot,
   type WorkbenchRunTrajectoryEvent,
   type WorkbenchSecurityPostureReport,
@@ -94,6 +96,8 @@ export function App() {
   const [componentManagementReportError, setComponentManagementReportError] = useState<string>();
   const [nativeHostAuthenticationReport, setNativeHostAuthenticationReport] = useState<WorkbenchNativeHostAuthenticationReport>();
   const [nativeHostAuthenticationReportError, setNativeHostAuthenticationReportError] = useState<string>();
+  const [windowsNativeReleaseReport, setWindowsNativeReleaseReport] = useState<WorkbenchWindowsNativeReleaseReport>();
+  const [windowsNativeReleaseReportError, setWindowsNativeReleaseReportError] = useState<string>();
   const [snapshot, setSnapshot] = useState<WorkbenchTaskSnapshot>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
@@ -129,6 +133,9 @@ export function App() {
     void taskClient.nativeHostAuthenticationReport()
       .then((report) => { if (!disposed) setNativeHostAuthenticationReport(report); })
       .catch((error: unknown) => { if (!disposed) setNativeHostAuthenticationReportError(error instanceof Error ? error.message : 'Native host authentication report unavailable'); });
+    void taskClient.windowsNativeReleaseReport()
+      .then((report) => { if (!disposed) setWindowsNativeReleaseReport(report); })
+      .catch((error: unknown) => { if (!disposed) setWindowsNativeReleaseReportError(error instanceof Error ? error.message : 'Windows native release report unavailable'); });
     return () => { disposed = true; };
   }, []);
 
@@ -261,6 +268,7 @@ export function App() {
             <ComponentLockBoard error={componentLockReportError} messages={messages} report={componentLockReport} />
             <ComponentManagementReceiptBoard error={componentManagementReportError} messages={messages} report={componentManagementReport} />
             <NativeHostAuthenticationBoard error={nativeHostAuthenticationReportError} messages={messages} report={nativeHostAuthenticationReport} />
+            <WindowsNativeReleaseBoard error={windowsNativeReleaseReportError} messages={messages} report={windowsNativeReleaseReport} />
             <LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} />
             <ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} />
             <section className="event-section">

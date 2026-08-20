@@ -202,6 +202,35 @@ test('Security Posture Audit 客户端只读取固定冷路径 report，并拒�
   }
 });
 
+test('Windows Native Release 客户端只读取固定冷路径摘要，并拒绝 digest、路径或 release gate 字段', async () => {
+  const originalFetch = globalThis.fetch;
+  let url = '';
+  const report = {
+    schemaVersion: 1, generatedAt: 2, platform: 'windows', windowsOnly: true, browserCanCaptureEvidence: false,
+    canRegisterBridge: false, canTrustBridge: false, canExecute: false,
+    evidences: [{
+      evidenceId: 'windows-evidence-1', platform: 'windows', architecture: 'x64', issuerId: 'desktop-host', bridgeId: 'windows-native-host',
+      helperId: 'awo-native-helper', protocolVersion: 'native-auth.v1', authenticodeStatus: 'valid', capturedAt: 1, canExecute: false, canAutoTrust: false,
+    }],
+  };
+  globalThis.fetch = (async (nextUrl) => { url = String(nextUrl); return Response.json(report); }) as typeof fetch;
+  try {
+    const value = await new HttpWorkbenchTaskClient().windowsNativeReleaseReport();
+    assert.equal(url, '/api/windows/native-release-evidence');
+    assert.equal(value.windowsOnly, true);
+    assert.equal(value.evidences[0].authenticodeStatus, 'valid');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = (async () => Response.json({ ...report, evidences: [{ ...report.evidences[0], binaryDigest: 'a'.repeat(64) }] })) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().windowsNativeReleaseReport(), /未声明、敏感或可执行/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('Native Host Authentication 客户端只读取固定冷路径摘要，并拒绝 origin、公钥或 nonce 等敏感字段', async () => {
   const originalFetch = globalThis.fetch;
   let url = '';

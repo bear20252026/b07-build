@@ -615,3 +615,63 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
   .native-host-auth-heading { display: block; }
   .native-host-auth-count { display: inline-block; margin-top: 0.42rem; }
 }
+
+/* P6.5 Windows-only release evidence：浏览器只能读脱敏状态，不能采集证据或改变 bridge trust。 */
+.windows-release-board {
+  margin-top: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  background: var(--panel);
+}
+
+.windows-release-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.windows-release-heading span,
+.windows-release-meta,
+.windows-release-note,
+.windows-release-boundary,
+.windows-release-empty {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.windows-release-heading h2 { margin: 0.18rem 0 0; font-size: 1rem; }
+.windows-release-count { color: var(--accent); font-weight: 650; white-space: nowrap; }
+.windows-release-meta { margin: 0.7rem 0 0.48rem; }
+.windows-release-evidences { display: grid; gap: 0.48rem; }
+
+.windows-release-evidence {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.72rem;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 0.58rem;
+}
+
+.windows-release-evidence.valid { border-left-color: var(--success); }
+.windows-release-evidence.not-signed { border-left-color: var(--warning); }
+.windows-release-evidence.invalid { border-left-color: var(--danger); }
+.windows-release-evidence.unknown { border-left-color: var(--accent); }
+.windows-release-evidence > div { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+.windows-release-evidence code { color: var(--text); font-size: 0.72rem; }
+.windows-release-evidence strong { color: var(--muted); font-size: 0.76rem; font-weight: 600; }
+.windows-release-evidence small { color: var(--muted); font-size: 0.74rem; line-height: 1.42; }
+.windows-release-status { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; }
+.windows-release-evidence.valid .windows-release-status { color: var(--success); }
+.windows-release-evidence.not-signed .windows-release-status { color: var(--warning); }
+.windows-release-evidence.invalid .windows-release-status { color: var(--danger); }
+.windows-release-evidence.unknown .windows-release-status { color: var(--accent); }
+.windows-release-note { margin: 0.78rem 0 0; line-height: 1.45; }
+.windows-release-boundary { margin: 0.34rem 0 0; font-weight: 650; }
+
+@media (max-width: 620px) {
+  .windows-release-heading { display: block; }
+  .windows-release-count { display: inline-block; margin-top: 0.42rem; }
+}

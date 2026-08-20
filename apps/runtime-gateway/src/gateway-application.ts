@@ -53,6 +53,7 @@ import { createGatewaySecurityPostureReport } from './security-posture-audit.js'
 import { createGatewayComponentLockReport, createGatewayExtensionProvenanceLockGuard } from './component-lock-report.js';
 import { createGatewayComponentManagementReport } from './component-management-report.js';
 import { createNativeHostAuthenticationComposition } from './native-host-authentication-composition.js';
+import { createWindowsNativeReleaseComposition } from './windows-native-release-composition.js';
 import { handleGatewayRequest } from './http/router.js';
 
 const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318);
@@ -97,13 +98,9 @@ function createTaskNodes(profileId: AgentProfileId): readonly DAGNode[] {
 }
 
 /** 仅由已完成平台进程/二进制身份验证的 native adapter 持有；不传入 HTTP router 或 renderer。 */
-export interface GatewayNativeHostPort { readonly componentManagement: AuthenticatedNativeComponentManagementBridge; }
+export interface GatewayNativeHostPort { readonly componentManagement: AuthenticatedNativeComponentManagementBridge; readonly releaseEvidence: import('@awo/agent-runtime').WindowsNativeHostReleaseEvidenceLedger; }
 export interface GatewayComposition { readonly dependencies: GatewayDependencies; readonly nativeHost: GatewayNativeHostPort; close(): void; }
-
-/**
- * 唯一 composition root：读取本地配置、创建具体 SQLite adapter、把它们注入领域控制面。
- * 模块导入本身不会打开数据库或注册默认工作区；只有明确调用本工厂才会分配资源。
- */
+/** 唯一 composition root：读取本地配置、创建 SQLite adapter 并注入领域控制面；模块导入不分配资源。 */
 export function createGatewayComposition(): GatewayComposition {
   const snapshotPath = resolve(process.env.AWO_SNAPSHOT_DB ?? '.awo/task-snapshots.sqlite');
   const knowledgeWorkspacePath = resolve(process.env.AWO_KNOWLEDGE_WORKSPACE_DB ?? '.awo/knowledge-workspaces.sqlite');
@@ -169,6 +166,7 @@ export function createGatewayComposition(): GatewayComposition {
     issuers: trustedDesktopIssuers,
     componentManagement,
   });
+  const windowsNativeRelease = createWindowsNativeReleaseComposition(resolve(process.env.AWO_WINDOWS_NATIVE_RELEASE_EVIDENCE_DB ?? '.awo/windows-native-release-evidence.sqlite'));
 
   if (!knowledgeWorkspaceStore.load(DEFAULT_KNOWLEDGE_WORKSPACE_ID)) {
     knowledgeWorkspaces.create({
@@ -266,6 +264,7 @@ export function createGatewayComposition(): GatewayComposition {
       () => componentLockfileStore.close(),
       () => componentManagementReceiptStore.close(),
       () => nativeHostAuthentication.close(),
+      () => windowsNativeRelease.close(),
     ];
     let closeFailure: unknown;
     for (const close of closers) {
@@ -292,6 +291,7 @@ export function createGatewayComposition(): GatewayComposition {
         trustedDesktopIssuers,
       }),
       nativeHostAuthenticationReport: () => nativeHostAuthentication.report(),
+      windowsNativeReleaseReport: () => windowsNativeRelease.report(),
       componentManagementReport: () => createGatewayComponentManagementReport(componentManagement),
       componentLockReport: () => createGatewayComponentLockReport({
         extensions: extensionRegistry,
@@ -310,7 +310,7 @@ export function createGatewayComposition(): GatewayComposition {
       defaultKnowledgeWorkspaceId: DEFAULT_KNOWLEDGE_WORKSPACE_ID,
       requests, eventsByRun, approvedActions, createTaskRequest, createEvent,
     },
-    nativeHost: nativeHostAuthentication.nativeHost,
+    nativeHost: { ...nativeHostAuthentication.nativeHost, ...windowsNativeRelease.nativeHost },
     close: closeResources,
   };
 }

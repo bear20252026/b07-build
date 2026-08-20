@@ -108,6 +108,32 @@ export interface WorkbenchComponentLockReport {
   canAutoRepair: false;
 }
 
+export interface WorkbenchWindowsNativeReleaseEvidenceStatus {
+  evidenceId: string;
+  platform: 'windows';
+  architecture: 'x64' | 'x86' | 'arm64' | 'unknown';
+  issuerId: string;
+  bridgeId: string;
+  helperId: string;
+  protocolVersion: string;
+  authenticodeStatus: 'valid' | 'not-signed' | 'invalid' | 'unknown';
+  capturedAt: number;
+  canExecute: false;
+  canAutoTrust: false;
+}
+
+export interface WorkbenchWindowsNativeReleaseReport {
+  schemaVersion: 1;
+  generatedAt: number;
+  platform: 'windows';
+  evidences: readonly WorkbenchWindowsNativeReleaseEvidenceStatus[];
+  windowsOnly: true;
+  browserCanCaptureEvidence: false;
+  canRegisterBridge: false;
+  canTrustBridge: false;
+  canExecute: false;
+}
+
 export interface WorkbenchNativeHostBridgeStatus {
   issuerId: string;
   bridgeId: string;
@@ -187,6 +213,7 @@ export interface WorkbenchTaskClient {
   componentLockReport(): Promise<WorkbenchComponentLockReport>;
   componentManagementReport(): Promise<WorkbenchComponentManagementReport>;
   nativeHostAuthenticationReport(): Promise<WorkbenchNativeHostAuthenticationReport>;
+  windowsNativeReleaseReport(): Promise<WorkbenchWindowsNativeReleaseReport>;
 }
 
 function assertLocalModelHealth(value: unknown): asserts value is WorkbenchLocalModelHealth {
@@ -296,6 +323,33 @@ function assertComponentLockReport(value: unknown): asserts value is WorkbenchCo
       || !Array.isArray(decision.reasons) || !decision.reasons.every((reason) => typeof reason === 'string' && allowedReasons.has(reason))
       || decision.canActivate !== false || decision.canAutoRepair !== false
     ) throw new Error('构件锁定决策包含未声明、敏感或可执行字段');
+  }
+}
+
+function assertWindowsNativeReleaseReport(value: unknown): asserts value is WorkbenchWindowsNativeReleaseReport {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Windows 发布证据摘要无效');
+  const report = value as Record<string, unknown>;
+  const architectures = new Set(['x64', 'x86', 'arm64', 'unknown']);
+  const statuses = new Set(['valid', 'not-signed', 'invalid', 'unknown']);
+  const isNonNegativeSafeInteger = (candidate: unknown): candidate is number => typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate >= 0;
+  if (
+    Object.keys(report).some((key) => !['schemaVersion', 'generatedAt', 'platform', 'evidences', 'windowsOnly', 'browserCanCaptureEvidence', 'canRegisterBridge', 'canTrustBridge', 'canExecute'].includes(key))
+    || report.schemaVersion !== 1 || !isNonNegativeSafeInteger(report.generatedAt) || report.platform !== 'windows' || !isSafeMetadataArray(report.evidences)
+    || report.windowsOnly !== true || report.browserCanCaptureEvidence !== false || report.canRegisterBridge !== false || report.canTrustBridge !== false || report.canExecute !== false
+  ) throw new Error('Windows 发布证据摘要返回了不兼容或可执行的 metadata contract');
+  for (const evidence of report.evidences) {
+    if (
+      Object.keys(evidence).some((key) => !['evidenceId', 'platform', 'architecture', 'issuerId', 'bridgeId', 'helperId', 'protocolVersion', 'authenticodeStatus', 'capturedAt', 'canExecute', 'canAutoTrust'].includes(key))
+      || typeof evidence.evidenceId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(evidence.evidenceId)
+      || evidence.platform !== 'windows'
+      || typeof evidence.architecture !== 'string' || !architectures.has(evidence.architecture)
+      || typeof evidence.issuerId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(evidence.issuerId)
+      || typeof evidence.bridgeId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(evidence.bridgeId)
+      || typeof evidence.helperId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(evidence.helperId)
+      || typeof evidence.protocolVersion !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(evidence.protocolVersion)
+      || typeof evidence.authenticodeStatus !== 'string' || !statuses.has(evidence.authenticodeStatus)
+      || !isNonNegativeSafeInteger(evidence.capturedAt) || evidence.canExecute !== false || evidence.canAutoTrust !== false
+    ) throw new Error('Windows 发布证据包含未声明、敏感或可执行字段');
   }
 }
 
@@ -413,6 +467,7 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     private readonly componentLockReportUrl = '/api/components/lock-report',
     private readonly componentManagementReportUrl = '/api/components/management-receipts',
     private readonly nativeHostAuthenticationReportUrl = '/api/native-host-authentication',
+    private readonly windowsNativeReleaseReportUrl = '/api/windows/native-release-evidence',
   ) {}
 
   async submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot> {
@@ -495,6 +550,14 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     const payload: unknown = await response.json();
     assertComponentLockReport(payload);
     return { ...payload, decisions: [...payload.decisions].sort((left, right) => left.componentId.localeCompare(right.componentId)) };
+  }
+
+  async windowsNativeReleaseReport(): Promise<WorkbenchWindowsNativeReleaseReport> {
+    const response = await fetch(this.windowsNativeReleaseReportUrl, { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(await response.text() || `Windows 发布证据摘要请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertWindowsNativeReleaseReport(payload);
+    return { ...payload, evidences: [...payload.evidences].sort((left, right) => right.capturedAt - left.capturedAt || left.evidenceId.localeCompare(right.evidenceId)) };
   }
 
   async nativeHostAuthenticationReport(): Promise<WorkbenchNativeHostAuthenticationReport> {

@@ -29,6 +29,7 @@ const DATABASE_VARIABLES = [
   'AWO_COMPONENT_MANAGEMENT_RECEIPT_DB',
   'AWO_NATIVE_HOST_BRIDGE_TRUST_DB',
   'AWO_NATIVE_HOST_CHALLENGE_DB',
+  'AWO_WINDOWS_NATIVE_RELEASE_EVIDENCE_DB',
 ] as const;
 
 async function withGateway<T>(run: (baseUrl: string) => Promise<T>): Promise<T> {
@@ -177,6 +178,20 @@ test('Gateway Native Host Authentication Report 仅投影脱敏 bridge/nonce 摘
     assert.equal(report.canExecute, false);
 
     const writeAttempt = await fetch(`${baseUrl}/api/native-host-authentication`, { method: 'POST', body: JSON.stringify({ nonce: 'a'.repeat(64), signatureBase64: 'forbidden' }) });
+    assert.equal(writeAttempt.status, 404);
+  });
+});
+
+test('Gateway Windows Native Release Report 仅投影脱敏 Windows evidence，普通 HTTP 无法采集、比对或信任 bridge', async () => {
+  await withGateway(async (baseUrl) => {
+    const reportResponse = await fetch(`${baseUrl}/api/windows/native-release-evidence`);
+    assert.equal(reportResponse.status, 200);
+    const report = await reportResponse.json() as { schemaVersion: number; platform: string; evidences: readonly unknown[]; windowsOnly: boolean; browserCanCaptureEvidence: boolean; canRegisterBridge: boolean; canTrustBridge: boolean; canExecute: boolean };
+    assert.equal(report.schemaVersion, 1);
+    assert.equal(report.platform, 'windows');
+    assert.deepEqual(report.evidences, []);
+    assert.deepEqual([report.windowsOnly, report.browserCanCaptureEvidence, report.canRegisterBridge, report.canTrustBridge, report.canExecute], [true, false, false, false, false]);
+    const writeAttempt = await fetch(`${baseUrl}/api/windows/native-release-evidence`, { method: 'POST', body: JSON.stringify({ helperPath: 'forbidden', authenticodeStatus: 'valid' }) });
     assert.equal(writeAttempt.status, 404);
   });
 });
