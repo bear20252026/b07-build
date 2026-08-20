@@ -43,6 +43,7 @@ import {
 import { LocalModelHealthRegistry, ProviderProfileRegistry, SqliteProviderProfileStore } from '@awo/provider-sdk';
 import type { GatewayDependencies } from './http/gateway-dependencies.js';
 import { createControlPlaneDiagnosticReport } from './control-plane-diagnostics.js';
+import { createGatewaySecurityPostureReport } from './security-posture-audit.js';
 import { handleGatewayRequest } from './http/router.js';
 
 const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318);
@@ -254,6 +255,13 @@ export function createGatewayComposition(): GatewayComposition {
         extensions: extensionRegistry,
         extensionDoctor,
         skillPacks,
+        providerProfiles,
+        localModels: localModelHealth,
+        trustedDesktopIssuers,
+      }),
+      securityPostureAudit: () => createGatewaySecurityPostureReport({
+        extensions: extensionRegistry,
+        extensionDoctor,
         providerProfiles,
         localModels: localModelHealth,
         trustedDesktopIssuers,

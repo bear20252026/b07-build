@@ -68,6 +68,27 @@ export interface WorkbenchControlPlaneDiagnostics {
   canExecute: false;
 }
 
+export interface WorkbenchSecurityFinding {
+  checkId: string;
+  severity: 'info' | 'warning';
+  subjectKind: 'runtime' | 'extension' | 'provider' | 'local-model' | 'trusted-desktop-issuer' | 'recovery' | 'resource-isolation';
+  subjectId: string;
+  evidenceDigest: string;
+  remediationHint: string;
+  canExecute: false;
+  canAutoRemediate: false;
+}
+
+export interface WorkbenchSecurityPostureReport {
+  schemaVersion: 1;
+  auditId: string;
+  auditedAt: number;
+  evidenceDigest: string;
+  findings: readonly WorkbenchSecurityFinding[];
+  canExecute: false;
+  canAutoRemediate: false;
+}
+
 export interface WorkbenchRunTrajectoryEvent {
   schemaVersion: 1;
   trajectoryEventId: string;
@@ -101,6 +122,7 @@ export interface WorkbenchTaskClient {
   trajectory(taskId: string, runId: string): Promise<readonly WorkbenchRunTrajectoryEvent[]>;
   localModelHealth(): Promise<readonly WorkbenchLocalModelHealth[]>;
   controlPlaneDiagnostics(): Promise<WorkbenchControlPlaneDiagnostics>;
+  securityPostureAudit(): Promise<WorkbenchSecurityPostureReport>;
 }
 
 function assertLocalModelHealth(value: unknown): asserts value is WorkbenchLocalModelHealth {
@@ -159,6 +181,28 @@ function assertControlPlaneDiagnostics(value: unknown): asserts value is Workben
   }
 }
 
+function assertSecurityPostureAudit(value: unknown): asserts value is WorkbenchSecurityPostureReport {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('安全态势审计报告无效');
+  const report = value as Record<string, unknown>;
+  if (
+    Object.keys(report).some((key) => !['schemaVersion', 'auditId', 'auditedAt', 'evidenceDigest', 'findings', 'canExecute', 'canAutoRemediate'].includes(key))
+    || report.schemaVersion !== 1 || typeof report.auditId !== 'string' || !/^audit:[a-f0-9]{64}$/.test(report.auditId)
+    || !Number.isSafeInteger(report.auditedAt) || typeof report.evidenceDigest !== 'string' || !/^[a-f0-9]{64}$/.test(report.evidenceDigest)
+    || report.canExecute !== false || report.canAutoRemediate !== false || !isSafeMetadataArray(report.findings)
+  ) throw new Error('安全态势审计报告返回了不兼容或可执行的 metadata contract');
+  for (const finding of report.findings) {
+    if (
+      Object.keys(finding).some((key) => !['checkId', 'severity', 'subjectKind', 'subjectId', 'evidenceDigest', 'remediationHint', 'canExecute', 'canAutoRemediate'].includes(key))
+      || typeof finding.checkId !== 'string' || !/^[a-z][a-z0-9.-]{2,127}$/.test(finding.checkId)
+      || !['info', 'warning'].includes(String(finding.severity))
+      || !['runtime', 'extension', 'provider', 'local-model', 'trusted-desktop-issuer', 'recovery', 'resource-isolation'].includes(String(finding.subjectKind))
+      || typeof finding.subjectId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(finding.subjectId)
+      || typeof finding.evidenceDigest !== 'string' || !/^[a-f0-9]{64}$/.test(finding.evidenceDigest)
+      || typeof finding.remediationHint !== 'string' || finding.canExecute !== false || finding.canAutoRemediate !== false
+    ) throw new Error('安全态势 finding 包含未声明、敏感或可执行字段');
+  }
+}
+
 function assertTrajectoryEvent(value: unknown): asserts value is WorkbenchRunTrajectoryEvent {
   if (!value || typeof value !== 'object') throw new Error('运行轨迹包含无效事件');
   const event = value as Partial<WorkbenchRunTrajectoryEvent>;
@@ -211,6 +255,7 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     private readonly baseUrl = '/api/tasks',
     private readonly localModelHealthUrl = '/api/local-models/health',
     private readonly controlPlaneDiagnosticUrl = '/api/control-plane/diagnostics',
+    private readonly securityPostureAuditUrl = '/api/security-posture/audit',
   ) {}
 
   async submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot> {
@@ -276,6 +321,14 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     if (!response.ok) throw new Error(await response.text() || `控制面诊断请求失败 (${response.status})`);
     const payload: unknown = await response.json();
     assertControlPlaneDiagnostics(payload);
+    return payload;
+  }
+
+  async securityPostureAudit(): Promise<WorkbenchSecurityPostureReport> {
+    const response = await fetch(this.securityPostureAuditUrl, { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(await response.text() || `安全态势审计请求失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertSecurityPostureAudit(payload);
     return payload;
   }
 

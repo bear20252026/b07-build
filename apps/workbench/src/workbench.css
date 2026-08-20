@@ -352,3 +352,70 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
   font-size: 0.7rem;
   line-height: 1.42;
 }
+
+/* P6.1 Security Posture Audit：冷路径审查投影，永不提供修复或授权动作。 */
+.security-audit-board {
+  margin-top: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: var(--panel);
+}
+
+.security-audit-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.security-audit-heading span,
+.security-audit-time,
+.security-audit-note,
+.security-audit-boundary,
+.security-audit-empty {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.security-audit-heading h2 {
+  margin: 0.18rem 0 0;
+  font-size: 1rem;
+}
+
+.security-audit-count {
+  white-space: nowrap;
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.security-audit-time { margin: 0.7rem 0; }
+
+.security-audit-findings {
+  display: grid;
+  gap: 0.48rem;
+}
+
+.security-audit-finding {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.72rem;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 0.58rem;
+}
+
+.security-audit-finding.info { border-left-color: var(--accent); }
+.security-audit-finding.warning { border-left-color: var(--warning); }
+.security-audit-finding > div { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+.security-audit-finding code { font-size: 0.72rem; color: var(--text); }
+.security-audit-finding strong { font-size: 0.76rem; color: var(--muted); font-weight: 600; }
+.security-audit-finding small { color: var(--muted); font-size: 0.74rem; line-height: 1.42; }
+.security-audit-severity { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; color: var(--warning); }
+.security-audit-note { margin: 0.78rem 0 0; line-height: 1.45; }
+.security-audit-boundary { margin: 0.34rem 0 0; font-weight: 650; }
+
+@media (max-width: 620px) {
+  .security-audit-heading { display: block; }
+  .security-audit-count { display: inline-block; margin-top: 0.42rem; }
+}

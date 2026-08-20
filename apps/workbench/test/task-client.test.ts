@@ -168,3 +168,36 @@ test('控制面诊断客户端只读取冷路径脱敏报告，并拒绝敏感�
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test('Security Posture Audit 客户端只读取固定冷路径 report，并拒绝修复或敏感字段', async () => {
+  const originalFetch = globalThis.fetch;
+  let url = '';
+  const report = {
+    schemaVersion: 1,
+    auditId: `audit:${'a'.repeat(64)}`,
+    auditedAt: 1,
+    evidenceDigest: 'a'.repeat(64),
+    findings: [{
+      checkId: 'recovery.drill-missing', severity: 'warning', subjectKind: 'recovery', subjectId: 'recovery-bundle', evidenceDigest: 'b'.repeat(64),
+      remediationHint: '由操作者执行恢复演练。', canExecute: false, canAutoRemediate: false,
+    }],
+    canExecute: false,
+    canAutoRemediate: false,
+  };
+  globalThis.fetch = (async (nextUrl) => { url = String(nextUrl); return Response.json(report); }) as typeof fetch;
+  try {
+    const value = await new HttpWorkbenchTaskClient().securityPostureAudit();
+    assert.equal(url, '/api/security-posture/audit');
+    assert.equal(value.findings[0].canExecute, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = (async () => Response.json({ ...report, findings: [{ ...report.findings[0], remediationCommand: 'run recovery' }] })) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().securityPostureAudit(), /未声明、敏感或可执行/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

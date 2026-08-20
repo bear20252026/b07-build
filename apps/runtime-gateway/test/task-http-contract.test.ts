@@ -141,3 +141,20 @@ test('Gateway 将 external provenance 绑定到快照、轨迹与幂等指纹，
     assert.equal(alteredReplay.status, 409);
   });
 });
+
+
+test('Gateway Security Posture Audit 只输出冷路径 finding，拒绝任何修复或控制方法', async () => {
+  await withGateway(async (baseUrl) => {
+    const audit = await fetch(`${baseUrl}/api/security-posture/audit`);
+    assert.equal(audit.status, 200);
+    const report = await audit.json() as { canExecute: boolean; canAutoRemediate: boolean; findings: readonly { checkId: string; canExecute: boolean; canAutoRemediate: boolean; evidenceDigest: string }[] };
+    assert.equal(report.canExecute, false);
+    assert.equal(report.canAutoRemediate, false);
+    assert.equal(report.findings.some((finding) => finding.checkId === 'providers.active-missing'), true);
+    assert.equal(report.findings.some((finding) => finding.checkId === 'recovery.drill-missing'), true);
+    assert.equal(report.findings.every((finding) => finding.canExecute === false && finding.canAutoRemediate === false && /^[a-f0-9]{64}$/.test(finding.evidenceDigest)), true);
+
+    const writeAttempt = await fetch(`${baseUrl}/api/security-posture/audit`, { method: 'POST', body: '{}' });
+    assert.equal(writeAttempt.status, 404);
+  });
+});

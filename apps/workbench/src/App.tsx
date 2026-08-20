@@ -5,6 +5,7 @@ import { ControlPlaneInsights } from './components/observability/ControlPlaneIns
 import { ControlPlaneDiagnosticsBoard } from './components/observability/ControlPlaneDiagnosticsBoard';
 import { ExtensionCenter } from './components/observability/ExtensionCenter';
 import { LocalModelHealthBoard } from './components/observability/LocalModelHealthBoard';
+import { SecurityPostureAuditBoard } from './components/observability/SecurityPostureAuditBoard';
 import { TrajectoryBoard } from './components/observability/TrajectoryBoard';
 import { PreviewPanel } from './components/preview/PreviewPanel';
 import { useLocale } from './i18n/LocaleProvider';
@@ -16,6 +17,7 @@ import {
   type WorkbenchLocalModelHealth,
   type WorkbenchTaskSnapshot,
   type WorkbenchRunTrajectoryEvent,
+  type WorkbenchSecurityPostureReport,
 } from './runtime/task-client';
 
 const taskClient = new HttpWorkbenchTaskClient();
@@ -78,6 +80,8 @@ export function App() {
   const [localModelError, setLocalModelError] = useState<string>();
   const [controlPlaneDiagnostics, setControlPlaneDiagnostics] = useState<WorkbenchControlPlaneDiagnostics>();
   const [controlPlaneDiagnosticError, setControlPlaneDiagnosticError] = useState<string>();
+  const [securityPostureAudit, setSecurityPostureAudit] = useState<WorkbenchSecurityPostureReport>();
+  const [securityPostureAuditError, setSecurityPostureAuditError] = useState<string>();
   const [snapshot, setSnapshot] = useState<WorkbenchTaskSnapshot>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
@@ -101,6 +105,9 @@ export function App() {
     void taskClient.controlPlaneDiagnostics()
       .then((report) => { if (!disposed) setControlPlaneDiagnostics(report); })
       .catch((error: unknown) => { if (!disposed) setControlPlaneDiagnosticError(error instanceof Error ? error.message : 'Control plane diagnostics unavailable'); });
+    void taskClient.securityPostureAudit()
+      .then((report) => { if (!disposed) setSecurityPostureAudit(report); })
+      .catch((error: unknown) => { if (!disposed) setSecurityPostureAuditError(error instanceof Error ? error.message : 'Security posture audit unavailable'); });
     return () => { disposed = true; };
   }, []);
 
@@ -229,6 +236,7 @@ export function App() {
             <ControlPlaneInsights events={events} snapshot={snapshot} />
             <TrajectoryBoard events={trajectory} messages={messages} />
             <ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} />
+            <SecurityPostureAuditBoard error={securityPostureAuditError} messages={messages} report={securityPostureAudit} />
             <LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} />
             <ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} />
             <section className="event-section">

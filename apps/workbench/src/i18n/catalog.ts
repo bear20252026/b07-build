@@ -87,6 +87,9 @@ export const catalog = {
     diagnostics: {
       aria: '控制面诊断', eyebrow: 'COLD-PATH CONTROL PLANE', title: '控制面诊断', loading: '正在读取受控组件 metadata…', empty: '当前没有已登记的插件、Provider 或可信桌面宿主。', extensions: '扩展', skillPacks: 'Skill Pack', providers: 'Provider', localModels: '本地模型', trustedIssuers: '可信桌面宿主', issuerRequired: '管理员租约需要可信桌面宿主', note: '此卡片只汇总已持久化的脱敏 metadata；不会加载插件、探测端点、签发租约、执行命令或读取凭据。', findings: (count: number) => `${count} 项诊断`, issuerCount: (count: number) => `${count} 个已登记宿主`,
     },
+    securityAudit: {
+      aria: '安全态势审计', eyebrow: 'READ-ONLY SECURITY POSTURE', title: '安全态势审计', loading: '正在读取本地审计 metadata…', empty: '当前冷路径审计没有发现需要提示的安全态势项。', findings: (count: number) => `${count} 项结构化 finding`, auditedAt: '审计时间', severity: { info: '信息', warning: '注意' }, note: '审计只汇总已存在的脱敏控制面证据；不会修复配置、探测端点、加载插件、运行恢复演练、签发租约或执行命令。', cannotRemediate: 'finding 仅供审查，不能自动修复或授权。',
+    },
     authority: {
       selectLabel: '执行权限', selectAria: '选择本次任务的执行权限', mode: {
         plan: { label: '只计划', description: '只允许模型、文档和只读工作区检查；高影响能力会被拒绝。' },
@@ -184,6 +187,9 @@ export const catalog = {
     },
     diagnostics: {
       aria: 'Control plane diagnostics', eyebrow: 'COLD-PATH CONTROL PLANE', title: 'Control plane diagnostics', loading: 'Reading controlled component metadata…', empty: 'No plugin, Provider, or trusted desktop host is registered yet.', extensions: 'Extensions', skillPacks: 'Skill Packs', providers: 'Providers', localModels: 'Local models', trustedIssuers: 'Trusted desktop hosts', issuerRequired: 'Administrator leases require a trusted desktop host', note: 'This card only aggregates persisted, redacted metadata. It cannot load plugins, probe endpoints, issue leases, run commands, or read credentials.', findings: (count: number) => `${count} findings`, issuerCount: (count: number) => `${count} registered hosts`,
+    },
+    securityAudit: {
+      aria: 'Security posture audit', eyebrow: 'READ-ONLY SECURITY POSTURE', title: 'Security posture audit', loading: 'Reading local audit metadata…', empty: 'This cold-path audit has no security posture finding to surface.', findings: (count: number) => `${count} structured findings`, auditedAt: 'Audited', severity: { info: 'Info', warning: 'Attention' }, note: 'The audit aggregates only existing, redacted control-plane evidence. It cannot fix configuration, probe endpoints, load plugins, run recovery drills, issue leases, or execute commands.', cannotRemediate: 'Findings are review-only; they cannot auto-remediate or grant authority.',
     },
     authority: {
       selectLabel: 'Execution authority', selectAria: 'Select execution authority for this task', mode: {

@@ -18,6 +18,7 @@ import type { KnowledgeWorkspaceService, SkillPackRegistry } from '@awo/knowledg
 import type { LocalModelHealthRegistry, ProviderProfileRegistry } from '@awo/provider-sdk';
 import type { InputProvenanceV1, TaskEvent } from '@awo/protocol';
 import type { ControlPlaneDiagnosticReportV1 } from '../control-plane-diagnostics.js';
+import type { SecurityPostureReportV1 } from '@awo/agent-runtime';
 
 /** Gateway route 使用的组合对象；只能由 composition root 创建并注入。 */
 export interface GatewayDependencies {
@@ -39,6 +40,7 @@ export interface GatewayDependencies {
   readonly administratorLeases: AdministratorAuthorityLedger;
   readonly trustedDesktopIssuers: TrustedDesktopIssuerRegistry;
   readonly controlPlaneDiagnostics: () => ControlPlaneDiagnosticReportV1;
+  readonly securityPostureAudit: () => SecurityPostureReportV1;
   readonly defaultKnowledgeWorkspaceId: string;
   readonly requests: Map<string, TaskRuntimeRequest>;
   readonly eventsByRun: Map<string, TaskEvent[]>;

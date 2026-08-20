@@ -8,6 +8,7 @@ import { handleExtensionRoutes } from './routes/extensions.js';
 import { handleKnowledgeRoutes } from './routes/knowledge.js';
 import { handleLocalModelRoutes } from './routes/local-models.js';
 import { handleScheduleRoutes } from './routes/schedules.js';
+import { handleSecurityPostureAuditRoutes } from './routes/security-posture-audit.js';
 import { handleSkillAndProviderRoutes } from './routes/skills-providers.js';
 import { handleTaskRoutes } from './routes/tasks.js';
 
@@ -17,6 +18,7 @@ import { handleTaskRoutes } from './routes/tasks.js';
  */
 const ROUTE_PIPELINE: readonly GatewayRoute[] = [
   handleControlPlaneDiagnosticRoutes,
+  handleSecurityPostureAuditRoutes,
   handleScheduleRoutes,
   handleAgentAdapterRoutes,
   handleLocalModelRoutes,

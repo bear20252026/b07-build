@@ -27,4 +27,6 @@ export * from './recovery-bundle.js';
 export * from './desktop-bridge.js';
 export * from './execution-authority.js';
 export * from './taint-policy.js';
+export * from './security-posture-audit.js';
+export * from './infrastructure/sqlite/security-posture-audit-store.js';
 export * from './trusted-desktop-issuer.js';
