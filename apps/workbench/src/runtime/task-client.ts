@@ -1,7 +1,15 @@
-import { isTaskEvent, type AgentProfileId, type ExecutionAuthorityMode, type TaskEvent } from '@awo/protocol';
+import { isTaskEvent, type AgentProfileId, type ExecutionAuthorityMode, type InputProvenanceV1, type TaskEvent } from '@awo/protocol';
 
 export type WorkbenchTaskStatus = 'created' | 'running' | 'blocked' | 'completed' | 'failed';
 export type WorkbenchNodeOutcome = 'ok' | 'failed' | 'blocked';
+
+export interface WorkbenchRecordedInputProvenance extends InputProvenanceV1 {}
+
+/** 浏览器只可提交外部/派生的 taint 摘要；可信输入由 Gateway 内部构造。 */
+export type WorkbenchExternalInputProvenance = Omit<InputProvenanceV1, 'trust' | 'sourceKind'> & {
+  trust: 'external-untrusted' | 'derived-untrusted';
+  sourceKind: 'web' | 'upload' | 'knowledge' | 'tool-output' | 'provider-output';
+};
 
 export interface WorkbenchTaskSnapshot {
   schemaVersion: 1;
@@ -9,6 +17,7 @@ export interface WorkbenchTaskSnapshot {
   runId: string;
   profileId: AgentProfileId;
   authorityMode?: ExecutionAuthorityMode;
+  inputProvenance?: readonly WorkbenchRecordedInputProvenance[];
   status: WorkbenchTaskStatus;
   nodeOutcomes: Readonly<Record<string, WorkbenchNodeOutcome>>;
   stats?: Readonly<{
@@ -29,6 +38,7 @@ export interface WorkbenchTaskIntent {
   goal: string;
   profileId: AgentProfileId;
   authorityMode: WorkbenchAuthorityMode;
+  inputProvenance?: readonly WorkbenchExternalInputProvenance[];
 }
 
 export interface WorkbenchLocalModelHealth {
@@ -157,10 +167,35 @@ function assertTrajectoryEvent(value: unknown): asserts value is WorkbenchRunTra
   }
 }
 
+function assertRecordedInputProvenance(value: unknown): asserts value is WorkbenchRecordedInputProvenance {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('输入 provenance 摘要无效');
+  const input = value as Partial<WorkbenchRecordedInputProvenance>;
+  if (
+    Object.keys(input).some((key) => !['schemaVersion', 'inputId', 'trust', 'sourceKind', 'contentDigest'].includes(key))
+    || input.schemaVersion !== 1 || typeof input.inputId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(input.inputId)
+    || !['operator-authored', 'workspace-controlled', 'external-untrusted', 'derived-untrusted'].includes(String(input.trust))
+    || !['operator', 'workspace', 'web', 'upload', 'knowledge', 'tool-output', 'provider-output'].includes(String(input.sourceKind))
+    || typeof input.contentDigest !== 'string' || !/^[a-f0-9]{64}$/.test(input.contentDigest)
+  ) throw new Error('输入 provenance 返回了不兼容或敏感的 metadata contract');
+}
+
+function assertBrowserExternalProvenance(input: WorkbenchExternalInputProvenance): void {
+  assertRecordedInputProvenance(input);
+  if (!['external-untrusted', 'derived-untrusted'].includes(input.trust)) throw new Error('浏览器不得提交可信输入 provenance');
+  if ((input.trust === 'external-untrusted' && !['web', 'upload', 'knowledge'].includes(input.sourceKind)) || (input.trust === 'derived-untrusted' && !['tool-output', 'provider-output', 'knowledge'].includes(input.sourceKind))) {
+    throw new Error('浏览器 provenance 的 trust/sourceKind 不匹配');
+  }
+}
+
 function assertSnapshot(value: unknown): asserts value is WorkbenchTaskSnapshot {
   if (!value || typeof value !== 'object') throw new Error('任务服务返回了无效快照');
   const snapshot = value as Partial<WorkbenchTaskSnapshot>;
-  if (snapshot.schemaVersion !== 1 || typeof snapshot.taskId !== 'string' || typeof snapshot.runId !== 'string' || (snapshot.authorityMode !== undefined && !['plan', 'review', 'automate', 'admin'].includes(String(snapshot.authorityMode)))) {
+  if (
+    Object.keys(snapshot).some((key) => !['schemaVersion', 'taskId', 'runId', 'profileId', 'authorityMode', 'inputProvenance', 'status', 'nodeOutcomes', 'stats', 'attempt', 'updatedAt'].includes(key))
+    || snapshot.schemaVersion !== 1 || typeof snapshot.taskId !== 'string' || typeof snapshot.runId !== 'string' || !['build', 'plan', 'explore', 'reader'].includes(String(snapshot.profileId))
+    || (snapshot.authorityMode !== undefined && !['plan', 'review', 'automate', 'admin'].includes(String(snapshot.authorityMode)))
+    || (snapshot.inputProvenance !== undefined && (!Array.isArray(snapshot.inputProvenance) || !snapshot.inputProvenance.every((input) => { try { assertRecordedInputProvenance(input); return true; } catch { return false; } })))
+  ) {
     throw new Error('任务服务返回了不兼容的快照版本');
   }
   if (!['created', 'running', 'blocked', 'completed', 'failed'].includes(String(snapshot.status))) {
@@ -179,9 +214,13 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
   ) {}
 
   async submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot> {
+    const inputProvenance = intent.inputProvenance ?? [];
+    if (inputProvenance.length > 16) throw new Error('浏览器最多可提交 16 条 external/derived provenance 摘要');
+    inputProvenance.forEach(assertBrowserExternalProvenance);
+    if (new Set(inputProvenance.map((input) => input.inputId)).size !== inputProvenance.length) throw new Error('浏览器 provenance inputId 不可重复');
     return this.request('', {
       method: 'POST',
-      body: JSON.stringify({ schemaVersion: 1, ...intent }),
+      body: JSON.stringify({ schemaVersion: 1, ...intent, inputProvenance }),
       headers: { 'idempotency-key': createIdempotencyKey('submit') },
     });
   }

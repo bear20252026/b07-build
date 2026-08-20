@@ -16,7 +16,7 @@ import type {
 } from '@awo/agent-runtime';
 import type { KnowledgeWorkspaceService, SkillPackRegistry } from '@awo/knowledge-workflow';
 import type { LocalModelHealthRegistry, ProviderProfileRegistry } from '@awo/provider-sdk';
-import type { TaskEvent } from '@awo/protocol';
+import type { InputProvenanceV1, TaskEvent } from '@awo/protocol';
 import type { ControlPlaneDiagnosticReportV1 } from '../control-plane-diagnostics.js';
 
 /** Gateway route 使用的组合对象；只能由 composition root 创建并注入。 */
@@ -48,6 +48,7 @@ export interface GatewayDependencies {
     profileId: import('@awo/protocol').AgentProfileId,
     authorityMode: import('@awo/protocol').ExecutionAuthorityMode,
     identity: { taskId: string; runId: string },
+    externalInputProvenance?: readonly InputProvenanceV1[],
   ) => TaskRuntimeRequest;
   readonly createEvent: (type: TaskEvent['type'], taskId: string, runId: string, payload: Record<string, unknown>) => TaskEvent;
 }

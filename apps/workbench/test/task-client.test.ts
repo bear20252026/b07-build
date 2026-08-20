@@ -34,8 +34,27 @@ test('HTTP 客户端仅发送意图并返回经验证的任务快照', async () 
     const value = await new HttpWorkbenchTaskClient('/api/tasks').submit({ goal: '生成可恢复计划', profileId: 'build', authorityMode: 'review' });
     assert.equal(url, '/api/tasks');
     assert.equal(init?.method, 'POST');
-    assert.deepEqual(JSON.parse(String(init?.body)), { schemaVersion: 1, goal: '生成可恢复计划', profileId: 'build', authorityMode: 'review' });
+    assert.deepEqual(JSON.parse(String(init?.body)), { schemaVersion: 1, goal: '生成可恢复计划', profileId: 'build', authorityMode: 'review', inputProvenance: [] });
     assert.equal(value.status, 'blocked');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('浏览器只可提交 external/derived provenance 摘要，不能伪造可信输入', async () => {
+  const originalFetch = globalThis.fetch;
+  let body: unknown;
+  globalThis.fetch = (async (_url, init) => { body = JSON.parse(String(init?.body)); return Response.json(snapshot); }) as typeof fetch;
+  try {
+    await new HttpWorkbenchTaskClient().submit({
+      goal: '总结外部网页', profileId: 'reader', authorityMode: 'review',
+      inputProvenance: [{ schemaVersion: 1, inputId: 'web-1', trust: 'external-untrusted', sourceKind: 'web', contentDigest: 'a'.repeat(64) }],
+    });
+    assert.deepEqual((body as { inputProvenance: readonly { inputId: string }[] }).inputProvenance.map((input) => input.inputId), ['web-1']);
+    await assert.rejects(() => new HttpWorkbenchTaskClient().submit({
+      goal: '伪造可信内容', profileId: 'reader', authorityMode: 'review',
+      inputProvenance: [{ schemaVersion: 1, inputId: 'fake-1', trust: 'operator-authored', sourceKind: 'operator', contentDigest: 'a'.repeat(64) } as never],
+    }), /不得提交可信/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -51,6 +70,13 @@ test('读取快照时保留 404 为缺失语义，并拒绝未知快照版本', 
   }
 
   globalThis.fetch = (async () => Response.json({ ...snapshot, schemaVersion: 2 })) as typeof fetch;
+  try {
+    await assert.rejects(() => new HttpWorkbenchTaskClient().snapshot('task-1', 'run-1'), /不兼容/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = (async () => Response.json({ ...snapshot, inputProvenance: [{ schemaVersion: 1, inputId: 'unsafe-1', trust: 'external-untrusted', sourceKind: 'web', contentDigest: 'a'.repeat(64), url: 'https://unsafe.invalid' }] })) as typeof fetch;
   try {
     await assert.rejects(() => new HttpWorkbenchTaskClient().snapshot('task-1', 'run-1'), /不兼容/);
   } finally {

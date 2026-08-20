@@ -1,5 +1,5 @@
 // 一个文件=一种作用：本地可恢复任务运行时工厂；只编排既有端口，不实现 DB、UI 或具体工具。
-import type { AgentProfileId, CapabilityPolicy, ExecutionAuthorityMode } from '@awo/protocol';
+import type { AgentProfileId, CapabilityPolicy, ExecutionAuthorityMode, InputProvenanceV1 } from '@awo/protocol';
 import { getAgentProfile, ProfiledCapabilityPolicy } from './agent-profile.js';
 import { ControlledToolRunner, type ApprovalPort } from './controlled-tool-runner.js';
 import {
@@ -12,6 +12,7 @@ import {
 } from './executor.js';
 import { InMemoryExecutionBudget } from './execution-budget.js';
 import { AdministratorAuthorityLedger, AuthorityCapabilityPolicy } from './execution-authority.js';
+import { normalizeInputProvenance, TaintAwareCapabilityPolicy } from './taint-policy.js';
 
 export type TaskRunStatus = 'created' | 'running' | 'blocked' | 'completed' | 'failed';
 
@@ -22,6 +23,8 @@ export interface LocalTaskSnapshot {
   profileId: AgentProfileId;
   /** 新快照始终写入；旧版 SQLite 快照缺失时运行时安全回退 review。 */
   authorityMode?: ExecutionAuthorityMode;
+  /** 新快照始终写入；旧快照缺失时视为 P6 前的空 provenance。 */
+  inputProvenance?: readonly InputProvenanceV1[];
   status: TaskRunStatus;
   nodeOutcomes: Readonly<Record<string, DAGNodeOutcome>>;
   stats?: Readonly<DAGExecutionStats>;
@@ -40,6 +43,7 @@ function copySnapshot(snapshot: LocalTaskSnapshot): LocalTaskSnapshot {
     ...snapshot,
     nodeOutcomes: { ...snapshot.nodeOutcomes },
     stats: snapshot.stats ? { ...snapshot.stats } : undefined,
+    inputProvenance: snapshot.inputProvenance?.map((input) => ({ ...input })),
   };
 }
 
@@ -64,6 +68,8 @@ export interface RecoverableTaskRequest {
   /** 缺省安全回退为 review；新 Gateway contract 始终显式写入。 */
   authorityMode?: ExecutionAuthorityMode;
   administratorLeases?: AdministratorAuthorityLedger;
+  /** 来源 metadata 不能携带正文、URL、路径、secret 或执行指令。 */
+  inputProvenance?: readonly InputProvenanceV1[];
   nodes: readonly DAGNode[];
   baselinePolicy: CapabilityPolicy;
   approvals: ApprovalPort;
@@ -86,6 +92,12 @@ export class RecoverableTaskRuntime {
     const now = this.request.now ?? Date.now;
     const profile = getAgentProfile(this.request.profileId);
     const existing = this.snapshots.load(this.request.taskId, this.request.runId);
+    const requestedProvenance = normalizeInputProvenance(this.request.inputProvenance ?? []);
+    const existingProvenance = existing?.inputProvenance === undefined ? undefined : normalizeInputProvenance(existing.inputProvenance);
+    if (existingProvenance && JSON.stringify(existingProvenance) !== JSON.stringify(requestedProvenance)) {
+      throw new Error('恢复任务不得变更原始输入 provenance');
+    }
+    const inputProvenance = existingProvenance ?? requestedProvenance;
     const authorityMode = existing?.authorityMode ?? this.request.authorityMode ?? 'review';
     if (existing?.authorityMode && this.request.authorityMode && existing.authorityMode !== this.request.authorityMode) {
       throw new Error('恢复任务不得变更原始执行权限');
@@ -101,6 +113,7 @@ export class RecoverableTaskRuntime {
       runId: this.request.runId,
       profileId: this.request.profileId,
       authorityMode,
+      inputProvenance,
       status: 'running',
       nodeOutcomes,
       stats: undefined,
@@ -109,11 +122,14 @@ export class RecoverableTaskRuntime {
     };
     this.snapshots.save(snapshot);
 
-    const policy = new AuthorityCapabilityPolicy(
-      authorityMode,
-      new ProfiledCapabilityPolicy(profile, this.request.baselinePolicy),
-      this.request.administratorLeases,
-      now,
+    const policy = new TaintAwareCapabilityPolicy(
+      inputProvenance,
+      new AuthorityCapabilityPolicy(
+        authorityMode,
+        new ProfiledCapabilityPolicy(profile, this.request.baselinePolicy),
+        this.request.administratorLeases,
+        now,
+      ),
     );
     const controlledRunner = new ControlledToolRunner(
       policy,

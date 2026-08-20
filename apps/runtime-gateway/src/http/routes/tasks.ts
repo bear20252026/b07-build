@@ -46,7 +46,8 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
         reason: intent.administratorLease.reason,
       })).digest('hex')
       : 'none';
-    const fingerprint = commandFingerprint('submit', { goal, profileId: intent.profileId, authorityMode: intent.authorityMode, administratorLeaseDigest });
+    const inputProvenanceDigest = createHash('sha256').update(JSON.stringify(intent.inputProvenance)).digest('hex');
+    const fingerprint = commandFingerprint('submit', { goal, profileId: intent.profileId, authorityMode: intent.authorityMode, administratorLeaseDigest, inputProvenanceDigest });
     const existing = commandReceipts.get('submit', key);
     const claimed = commandReceipts.claim(existing ?? {
       schemaVersion: 1,
@@ -79,6 +80,7 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
       claimed.receipt.profileId,
       claimed.receipt.authorityMode ?? 'review',
       { taskId: claimed.receipt.taskId, runId: claimed.receipt.runId },
+      intent.inputProvenance,
     );
     requests.set(runKey(runtimeRequest.taskId, runtimeRequest.runId), runtimeRequest);
     const snapshot = await runtime.submit(runtimeRequest);

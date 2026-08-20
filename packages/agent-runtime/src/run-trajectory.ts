@@ -60,6 +60,13 @@ function metadataForTaskEvent(event: TaskEvent): Readonly<Record<string, RunTraj
       return { profileId: event.profileId };
     case 'execution.authority.selected':
       return { authorityMode: event.authorityMode };
+    case 'input.provenance.recorded':
+      return {
+        entryCount: event.provenance.length,
+        externalUntrustedCount: event.provenance.filter((input) => input.trust === 'external-untrusted').length,
+        derivedUntrustedCount: event.provenance.filter((input) => input.trust === 'derived-untrusted').length,
+        provenanceDigest: digest(JSON.stringify(event.provenance.map((input) => ({ trust: input.trust, sourceKind: input.sourceKind, contentDigest: input.contentDigest })))),
+      };
     case 'plan.proposed':
       return {
         stepCount: event.steps.length,

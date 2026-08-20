@@ -329,3 +329,26 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .diagnostics-authority { margin: 14px 0 0; color: var(--warning); }
 .diagnostics-note { margin: 6px 0 0; }
 @media (max-width: 760px) { .diagnostics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* P6.0 provenance 仅为可观测 metadata；不可信输入状态不提供交互或权限提升入口。 */
+.provenance-status {
+  display: block;
+  margin-top: 0.34rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  letter-spacing: 0.01em;
+}
+
+.provenance-status.tainted {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.provenance-note {
+  display: block;
+  max-width: 42rem;
+  margin-top: 0.18rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.42;
+}

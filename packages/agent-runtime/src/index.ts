@@ -26,4 +26,5 @@ export * from './run-trajectory.js';
 export * from './recovery-bundle.js';
 export * from './desktop-bridge.js';
 export * from './execution-authority.js';
+export * from './taint-policy.js';
 export * from './trusted-desktop-issuer.js';

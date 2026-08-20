@@ -70,6 +70,21 @@ export const AGENT_PROFILES: Readonly<Record<AgentProfileId, AgentProfile>> = {
       { capability: 'browser.control', decision: 'deny', reason: 'Explore Profile 禁止控制浏览器' },
     ],
   },
+  reader: {
+    id: 'reader',
+    label: 'Reader',
+    description: '分析不可信内容；仅允许受限解析、推理和工作区读取，不能触发外部副作用。',
+    maxToolCalls: 8,
+    maxIdenticalCalls: 1,
+    contextMaxTokens: 12_000,
+    rules: [
+      ...ALLOW_READ,
+      { capability: 'filesystem.write', decision: 'deny', reason: 'Reader Profile 禁止修改文件' },
+      { capability: 'network.fetch', decision: 'deny', reason: 'Reader Profile 禁止访问网络' },
+      { capability: 'shell.execute', decision: 'deny', reason: 'Reader Profile 禁止执行 Shell' },
+      { capability: 'browser.control', decision: 'deny', reason: 'Reader Profile 禁止控制浏览器' },
+    ],
+  },
 };
 
 const RESTRICTION_RANK = { allow: 0, require_approval: 1, deny: 2 } as const;

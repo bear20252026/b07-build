@@ -109,3 +109,35 @@ test('Gateway 强制 Task Submit HTTP v1，并提供脱敏且只读的 run traje
     assert.equal(trajectory[0].source, 'gateway.intent');
   });
 });
+
+
+test('Gateway 将 external provenance 绑定到快照、轨迹与幂等指纹，并在 automate 下保持 taint 失败关闭', async () => {
+  await withGateway(async (baseUrl) => {
+    const provenance = [{ schemaVersion: 1, inputId: 'web-brief-1', trust: 'external-untrusted', sourceKind: 'web', contentDigest: 'a'.repeat(64) }];
+    const submitted = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': 'taint-provenance-bound' },
+      body: JSON.stringify({ schemaVersion: 1, goal: '总结外部不可信资料', profileId: 'build', authorityMode: 'automate', inputProvenance: provenance }),
+    });
+    assert.equal(submitted.status, 201);
+    const snapshot = await submitted.json() as { taskId: string; runId: string; status: string; inputProvenance: readonly { trust: string; contentDigest: string }[] };
+    assert.equal(snapshot.status, 'failed');
+    assert.equal(snapshot.inputProvenance.length, 2);
+    assert.equal(snapshot.inputProvenance.some((input) => input.trust === 'external-untrusted'), true);
+
+    const trajectoryResponse = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/trajectory`);
+    const trajectory = await trajectoryResponse.json() as readonly { kind: string; attributes: Record<string, unknown>; canReplaySideEffects: boolean }[];
+    const provenanceEvent = trajectory.find((event) => event.kind === 'input.provenance.recorded');
+    assert.ok(provenanceEvent);
+    assert.equal(provenanceEvent?.attributes.externalUntrustedCount, 1);
+    assert.equal(JSON.stringify(provenanceEvent).includes('a'.repeat(64)), false);
+    assert.equal(provenanceEvent?.canReplaySideEffects, false);
+
+    const alteredReplay = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': 'taint-provenance-bound' },
+      body: JSON.stringify({ schemaVersion: 1, goal: '总结外部不可信资料', profileId: 'build', authorityMode: 'automate', inputProvenance: [{ ...provenance[0], trust: 'derived-untrusted', sourceKind: 'tool-output' }] }),
+    });
+    assert.equal(alteredReplay.status, 409);
+  });
+});

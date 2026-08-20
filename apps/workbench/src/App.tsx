@@ -34,6 +34,15 @@ function eventPresentation(event: TaskEvent, messages: Translation): { title: st
     }
     case 'execution.authority.selected':
       return { ...messages.event.authority(messages.authority.mode[event.authorityMode].label), tone: 'success' };
+    case 'input.provenance.recorded':
+      return {
+        ...messages.event.provenance(
+          event.provenance.length,
+          event.provenance.filter((input) => input.trust === 'external-untrusted').length,
+          event.provenance.filter((input) => input.trust === 'derived-untrusted').length,
+        ),
+        tone: 'warn',
+      };
     case 'plan.proposed':
       return { ...messages.event.plan(event.steps.length), tone: '' };
     case 'approval.required':
@@ -81,6 +90,8 @@ export function App() {
   const profiles = profileUi(messages);
   const profile = profiles[activeProfile];
   const blockedNodeId = snapshot && Object.entries(snapshot.nodeOutcomes).find(([, outcome]) => outcome === 'blocked')?.[0];
+  const provenance = snapshot?.inputProvenance ?? [];
+  const untrustedInputCount = provenance.filter((input) => input.trust === 'external-untrusted' || input.trust === 'derived-untrusted').length;
 
   useEffect(() => {
     let disposed = false;
@@ -197,6 +208,8 @@ export function App() {
                 <div className="snapshot-eyebrow">{messages.task.runtimeSnapshot}</div>
                 <strong>{snapshot ? statusLabel(snapshot.status, messages) : messages.task.noTask}</strong>
                 <span>{snapshot ? `${messages.task.attempt(snapshot.attempt, Object.keys(snapshot.nodeOutcomes).length)} · ${messages.authority.mode[snapshot.authorityMode ?? 'review'].label}` : messages.task.noTaskDescription}</span>
+                {snapshot && <span className={`provenance-status${untrustedInputCount > 0 ? ' tainted' : ''}`}>{messages.task.provenance(provenance.length, untrustedInputCount)}</span>}
+                {snapshot && untrustedInputCount > 0 && <span className="provenance-note">{messages.task.provenanceNote}</span>}
               </div>
               {snapshot && (
                 <div className="snapshot-actions">

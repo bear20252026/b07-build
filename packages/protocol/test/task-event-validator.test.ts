@@ -107,3 +107,28 @@ test('接受脱敏的执行权限选择事件，但拒绝夹带管理员租约 m
   const invalidMode = validateTaskEvent({ ...base, type: 'execution.authority.selected', authorityMode: 'unbounded' });
   assert.equal(invalidMode.ok, false);
 });
+
+
+test('接受脱敏 input provenance 事件，但拒绝 URL、理由或租约夹带', () => {
+  const accepted = validateTaskEvent({
+    ...base,
+    type: 'input.provenance.recorded',
+    provenance: [{ schemaVersion: 1, inputId: 'web-input-1', trust: 'external-untrusted', sourceKind: 'web', contentDigest: 'a'.repeat(64) }],
+  });
+  assert.equal(accepted.ok, true);
+
+  const rejected = validateTaskEvent({
+    ...base,
+    type: 'input.provenance.recorded',
+    provenance: [{ schemaVersion: 1, inputId: 'web-input-1', trust: 'external-untrusted', sourceKind: 'web', contentDigest: 'a'.repeat(64), url: 'https://untrusted.invalid' }],
+  });
+  assert.equal(rejected.ok, false);
+
+  const leaseLeak = validateTaskEvent({
+    ...base,
+    type: 'input.provenance.recorded',
+    provenance: [{ schemaVersion: 1, inputId: 'web-input-1', trust: 'external-untrusted', sourceKind: 'web', contentDigest: 'a'.repeat(64) }],
+    administratorLease: { leaseId: 'nope' },
+  });
+  assert.equal(leaseLeak.ok, false);
+});

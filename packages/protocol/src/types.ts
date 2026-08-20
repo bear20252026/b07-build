@@ -7,9 +7,23 @@ export type RiskLevel = 'low' | 'medium' | 'high';
 export type ToolStatus = 'ok' | 'error';
 export type ApprovalDecision = 'approved' | 'rejected';
 export type CapabilityDecision = 'allow' | 'require_approval' | 'deny';
-export type AgentProfileId = 'build' | 'plan' | 'explore';
+export type AgentProfileId = 'build' | 'plan' | 'explore' | 'reader';
 /** 单次任务的执行授权姿态；它不替代 Agent Profile、Capability Policy、预算或宿主安全边界。 */
 export type ExecutionAuthorityMode = 'plan' | 'review' | 'automate' | 'admin';
+/** 输入来源的信任分类；任何 unknown 值都必须在 decoder 层拒绝而非按可信处理。 */
+export type ContentTrust = 'operator-authored' | 'workspace-controlled' | 'external-untrusted' | 'derived-untrusted';
+/** 只描述来源种类，不携带 URL、文件路径、凭据或原始内容。 */
+export type InputSourceKind = 'operator' | 'workspace' | 'web' | 'upload' | 'knowledge' | 'tool-output' | 'provider-output';
+export const INPUT_PROVENANCE_SCHEMA_VERSION = 1 as const;
+
+export interface InputProvenanceV1 {
+  schemaVersion: typeof INPUT_PROVENANCE_SCHEMA_VERSION;
+  inputId: string;
+  trust: ContentTrust;
+  sourceKind: InputSourceKind;
+  /** 原始内容的 SHA-256 十六进制摘要；不可作为认证、执行或解密凭据。 */
+  contentDigest: string;
+}
 
 /**
  * 功能能力是授权的最小单位。新增能力必须先在此处声明，不能以任意字符串绕过策略层。
@@ -87,6 +101,12 @@ export interface AgentProfileSelectedEvent extends EventEnvelope {
 export interface ExecutionAuthoritySelectedEvent extends EventEnvelope {
   type: 'execution.authority.selected';
   authorityMode: ExecutionAuthorityMode;
+}
+
+/** 输入来源仅以脱敏摘要进入事件流；事件不授予 declassification 或执行权限。 */
+export interface InputProvenanceRecordedEvent extends EventEnvelope {
+  type: 'input.provenance.recorded';
+  provenance: readonly InputProvenanceV1[];
 }
 
 export interface PlanProposedEvent extends EventEnvelope {
@@ -167,6 +187,7 @@ export type TaskEvent =
   | TaskCreatedEvent
   | AgentProfileSelectedEvent
   | ExecutionAuthoritySelectedEvent
+  | InputProvenanceRecordedEvent
   | PlanProposedEvent
   | ApprovalRequiredEvent
   | ApprovalResolvedEvent

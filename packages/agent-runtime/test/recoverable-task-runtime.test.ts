@@ -140,3 +140,38 @@ test('恢复任务锁定原始 Authority Mode，拒绝通过 resume 提升权限
     baselinePolicy: new RuleBasedCapabilityPolicy(policies), approvals: new InMemoryApprovalPort(), runner: new TrackingRunner(), emit: () => undefined, now: () => 401,
   }, snapshots).run(), /不得变更/);
 });
+
+
+test('外部 provenance 会在 automate 下阻断写入，Reader Profile 也不能触发外部副作用', async () => {
+  const taintedRunner = new TrackingRunner();
+  const inputProvenance = [{ schemaVersion: 1 as const, inputId: 'web-brief-1', trust: 'external-untrusted' as const, sourceKind: 'web' as const, contentDigest: 'a'.repeat(64) }];
+  const tainted = await new RecoverableTaskRuntime({
+    taskId: 'task-tainted', runId: 'run-tainted', profileId: 'build', authorityMode: 'automate', inputProvenance, nodes: [{ ...nodes[1], deps: [] }],
+    baselinePolicy: new RuleBasedCapabilityPolicy(policies), approvals: new InMemoryApprovalPort(), runner: taintedRunner, emit: () => undefined, now: () => 500,
+  }, new InMemoryTaskSnapshotStore()).run();
+  assert.equal(tainted.status, 'failed');
+  assert.deepEqual(taintedRunner.calls, []);
+  assert.equal(tainted.inputProvenance?.[0].trust, 'external-untrusted');
+
+  const readerRunner = new TrackingRunner();
+  const reader = await new RecoverableTaskRuntime({
+    taskId: 'task-reader', runId: 'run-reader', profileId: 'reader', authorityMode: 'automate', inputProvenance, nodes: [{ ...nodes[1], deps: [] }],
+    baselinePolicy: new RuleBasedCapabilityPolicy(policies), approvals: new InMemoryApprovalPort(), runner: readerRunner, emit: () => undefined, now: () => 501,
+  }, new InMemoryTaskSnapshotStore()).run();
+  assert.equal(reader.status, 'failed');
+  assert.deepEqual(readerRunner.calls, []);
+});
+
+test('恢复任务锁定输入 provenance，拒绝通过 resume 偷换信任摘要', async () => {
+  const snapshots = new InMemoryTaskSnapshotStore();
+  const inputProvenance = [{ schemaVersion: 1 as const, inputId: 'web-brief-1', trust: 'external-untrusted' as const, sourceKind: 'web' as const, contentDigest: 'a'.repeat(64) }];
+  await new RecoverableTaskRuntime({
+    taskId: 'task-taint-resume', runId: 'run-taint-resume', profileId: 'reader', inputProvenance, nodes: [{ ...nodes[0], deps: [] }],
+    baselinePolicy: new RuleBasedCapabilityPolicy(policies), approvals: new InMemoryApprovalPort(), runner: new TrackingRunner(), emit: () => undefined, now: () => 510,
+  }, snapshots).run();
+  await assert.rejects(() => new RecoverableTaskRuntime({
+    taskId: 'task-taint-resume', runId: 'run-taint-resume', profileId: 'reader',
+    inputProvenance: [{ ...inputProvenance[0], contentDigest: 'b'.repeat(64) }], nodes: [{ ...nodes[0], deps: [] }],
+    baselinePolicy: new RuleBasedCapabilityPolicy(policies), approvals: new InMemoryApprovalPort(), runner: new TrackingRunner(), emit: () => undefined, now: () => 511,
+  }, snapshots).run(), /不得变更原始输入 provenance/);
+});

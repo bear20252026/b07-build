@@ -1,7 +1,7 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
-import type { AgentProfileId, CapabilityPolicyRule, TaskEvent } from '@awo/protocol';
+import type { AgentProfileId, CapabilityPolicyRule, InputProvenanceV1, TaskEvent } from '@awo/protocol';
 import {
   AdministratorAuthorityLedger,
   AgentAdapterControlPlane,
@@ -166,20 +166,38 @@ export function createGatewayComposition(): GatewayComposition {
     return { protocolVersion: '1.0', eventId: `gateway:${runId}:${type}:${randomUUID()}`, taskId, runId, at: Date.now(), type, ...payload } as TaskEvent;
   }
 
-  function createTaskRequest(goal: string, profileId: AgentProfileId, authorityMode: import('@awo/protocol').ExecutionAuthorityMode, identity: { taskId: string; runId: string }): TaskRuntimeRequest {
+  function createTaskRequest(
+    goal: string,
+    profileId: AgentProfileId,
+    authorityMode: import('@awo/protocol').ExecutionAuthorityMode,
+    identity: { taskId: string; runId: string },
+    externalInputProvenance: readonly InputProvenanceV1[] = [],
+  ): TaskRuntimeRequest {
     const { taskId, runId } = identity;
+    // 目标正文来自当前本地提交者；外部内容只能经 HTTP decoder 以 untrusted 摘要并入。
+    const inputProvenance: readonly InputProvenanceV1[] = [
+      {
+        schemaVersion: 1,
+        inputId: `gateway-goal:${taskId}`,
+        trust: 'operator-authored',
+        sourceKind: 'operator',
+        contentDigest: createHash('sha256').update(goal).digest('hex'),
+      },
+      ...externalInputProvenance,
+    ];
     const existingEvents = eventsByRun.get(runKey(taskId, runId));
     const events: TaskEvent[] = existingEvents ?? [
       createEvent('task.created', taskId, runId, { goal }),
       createEvent('agent.profile.selected', taskId, runId, { profileId }),
       createEvent('execution.authority.selected', taskId, runId, { authorityMode }),
+      createEvent('input.provenance.recorded', taskId, runId, { provenance: inputProvenance }),
       createEvent('plan.proposed', taskId, runId, { steps: createTaskNodes(profileId).map((node) => ({ id: node.id, description: node.tool.name, risk: node.tool.risk })) }),
     ];
     if (!existingEvents) {
       for (const event of events) runTrajectory.recordTaskEvent(event, 'gateway.intent');
     }
     const request: TaskRuntimeRequest = {
-      taskId, runId, goal, profileId, authorityMode, administratorLeases, nodes: createTaskNodes(profileId),
+      taskId, runId, goal, profileId, authorityMode, inputProvenance, administratorLeases, nodes: createTaskNodes(profileId),
       baselinePolicy: new RuleBasedCapabilityPolicy(BASELINE_RULES),
       approvals: new InMemoryApprovalPort(approvedActions),
       runner: { async run(node) { return { ok: true, outputRef: `local://task/${taskId}/${node.id}` }; } },
