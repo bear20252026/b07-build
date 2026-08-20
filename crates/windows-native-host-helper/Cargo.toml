@@ -1,0 +1,11 @@
+[package]
+name = "awo-native-host-helper"
+version = "0.1.0"
+edition = "2021"
+description = "AI Work OS Windows x64 native host helper: fixed read-only health and release-info IPC only"
+license = "MIT"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
