@@ -13,7 +13,10 @@
     "architecture:check": "npm run architecture:dependencies && node tools/architecture-check.mjs",
     "test": "npm run architecture:check && node --experimental-sqlite --import tsx --test $(find packages apps -path '*test/*.test.ts' -print)",
     "benchmark:dag": "node --import tsx packages/agent-runtime/benchmark/dag-scheduler.bench.ts",
-    "build": "npm run typecheck"
+    "build": "npm run typecheck",
+    "desktop:dev": "npm run dev --workspace=@awo/desktop-shell",
+    "desktop:build": "npm run build --workspace=@awo/desktop-shell",
+    "desktop:typecheck": "npm run typecheck --workspace=@awo/desktop-shell"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

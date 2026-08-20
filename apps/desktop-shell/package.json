@@ -1,0 +1,16 @@
+{
+  "name": "@awo/desktop-shell",
+  "version": "0.1.0",
+  "description": "AI Work OS Windows desktop shell — local static Workbench host with no privileged frontend bridge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "typescript": "^5.5.4"
+  }
+}
