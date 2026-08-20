@@ -77,3 +77,19 @@ P7.0 在 Windows 11 x64 上完成了真实的 Tauri release 构建与 NSIS 打�
 桌面候选的 GitHub Actions 工作流会在显式触发或 `desktop-v*` tag 时使用最小权限构建 Setup.exe、生成 manifest、上传工件并使用 GitHub Attestation 生成 SLSA provenance。工作流不安装候选、不启动桌面应用、不启动 Gateway/helper，也不拥有代码签名证书或仓库写权限。
 
 桌面壳尚不是完全自带 Gateway 的单体应用。这是刻意的首阶段设计：用户可以双击启动完整 Workbench UI；Gateway 附着和 native helper 认证仍是后续显式、可观测、人工治理的步骤，而不是桌面窗口启动的副作用。
+
+## Desktop Workbench blank-screen remediation
+
+The first desktop candidate opened an empty WebView root even though the Workbench worked through the Vite development server. WebView2 remote debugging isolated the cause: the renderer bundled the protocol package's server-side Ajv validator, whose module initialization compiles JSON Schema through `Function`. The desktop CSP intentionally forbids `unsafe-eval`, so this caused an `EvalError` before React mounted. This was a real renderer failure, not a missing Gateway or a Windows installation failure.
+
+The remediation deliberately **did not** relax `script-src` with `unsafe-eval`. Instead, `@awo/protocol/browser` now exposes `isBrowserTaskEvent`, a deterministic structural decoder used solely by the WebView for events that the Gateway has already fully validated. The Gateway remains on the existing Ajv-based validation path; the browser decoder does not authorize execution, approve actions, or replace server-side contract validation. The only Workbench icon import that had its own dynamic dependency surface was replaced with the screenshot-era static `AW` mark.
+
+| Verification | Result |
+|---|---|
+| Workbench production bundle | Ajv dynamic compiler text absent; 281,348-byte JavaScript bundle |
+| WebView2 renderer | React root mounted; no console errors or exceptions |
+| Interactive controls | New-task focus, light/dark theme, Agent Profile selection, and sidebar navigation all passed through the installed desktop application |
+| Repair installation | NSIS installation exit code `0`; installed application at `C:\Users\17296\AppData\Local\AI Work OS\awo-desktop-shell.exe` |
+| Runtime side effects | Gateway auto-start `false`; native helper auto-start `false` |
+
+The repaired local Setup.exe SHA-256 is `3e7da3d4b2f0ad768fc776bf684b89415465393be08f1d4a2111659c7e7b7abc`. The GUI process was left running after verification so the user can inspect the restored workbench.

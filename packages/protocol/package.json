@@ -7,6 +7,7 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./browser": "./src/task-event-browser-guard.ts",
     "./schema/task-event.schema.json": "./schema/task-event.schema.json"
   },
   "files": ["src", "schema"],

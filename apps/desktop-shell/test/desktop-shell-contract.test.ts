@@ -11,6 +11,7 @@ const capability = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src
 const desktopCore = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/lib.rs'), 'utf8');
 const desktopMain = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/main.rs'), 'utf8');
 const workbenchVite = readFileSync(resolve(root, 'apps/workbench/vite.config.ts'), 'utf8');
+const workbenchSider = readFileSync(resolve(root, 'apps/workbench/src/components/layout/Sider.tsx'), 'utf8');
 const provenanceWorkflow = readFileSync(resolve(root, '.github/workflows/windows-desktop-shell-provenance.yml'), 'utf8');
 
 test('桌面壳只加载本地 Workbench 静态产物并生成每用户 Windows NSIS 安装器', () => {
@@ -39,6 +40,11 @@ test('桌面 WebView CSP 仅允许 bundle 内容、数据图像和既有 loopbac
   for (const forbidden of ['https://', 'http://localhost', "script-src 'unsafe-eval'", 'connect-src *']) {
     assert.equal(csp.includes(forbidden), false, `CSP 不得放宽为远程或通配连接：${forbidden}`);
   }
+});
+
+test('桌面 Workbench 使用静态 AW 标记而不引入要求 `unsafe-eval` 的图标运行时代码', () => {
+  assert.ok(workbenchSider.includes('sider-brand-initials'));
+  assert.equal(workbenchSider.includes('@lobehub/icons'), false, '桌面 Workbench 不得重新引入导致严格 CSP 白屏的图标运行时');
 });
 
 test('桌面 Rust 核心和 capability 不暴露 IPC 命令、shell、文件系统、sidecar、自动启动或 Gateway/helper 生命周期', () => {

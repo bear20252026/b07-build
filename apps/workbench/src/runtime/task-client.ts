@@ -1,4 +1,5 @@
-import { isTaskEvent, type AgentProfileId, type ExecutionAuthorityMode, type InputProvenanceV1, type TaskEvent } from '@awo/protocol';
+import type { AgentProfileId, ExecutionAuthorityMode, InputProvenanceV1, TaskEvent } from '@awo/protocol';
+import { isBrowserTaskEvent } from '@awo/protocol/browser';
 
 export type WorkbenchTaskStatus = 'created' | 'running' | 'blocked' | 'completed' | 'failed';
 export type WorkbenchNodeOutcome = 'ok' | 'failed' | 'blocked';
@@ -502,7 +503,7 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     });
     if (!response.ok) throw new Error(await response.text() || `任务事件请求失败 (${response.status})`);
     const payload: unknown = await response.json();
-    if (!Array.isArray(payload) || !payload.every(isTaskEvent)) {
+    if (!Array.isArray(payload) || !payload.every(isBrowserTaskEvent)) {
       throw new Error('任务服务返回了无效事件流');
     }
     return payload;
