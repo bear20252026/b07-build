@@ -31,3 +31,8 @@ logs/
 
 # 本地 Windows 发布候选包（由受控脚本生成，工件不提交）
 artifacts/
+
+# 桌面 Gateway sidecar 由受控 Windows 构建脚本生成，二进制和中间 bundle 不入库
+apps/desktop-shell/src-tauri/binaries/awo-runtime-gateway-*
+apps/desktop-shell/src-tauri/binaries/awo-runtime-gateway-bundle.cjs
+apps/desktop-shell/src-tauri/binaries/awo-runtime-gateway-sea.json

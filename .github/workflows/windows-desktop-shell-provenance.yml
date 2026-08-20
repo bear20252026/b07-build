@@ -42,6 +42,12 @@ jobs:
           npm run desktop:typecheck
           node --experimental-sqlite --import tsx --test apps/desktop-shell/test/desktop-shell-contract.test.ts
 
+      - name: Build fixed Gateway sidecar
+        shell: pwsh
+        run: |
+          npm run gateway:sidecar
+          if (-not (Test-Path .\apps\desktop-shell\src-tauri\binaries\awo-runtime-gateway-x86_64-pc-windows-msvc.exe)) { throw 'Expected fixed Windows Gateway sidecar was not generated.' }
+
       - name: Build desktop Setup.exe candidate
         id: package
         shell: pwsh
@@ -60,6 +66,7 @@ jobs:
             signingStatus = 'unsigned-candidate'
             publicTrust = $false
             canAutoStartGateway = $false
+            bundlesExplicitGatewaySidecar = $true
             canAutoStartNativeHelper = $false
             canPromoteBridgeTrust = $false
             sourceRevision = '${{ github.sha }}'

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import './components/observability/GatewayAttachment.css';
+import { invoke } from '@tauri-apps/api/core';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider, type WorkbenchPage } from './components/layout/Sider';
 import { ControlPlaneInsights } from './components/observability/ControlPlaneInsights';
@@ -164,15 +165,28 @@ export function App() {
     return message || '本机 Gateway 未响应。请检查服务状态后重试。';
   };
 
-  const attachGateway = (): void => {
+  const startAndAttachGateway = (): void => {
     if (attachingGateway || gatewayAttached) return;
     setAttachingGateway(true);
     setGatewayAttachmentError(undefined);
-    void localGatewayClient.providerConnections()
+    void invoke<'started' | 'already-running'>('start_local_gateway')
+      .then(() => localGatewayClient.providerConnections())
       .then(() => setGatewayAttached(true))
-      .catch((error: unknown) => setGatewayAttachmentError(gatewayErrorText(error)))
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('gateway-sidecar-unavailable')) {
+          setGatewayAttachmentError('本机 Gateway 未能启动。请重新安装完整 Windows 应用后重试；不会自动启动任何其它程序。');
+          return;
+        }
+        if (message.includes('window.__TAURI') || message.includes('IPC')) {
+          setGatewayAttachmentError('此启动入口仅在 Windows 桌面应用中可用。浏览器预览需手动启动本机 Gateway。');
+          return;
+        }
+        setGatewayAttachmentError(gatewayErrorText(error));
+      })
       .finally(() => setAttachingGateway(false));
   };
+
 
   const detachGateway = (): void => {
     setGatewayAttached(false);
@@ -341,8 +355,8 @@ export function App() {
             <div className="titlebar-title">{pageTitle}</div>
           </div>
           <div className="titlebar-actions">
-            <button className={`gateway-attach-button${gatewayAttached ? ' attached' : ''}`} type="button" onClick={gatewayAttached ? detachGateway : attachGateway} disabled={attachingGateway}>
-              {attachingGateway ? '正在附着…' : gatewayAttached ? '断开本机 Gateway' : '附着本机 Gateway'}
+            <button className={`gateway-attach-button${gatewayAttached ? ' attached' : ''}`} type="button" onClick={gatewayAttached ? detachGateway : startAndAttachGateway} disabled={attachingGateway}>
+              {attachingGateway ? '正在启动并附着…' : gatewayAttached ? '断开本机 Gateway' : '启动并附着 Gateway'}
             </button>
             {activePage === 'workspace' && <><div className="profile-switcher" aria-label={messages.profile.selectAria}>
               {(Object.keys(profiles) as AgentProfileId[]).map((profileId) => (
@@ -377,8 +391,8 @@ export function App() {
               </div>
             </div>
             <section className={`gateway-attach-card${gatewayAttached ? ' attached' : ''}`} aria-label="Local Gateway attachment">
-              <div><span>LOCAL GATEWAY</span><strong>{gatewayAttached ? '已显式附着到 127.0.0.1:4318' : '尚未附着本机 Gateway'}</strong><p>{gatewayAttached ? '已建立仅回环的 Workbench 数据通道；不会启动 Gateway、native helper 或信任桥。' : '启动后的默认状态。请先在本机单独启动 Gateway，再点击“附着本机 Gateway”。'}</p></div>
-              {!gatewayAttached && <button type="button" onClick={attachGateway} disabled={attachingGateway}>{attachingGateway ? '正在检查…' : '检查并附着'}</button>}
+              <div><span>LOCAL GATEWAY</span><strong>{gatewayAttached ? '已显式附着到 127.0.0.1:4318' : '尚未附着本机 Gateway'}</strong><p>{gatewayAttached ? '已建立仅回环的 Workbench 数据通道；不会启动 native helper 或信任桥。' : '启动后的默认状态。仅在你点击“启动并附着 Gateway”后才会运行内置本机服务。'}</p></div>
+              {!gatewayAttached && <button type="button" onClick={startAndAttachGateway} disabled={attachingGateway}>{attachingGateway ? '正在启动并附着…' : '启动并附着 Gateway'}</button>}
             </section>
             {gatewayAttachmentError && <div className="runtime-error" role="alert">本机 Gateway：{gatewayAttachmentError}</div>}
             {serviceError && <div className="runtime-error" role="alert">{messages.common.local}: {serviceError}</div>}
@@ -416,7 +430,7 @@ export function App() {
               inferences={providerInferences}
               error={providerConnectionError}
               pendingProviderId={pendingProviderId}
-              onAttach={attachGateway}
+              onAttach={startAndAttachGateway}
               onDetach={detachGateway}
               onConfigure={configureProviderSession}
               onRefresh={refreshProviderConnections}

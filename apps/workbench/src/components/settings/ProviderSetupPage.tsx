@@ -55,9 +55,9 @@ export function ProviderSetupPage({ gatewayAttached, attachingGateway, gatewayEr
     <div className="provider-setup-page">
       <header className="settings-page-header">
         <div><span>MODEL CONNECTIONS</span><h1>连接第三方模型</h1><p>选择常用协议，填写显示名称、实际模型 ID 和 API key 即可。密钥只保留在当前本机 Gateway 会话内存中。</p></div>
-        <div className={`settings-gateway-status${gatewayAttached ? ' attached' : ''}`}><strong>{gatewayAttached ? '本机 Gateway 已附着' : '先附着本机 Gateway'}</strong><span>{gatewayAttached ? '可以开始配置和测试模型。' : '应用不会自动启动服务或读取密钥。'}</span><button type="button" onClick={gatewayAttached ? onDetach : onAttach} disabled={attachingGateway}>{attachingGateway ? '正在检查…' : gatewayAttached ? '断开' : '检查并附着'}</button></div>
+        <div className={`settings-gateway-status${gatewayAttached ? ' attached' : ''}`}><strong>{gatewayAttached ? '本机 Gateway 已附着' : '先启动本机 Gateway'}</strong><span>{gatewayAttached ? '可以开始配置和测试模型。' : '仅在你点击后启动内置本机服务；不会在安装、打开应用或登录时自动运行。'}</span><button type="button" onClick={gatewayAttached ? onDetach : onAttach} disabled={attachingGateway}>{attachingGateway ? '正在启动并附着…' : gatewayAttached ? '断开' : '启动并附着'}</button></div>
       </header>
-      {gatewayError && <div className="provider-onboarding-error" role="alert"><strong>尚未连接到本机 Gateway。</strong><span>{gatewayError.includes('Failed to fetch') ? '请先启动本机 Gateway，再重试。详细网络错误已隐藏，避免干扰配置流程。' : gatewayError}</span></div>}
+      {gatewayError && <div className="provider-onboarding-error" role="alert"><strong>尚未连接到本机 Gateway。</strong><span>{gatewayError.includes('Failed to fetch') ? '点击“启动并附着”后重试。详细网络错误已隐藏，避免干扰配置流程。' : gatewayError}</span></div>}
       <section className="provider-onboarding" aria-label="Third-party API setup">
         <div className="onboarding-step"><span>1</span><div><strong>选择协议或供应商</strong><p>预设会自动采用已审核的官方连接方式，不需要填写复杂参数。</p></div></div>
         <div className="provider-preset-grid">

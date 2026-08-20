@@ -41,7 +41,10 @@
     ],
     "category": "DeveloperTool",
     "shortDescription": "AI Work OS local-first desktop workbench",
-    "longDescription": "A local-first desktop presentation shell for the AI Work OS Workbench. Gateway and native-host activation remain explicit, separately governed operations.",
+    "longDescription": "A local-first desktop workbench. The bundled Gateway can only be started by an explicit user action and remains bound to local loopback.",
+    "externalBin": [
+      "binaries/awo-runtime-gateway"
+    ],
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
