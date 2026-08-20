@@ -1,0 +1,63 @@
+name: Windows native-host candidate provenance
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+# The workflow needs only repository read access plus the OIDC and attestation permissions required
+# to bind the immutable ZIP to this GitHub Actions build. It never receives signing certificates.
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build-and-attest:
+    name: Build and attest Windows x64 candidate
+    runs-on: windows-latest
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v4
+
+      - name: Set up stable Rust with Windows x64 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build quarantined candidate package
+        id: package
+        shell: pwsh
+        run: |
+          $version = if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}'.TrimStart('v') } else { '0.1.0-dev.${{ github.run_number }}' }
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$') { throw "Unsupported candidate version: $version" }
+          & .\scripts\windows\build-release-candidate.ps1 -Version $version
+          if (-not $?) { throw 'Candidate packaging failed.' }
+          $archive = Get-ChildItem -LiteralPath .\artifacts\windows-x64 -File -Filter 'awo-native-host-helper-*-windows-x64.zip' | Select-Object -First 1
+          $checksum = Get-ChildItem -LiteralPath .\artifacts\windows-x64 -File -Filter 'awo-native-host-helper-*-windows-x64.zip.SHA256SUMS.txt' | Select-Object -First 1
+          if ($null -eq $archive -or $null -eq $checksum) { throw 'Expected candidate ZIP or SHA-256 checksum was not generated.' }
+          "archive=$($archive.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "checksum=$($checksum.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Verify extracted candidate remains quarantined
+        shell: pwsh
+        run: |
+          $candidate = Get-ChildItem -LiteralPath .\artifacts\windows-x64 -Directory -Filter 'awo-native-host-helper-*-windows-x64' | Select-Object -First 1
+          if ($null -eq $candidate) { throw 'Candidate directory was not generated.' }
+          & .\scripts\windows\VERIFY-CANDIDATE.ps1 -CandidateDirectory $candidate.FullName
+          if (-not $?) { throw 'Candidate verification failed.' }
+
+      - name: Upload candidate package and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: awo-native-host-helper-windows-x64-candidate
+          if-no-files-found: error
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.checksum }}
+
+      - name: Generate SLSA build provenance for candidate ZIP
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.package.outputs.archive }}
