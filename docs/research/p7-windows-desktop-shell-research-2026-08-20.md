@@ -57,3 +57,23 @@ P7.0 采用独立的 `apps/desktop-shell` Tauri 2 workspace。它在 Windows x64
 Windows 本机已确认 Node `v24.18.0`、npm `11.16.0`、Rust/Cargo `1.97.1` 与 Tauri CLI `2.11.4` 可用。现有 Windows 11 x64 是 P7.0 的唯一目标。WebView2 在 Windows 11 由系统分发；安装器采用 Tauri 官方默认的下载 bootstrapper 兼容路径，而不会捆绑固定运行时。[3]
 
 P7.0 完成后，用户将可双击启动真正的 **AI Work OS** 图形窗口；若 Gateway 未被显式启动，WorkBench 会按已有错误 UI 显示本地服务不可用，而不是让桌面壳自行获得或执行任何后台权限。
+
+## Windows 11 实机构建与安装记录
+
+P7.0 在 Windows 11 x64 上完成了真实的 Tauri release 构建与 NSIS 打包。首次构建暴露两个确定性配置缺口：Tauri Windows 资源编译需要 `icons/icon.ico`；主窗口查询需要导入 `tauri::Manager` trait。现已使用 Tauri 官方图标命令从原创方形应用图标生成所需多尺寸 Windows ICO 层，并在 Rust core 中显式导入该 trait。
+
+修复后验证结果如下。
+
+| 验证项目 | 结果 |
+|---|---|
+| Rust release binary | `awo-desktop-shell.exe`，8,758,272 bytes，构建通过 |
+| NSIS desktop setup | `AI Work OS_0.1.0_x64-setup.exe`，2,012,370 bytes，构建通过 |
+| 实际安装 | 静默 current-user 安装退出码 `0`，已登记卸载项 |
+| 安装位置 | `C:\Users\17296\AppData\Local\AI Work OS` |
+| 图形窗口启动 | 已安装的 `awo-desktop-shell.exe` 成功启动并保持运行 |
+| Gateway 自动启动 | `false` |
+| native helper 自动启动 | `false` |
+
+桌面候选的 GitHub Actions 工作流会在显式触发或 `desktop-v*` tag 时使用最小权限构建 Setup.exe、生成 manifest、上传工件并使用 GitHub Attestation 生成 SLSA provenance。工作流不安装候选、不启动桌面应用、不启动 Gateway/helper，也不拥有代码签名证书或仓库写权限。
+
+桌面壳尚不是完全自带 Gateway 的单体应用。这是刻意的首阶段设计：用户可以双击启动完整 Workbench UI；Gateway 附着和 native helper 认证仍是后续显式、可观测、人工治理的步骤，而不是桌面窗口启动的副作用。

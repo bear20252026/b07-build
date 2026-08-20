@@ -1,0 +1,86 @@
+name: Windows desktop shell provenance
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'desktop-v*'
+
+# Only immutable build provenance is granted. This workflow has no signing certificate,
+# no repository write access, and never installs or starts the desktop candidate.
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build-and-attest:
+    name: Build and attest Windows x64 desktop shell
+    runs-on: windows-latest
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up stable Rust with Windows x64 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install locked workspace dependencies
+        shell: pwsh
+        run: npm ci
+
+      - name: Verify desktop-shell boundary contract
+        shell: pwsh
+        run: |
+          npm run desktop:typecheck
+          node --experimental-sqlite --import tsx --test apps/desktop-shell/test/desktop-shell-contract.test.ts
+
+      - name: Build desktop Setup.exe candidate
+        id: package
+        shell: pwsh
+        run: |
+          npm run desktop:build
+          if (-not $?) { throw 'Desktop shell Setup.exe packaging failed.' }
+          $installer = Get-ChildItem -LiteralPath .\apps\desktop-shell\src-tauri\target\release\bundle\nsis -File -Filter 'AI Work OS_*_x64-setup.exe' | Select-Object -First 1
+          if ($null -eq $installer) { throw 'Expected desktop Setup.exe output was not generated.' }
+          $hash = Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256
+          $manifest = [ordered]@{
+            schemaVersion = 1
+            product = 'AI Work OS'
+            version = '0.1.0'
+            platform = 'windows-x64'
+            artifactKind = 'desktop-shell-setup-candidate'
+            signingStatus = 'unsigned-candidate'
+            publicTrust = $false
+            canAutoStartGateway = $false
+            canAutoStartNativeHelper = $false
+            canPromoteBridgeTrust = $false
+            sourceRevision = '${{ github.sha }}'
+            installerFile = $installer.Name
+            sha256 = $hash.Hash.ToLowerInvariant()
+          }
+          $manifestPath = Join-Path $installer.DirectoryName 'desktop-shell-manifest.json'
+          $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+          "installer=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "manifest=$manifestPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Upload desktop Setup.exe candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-work-os-windows-x64-desktop-shell-candidate
+          if-no-files-found: error
+          path: |
+            ${{ steps.package.outputs.installer }}
+            ${{ steps.package.outputs.manifest }}
+
+      - name: Generate SLSA build provenance for desktop Setup.exe
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.package.outputs.installer }}

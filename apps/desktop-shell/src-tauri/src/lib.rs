@@ -5,6 +5,8 @@
 //! The WebView receives no privileged desktop API. Gateway and native-host attachment remain
 //! explicit, independently governed workflows outside this initial desktop shell.
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

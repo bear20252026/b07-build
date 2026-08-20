@@ -11,6 +11,7 @@ const capability = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src
 const desktopCore = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/lib.rs'), 'utf8');
 const desktopMain = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/main.rs'), 'utf8');
 const workbenchVite = readFileSync(resolve(root, 'apps/workbench/vite.config.ts'), 'utf8');
+const provenanceWorkflow = readFileSync(resolve(root, '.github/workflows/windows-desktop-shell-provenance.yml'), 'utf8');
 
 test('桌面壳只加载本地 Workbench 静态产物并生成每用户 Windows NSIS 安装器', () => {
   assert.equal(packageManifest.name, '@awo/desktop-shell');
@@ -21,6 +22,7 @@ test('桌面壳只加载本地 Workbench 静态产物并生成每用户 Windows 
   assert.equal(build.frontendDist, '../../workbench/dist');
   assert.ok(String(build.beforeBuildCommand).includes('@awo/workbench'));
   assert.deepEqual(bundle.targets, ['nsis']);
+  assert.deepEqual(bundle.icon, ['icons/32x32.png', 'icons/128x128.png', 'icons/128x128@2x.png', 'icons/icon.ico']);
   assert.equal(nsis.installMode, 'currentUser');
   assert.equal((windows.webviewInstallMode as Record<string, unknown>).type, 'downloadBootstrapper');
   assert.equal('externalBin' in bundle, false);
@@ -48,4 +50,16 @@ test('桌面 Rust 核心和 capability 不暴露 IPC 命令、shell、文件系�
   ]) assert.equal(desktopCore.includes(forbidden), false, `桌面核心不得包含特权集成：${forbidden}`);
   assert.equal(cargoManifest.includes('tauri-plugin-'), false, '桌面 crate 不得引入特权 Tauri 插件');
   assert.ok(desktopMain.includes('windows_subsystem = "windows"'));
+});
+
+test('桌面候选来源证明工作流仅构建、上传和证明安装器，不安装或启动任何本地运行时', () => {
+  for (const expected of [
+    'runs-on: windows-latest', 'contents: read', 'id-token: write', 'attestations: write',
+    'npm ci', 'npm run desktop:build', 'actions/upload-artifact@v4', 'actions/attest@v4',
+    "signingStatus = 'unsigned-candidate'", 'canAutoStartGateway = $false',
+    'canAutoStartNativeHelper = $false', 'canPromoteBridgeTrust = $false',
+  ]) assert.ok(provenanceWorkflow.includes(expected), `桌面 provenance 工作流缺少：${expected}`);
+  for (const forbidden of ['Start-Process', 'msiexec', 'unins', 'runtime-gateway', 'awo-native-host-helper', 'git push', 'contents: write']) {
+    assert.equal(provenanceWorkflow.includes(forbidden), false, `桌面 provenance 工作流不得包含：${forbidden}`);
+  }
 });
