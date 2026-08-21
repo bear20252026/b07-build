@@ -10,6 +10,7 @@ export interface TaskPageProps {
   taskFileCount: number;
   deliveryCount: number;
   citationCount: number;
+  evidenceCount: number;
   profileLabel: string;
   authorityLabel: string;
   pending: boolean;
@@ -27,7 +28,7 @@ function WorkBlock({ block, onOpenInspector }: { block: TaskPageBlock; onOpenIns
       <header><span>{block.label}</span><i aria-hidden="true" /></header>
       <strong>{block.title}</strong>
       <p>{block.description}</p>
-      {block.id === 'outcomes' && <button onClick={onOpenInspector} type="button">审查成果</button>}
+      {(block.id === 'evidence' || block.id === 'files' || block.id === 'delivery' || block.id === 'closeout') && <button onClick={onOpenInspector} type="button">审查详情</button>}
     </article>
   );
 }
@@ -45,6 +46,7 @@ export function TaskPage({
   taskFileCount,
   deliveryCount,
   citationCount,
+  evidenceCount,
   profileLabel,
   authorityLabel,
   pending,
@@ -55,7 +57,7 @@ export function TaskPage({
   onResume,
   children,
 }: TaskPageProps) {
-  const projection = createTaskPageProjection({ snapshot, activeGoal, eventCount, taskFileCount, deliveryCount });
+  const projection = createTaskPageProjection({ snapshot, activeGoal, eventCount, taskFileCount, deliveryCount, evidenceCount });
   const canResume = snapshot.status === 'blocked' || snapshot.status === 'failed';
   const closeout = createTaskCloseoutProjection({ snapshot, fileCount: taskFileCount, deliveryCount, citationCount });
 

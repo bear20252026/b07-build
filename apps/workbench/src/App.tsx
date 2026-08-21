@@ -545,6 +545,7 @@ export function App() {
               blockedNodeId={blockedNodeId}
               deliveryCount={deliveries.length}
               citationCount={workspaceArtifacts.length}
+              evidenceCount={workspaceArtifacts.length}
               eventCount={events.length}
               onApproveAndResume={approveAndResume}
               onBackToChat={() => setActivePage('workspace')}
