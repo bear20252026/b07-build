@@ -19,7 +19,7 @@ const NAVIGATION: readonly { group: string; items: readonly SettingsItem[] }[] =
 
 function navigationPage(activePage: WorkbenchPage): WorkbenchPage {
   if (activePage === 'api-usage') return 'operations';
-  if (activePage === 'agency-roles' || activePage === 'browser-sessions' || activePage === 'companion') return 'capabilities';
+  if (activePage === 'agency-roles' || activePage === 'browser-sessions' || activePage === 'companion' || activePage === 'companion-service-sources' || activePage === 'companion-body-modules' || activePage === 'companion-character-models' || activePage === 'companion-character-cards' || activePage === 'companion-system') return 'capabilities';
   return activePage;
 }
 
