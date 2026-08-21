@@ -17,6 +17,7 @@ import { SecurityPostureAuditBoard } from './components/observability/SecurityPo
 import { TrajectoryBoard } from './components/observability/TrajectoryBoard';
 import { RunWorkspaceBoard } from './components/observability/RunWorkspaceBoard';
 import { PreviewPanel } from './components/preview/PreviewPanel';
+import { LocalDataFlowBoard } from './components/workspace/LocalDataFlowBoard';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
 import {
@@ -445,6 +446,7 @@ export function App() {
               <div><span>MODEL READYNESS</span><strong>{gatewayAttached ? '选择一个已连接模型，开始你的第一个任务' : '先连接第三方模型，再开始工作'}</strong><p>{gatewayAttached ? '模型连接、测试和高级诊断已移动到设置；这里保留任务对话。' : '无需安装本地模型：OpenAI-compatible 和 Anthropic-compatible 均可用。'}</p></div>
               <button type="button" onClick={() => setActivePage('models')}>{gatewayAttached ? '管理模型' : '连接第三方 API'}</button>
             </section>
+            <LocalDataFlowBoard connectedProviderCount={providerConnections?.length ?? 0} gatewayAttached={gatewayAttached} onOpenModels={() => setActivePage('models')} taskFileCount={taskFiles.length} />
             {serviceError && <div className="runtime-error" role="alert">{messages.common.local}: {serviceError}</div>}
             <section className="runtime-snapshot runtime-snapshot--workspace" aria-label={messages.task.snapshotAria}>
               <div><div className="snapshot-eyebrow">{messages.task.runtimeSnapshot}</div><strong>{snapshot ? statusLabel(snapshot.status, messages) : messages.task.noTask}</strong><span>{snapshot ? `${messages.task.attempt(snapshot.attempt, Object.keys(snapshot.nodeOutcomes).length)} · ${messages.authority.mode[snapshot.authorityMode ?? 'review'].label}` : messages.task.noTaskDescription}</span>{snapshot && <span className={`provenance-status${untrustedInputCount > 0 ? ' tainted' : ''}`}>{messages.task.provenance(provenance.length, untrustedInputCount)}</span>}{snapshot && untrustedInputCount > 0 && <span className="provenance-note">{messages.task.provenanceNote}</span>}</div>
