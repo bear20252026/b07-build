@@ -846,3 +846,33 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .chat-home-suggestions button:hover { color: var(--text-strong); }
 .chat-home-settings-note { margin: 21px 0 0; padding-top: 11px; color: var(--muted); font-size: 10px; line-height: 1.5; border-top: 1px solid var(--border); }
 @media (max-width: 680px) { .chat-home { min-height: auto; padding-top: 28px; } .chat-home-hero { text-align: left; } .chat-home-hero p { margin-left: 0; } .chat-home-profile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .chat-home-provider { align-items: flex-start; flex-direction: column; } .chat-home-provider button { width: 100%; } }
+
+/* P21：原创 task/run 成果摘要块，只呈现既有 metadata 与显式操作入口。 */
+.task-outcomes { margin-top: 13px; padding: 16px; border: 1px solid var(--border); border-radius: 17px; background: color-mix(in srgb, var(--panel) 94%, var(--panel-subtle)); box-shadow: 0 10px 28px color-mix(in srgb, var(--shadow) 7%, transparent); }
+.task-outcomes-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.task-outcomes-heading > div:first-child > span, .task-outcomes-card-heading > span { color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .1em; }
+.task-outcomes-heading h2 { margin: 4px 0 4px; color: var(--text-strong); font-size: 16px; letter-spacing: -.025em; }
+.task-outcomes-heading p { max-width: 580px; margin: 0; color: var(--muted-strong); font-size: 11px; line-height: 1.5; }
+.task-outcomes-scope { flex: 0 0 auto; padding: 6px 8px; display: inline-flex; align-items: center; gap: 5px; color: var(--muted-strong); font-size: 10px; white-space: nowrap; border: 1px solid var(--border); border-radius: 999px; background: var(--panel-subtle); }
+.task-outcomes-scope span { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.task-outcomes-grid { margin-top: 13px; display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(210px, .85fr); gap: 9px; }
+.task-outcomes-files, .task-outcomes-delivery { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
+.task-outcomes-delivery.ready { border-color: color-mix(in srgb, var(--success) 28%, var(--border)); background: color-mix(in srgb, var(--success-soft) 52%, var(--panel)); }
+.task-outcomes-card-heading { display: grid; gap: 3px; }
+.task-outcomes-card-heading strong { color: var(--text-strong); font-size: 12px; letter-spacing: -.01em; }
+.task-outcomes-files ul { margin: 10px 0 0; padding: 0; display: grid; gap: 7px; list-style: none; }
+.task-outcomes-files li { min-width: 0; display: flex; align-items: flex-start; gap: 8px; }
+.task-outcomes-file-mark { width: 17px; height: 17px; flex: 0 0 17px; display: inline-flex; align-items: center; justify-content: center; color: var(--accent); font-size: 15px; line-height: 1; border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border)); border-radius: 5px; background: var(--accent-soft); }
+.task-outcomes-files li > div { min-width: 0; display: grid; gap: 1px; }
+.task-outcomes-files li strong { overflow: hidden; color: var(--text-strong); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.task-outcomes-files li small { overflow: hidden; color: var(--muted); font-family: var(--mono); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.task-outcomes-files li em { color: var(--muted-strong); font-size: 9px; font-style: normal; }
+.task-outcomes-empty, .task-outcomes-delivery p { margin: 10px 0 0; color: var(--muted-strong); font-size: 10px; line-height: 1.55; }
+.task-outcomes-delivery > small, .task-outcomes-more { display: block; margin-top: 8px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.task-outcomes-actions { margin-top: 12px; padding-top: 11px; display: flex; justify-content: flex-end; gap: 7px; border-top: 1px solid var(--border); }
+.task-outcomes-actions button { min-height: 30px; padding: 0 10px; font: inherit; font-size: 10px; font-weight: 700; border-radius: 9px; }
+.task-outcomes-review { color: var(--text-strong); border: 1px solid var(--border-strong); background: var(--panel); }
+.task-outcomes-delivery-action { color: #fff; border: 1px solid var(--accent-strong); background: var(--accent-strong); }
+.task-outcomes-delivery-action:disabled { cursor: progress; opacity: .65; }
+@media (max-width: 760px) { .task-outcomes-heading { align-items: stretch; flex-direction: column; gap: 9px; } .task-outcomes-scope { width: fit-content; } .task-outcomes-grid { grid-template-columns: 1fr; } }
+@media (max-width: 460px) { .task-outcomes { padding: 13px; border-radius: 14px; } .task-outcomes-actions { align-items: stretch; flex-direction: column-reverse; } .task-outcomes-actions button { width: 100%; } }

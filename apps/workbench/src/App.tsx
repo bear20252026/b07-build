@@ -21,6 +21,7 @@ import { ChatHome } from './components/workspace/ChatHome';
 import { WORKBENCH_PROFILE_IDS } from './components/workspace/agent-profiles';
 import { LocalDataFlowBoard } from './components/workspace/LocalDataFlowBoard';
 import { TaskStoryboard } from './components/workspace/TaskStoryboard';
+import { TaskOutcomeBoard } from './components/workspace/TaskOutcomeBoard';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
 import {
@@ -108,6 +109,7 @@ export function App() {
   const [checkpoints, setCheckpoints] = useState<readonly WorkbenchRunCheckpoint[]>([]);
   const [taskFiles, setTaskFiles] = useState<readonly WorkbenchTaskFile[]>([]);
   const [deliveries, setDeliveries] = useState<readonly WorkbenchTaskDeliveryReceipt[]>([]);
+  const [deliveryPending, setDeliveryPending] = useState(false);
   const [localModels, setLocalModels] = useState<readonly WorkbenchLocalModelHealth[]>();
   const [localModelError, setLocalModelError] = useState<string>();
   const [providerConnections, setProviderConnections] = useState<readonly WorkbenchProviderConnection[]>();
@@ -229,6 +231,7 @@ export function App() {
     setCheckpoints([]);
     setTaskFiles([]);
     setDeliveries([]);
+    setDeliveryPending(false);
   };
 
   const refreshProviderConnections = (): void => {
@@ -409,6 +412,15 @@ export function App() {
     return localGatewayClient.deliveryDownloadUrl(snapshot.taskId, snapshot.runId, deliveryId);
   };
 
+  const requestTaskDelivery = (): void => {
+    if (!snapshot || taskFiles.length === 0 || deliveryPending) return;
+    setDeliveryPending(true);
+    setServiceError(undefined);
+    void createTaskDelivery()
+      .catch((error: unknown) => setServiceError(error instanceof Error ? error.message : '创建 ZIP 交付包失败。'))
+      .finally(() => setDeliveryPending(false));
+  };
+
   const focusTaskInspector = (): void => {
     document.getElementById('task-inspector')?.focus();
   };
@@ -480,6 +492,7 @@ export function App() {
             </section>
             <LocalDataFlowBoard connectedProviderCount={providerConnections?.length ?? 0} gatewayAttached={gatewayAttached} onOpenModels={() => setActivePage('models')} taskFileCount={taskFiles.length} />
             <TaskStoryboard deliveryCount={deliveries.length} eventCount={events.length} onOpenInspector={focusTaskInspector} snapshot={snapshot} taskFileCount={taskFiles.length} />
+            <TaskOutcomeBoard deliveries={deliveries} deliveryPending={deliveryPending} files={taskFiles} onCreateDelivery={requestTaskDelivery} onOpenInspector={focusTaskInspector} />
             {serviceError && <div className="runtime-error" role="alert">{messages.common.local}: {serviceError}</div>}
             <section className="runtime-snapshot runtime-snapshot--workspace" aria-label={messages.task.snapshotAria}>
               <div><div className="snapshot-eyebrow">{messages.task.runtimeSnapshot}</div><strong>{snapshot ? statusLabel(snapshot.status, messages) : messages.task.noTask}</strong><span>{snapshot ? `${messages.task.attempt(snapshot.attempt, Object.keys(snapshot.nodeOutcomes).length)} · ${messages.authority.mode[snapshot.authorityMode ?? 'review'].label}` : messages.task.noTaskDescription}</span>{snapshot && <span className={`provenance-status${untrustedInputCount > 0 ? ' tainted' : ''}`}>{messages.task.provenance(provenance.length, untrustedInputCount)}</span>}{snapshot && untrustedInputCount > 0 && <span className="provenance-note">{messages.task.provenanceNote}</span>}</div>
