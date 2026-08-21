@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider, type WorkbenchPage } from './components/layout/Sider';
 import { SettingsOverlay } from './components/layout/SettingsOverlay';
+import { WorkbenchOverlay } from './components/layout/WorkbenchOverlay';
 import { CommandPalette } from './components/layout/CommandPalette';
 import { createWorkbenchCommandCatalog, type WorkbenchCommand } from './components/layout/command-catalog';
 import { resolveWorkbenchSurface } from './components/layout/workbench-surface';
@@ -16,6 +17,7 @@ import { ApiUsageAuditPage, ApiUsageSummaryCard } from './components/observabili
 import { AgencyRoleCatalogPage } from './components/observability/AgencyRoleCatalogPage';
 import { BrowserSessionControlPage, BrowserSessionSummaryCard } from './components/observability/BrowserSessionControlPanel';
 import { CompanionControlPage, CompanionSummaryCard } from './components/observability/CompanionControlPanel';
+import { CompanionWindow } from './components/observability/CompanionWindow';
 import { CompanionStudioPage, CompanionStudioSummary } from './components/observability/CompanionStudioPanel';
 import { KnowledgeImportPanel } from './components/observability/KnowledgeImportPanel';
 import { ProviderSetupPage } from './components/settings/ProviderSetupPage';
@@ -136,6 +138,8 @@ export function App() {
   const [windowsNativeReleaseReportError, setWindowsNativeReleaseReportError] = useState<string>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
+  const [composerCollapsed, setComposerCollapsed] = useState(false);
+  const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion'>();
   const [activeGoal, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
   const [authorityMode, setAuthorityMode] = useState<WorkbenchAuthorityMode>('review');
@@ -313,6 +317,11 @@ export function App() {
           </div>
           <div className="titlebar-actions">
             <CommandPalette commands={commandCatalog} onExecute={executeCommand} />
+            <div aria-label="独立工作面" className="titlebar-surface-actions">
+              <button aria-label="打开独立 API 连接窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('api')} title="打开独立 API 连接浮层。首页保持简洁，连接详情不进入对话。" type="button">⌁</button>
+              <button aria-label="打开项目产物检查器" className="titlebar-icon-button" onClick={() => setInspectorSurface('artifacts')} title="打开当前任务的项目产物检查器；只显示受控文件投影。" type="button">▧</button>
+              <button aria-label="打开 Companion 独立窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('companion')} title="打开独立 Companion 角色窗口；不会切换模型或授予权限。" type="button">◉</button>
+            </div>
             {activePage !== 'models' && <button className={`gateway-attach-button${gatewayAttached ? ' attached' : ''}`} type="button" onClick={gatewayAttached ? detachGateway : startAndAttachGateway} disabled={attachingGateway}>
               {attachingGateway ? '正在启动并附着…' : gatewayAttached ? '断开本机 Gateway' : '启动并附着 Gateway'}
             </button>}
@@ -403,34 +412,40 @@ export function App() {
             </TaskPage>}
           </div>
         </section>
-        {activePage === 'workspace' && <div className="task-composer">
-          <textarea
-            aria-label={messages.task.goalAria}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') void submitIntent();
-            }}
-            placeholder={messages.task.goalPlaceholder}
-            value={draft}
-          />
-          <div className="composer-footer">
-            <span className="composer-hint">{messages.task.composerHint}</span>
-            <div className="composer-actions">
-              <label className="authority-select">
-                <span>{messages.authority.selectLabel}</span>
-                <select aria-label={messages.authority.selectAria} onChange={(event) => setAuthorityMode(event.target.value as WorkbenchAuthorityMode)} value={authorityMode}>
-                  {(['plan', 'review', 'automate'] as const).map((mode) => <option key={mode} value={mode}>{messages.authority.mode[mode].label}</option>)}
-                </select>
-              </label>
-              <span className="composer-mode" title={messages.authority.mode[authorityMode].description}>{profile.label} · {messages.authority.mode[authorityMode].label}</span>
-              <button className="composer-submit" disabled={!draft.trim() || pending} onClick={() => void submitIntent()} type="button">
-                {pending ? messages.task.submitting : messages.task.submit}
-              </button>
+        {activePage === 'workspace' && <div className={`task-composer${composerCollapsed ? ' task-composer--collapsed' : ''}`}>
+          {composerCollapsed ? <button className="composer-expand" onClick={() => setComposerCollapsed(false)} title="展开对话编辑器以输入任务。" type="button"><span aria-hidden="true">↑</span> 展开对话编辑器</button> : <>
+            <textarea
+              aria-label={messages.task.goalAria}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') void submitIntent();
+              }}
+              placeholder={messages.task.goalPlaceholder}
+              value={draft}
+            />
+            <div className="composer-footer">
+              <span className="composer-hint">{messages.task.composerHint}</span>
+              <div className="composer-actions">
+                <label className="authority-select">
+                  <span>{messages.authority.selectLabel}</span>
+                  <select aria-label={messages.authority.selectAria} onChange={(event) => setAuthorityMode(event.target.value as WorkbenchAuthorityMode)} value={authorityMode}>
+                    {(['plan', 'review', 'automate'] as const).map((mode) => <option key={mode} value={mode}>{messages.authority.mode[mode].label}</option>)}
+                  </select>
+                </label>
+                <span className="composer-mode" title={messages.authority.mode[authorityMode].description}>{profile.label} · {messages.authority.mode[authorityMode].label}</span>
+                <button className="composer-collapse" onClick={() => setComposerCollapsed(true)} title="一键收起对话编辑器，保留当前草稿。" type="button">收起</button>
+                <button className="composer-submit" disabled={!draft.trim() || pending} onClick={() => void submitIntent()} type="button">
+                  {pending ? messages.task.submitting : messages.task.submit}
+                </button>
+              </div>
             </div>
-          </div>
+          </>}
         </div>}
       </main>
       {isSettings && <SettingsOverlay activePage={activePage} onClose={() => setActivePage('workspace')} onNavigate={setActivePage} title={pageTitle[activePage]}>{settingsContent}</SettingsOverlay>}
+      {inspectorSurface === 'api' && <WorkbenchOverlay description="独立连接窗口：只在你明确提交时登记当前 Gateway 进程内存会话，不会自动调用第三方服务。" onClose={() => setInspectorSurface(undefined)} title="API 连接" tone="api"><ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerControl.connections : []} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onAttach={startAndAttachGateway} onDetach={detachGateway} onConfigure={providerControl.configure} onConfigureCustom={providerControl.configureCustom} onManageConnections={() => { setInspectorSurface(undefined); setActivePage('connections'); }} /></WorkbenchOverlay>}
+      {inspectorSurface === 'artifacts' && <WorkbenchOverlay description="当前 task/run 的受控文件检查器。可查看 Markdown、代码、JSON、差异和用户发起的交付包，不读取任意本机目录。" onClose={() => setInspectorSurface(undefined)} title="项目产物" tone="artifacts"><PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} /></WorkbenchOverlay>}
+      {inspectorSurface === 'companion' && <WorkbenchOverlay description="独立角色窗口。角色、对话与 API 连接保持分离；高影响能力仍需未来的单独权限设计。" onClose={() => setInspectorSurface(undefined)} title="Companion" tone="companion"><CompanionWindow gatewayAttached={gatewayAttached} preferences={companionPreferences} onOpenApi={() => setInspectorSurface('api')} onOpenControls={() => { setInspectorSurface(undefined); setActivePage('companion'); }} /></WorkbenchOverlay>}
       {isTaskPage && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} />}
     </div>
   );
