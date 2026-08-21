@@ -47,12 +47,12 @@ export function LocalDataFlowBoard({ gatewayAttached, connectedProviderCount, ta
   ];
 
   return (
-    <section className="local-data-flow" aria-label="本地第三方 API 数据流">
+    <section className="local-data-flow" aria-label="第三方 API 受控连接链路">
       <header className="local-data-flow-heading">
         <div>
-          <span>LOCAL DATA FLOW</span>
-          <h2>第三方 API，控制权仍在本机</h2>
-          <p>第三方模型响应通过本机 Gateway 回到工作台；密钥、任务编排和可恢复记录不离开受控桌面边界。</p>
+          <span>API CONNECTION FLOW</span>
+          <h2>第三方 API 优先，由本机 Gateway 受控接入</h2>
+          <p>真实模型服务由 DeepSeek 等第三方 API 提供；本机 Gateway 仅负责会话密钥、策略控制和受控结果回传。</p>
         </div>
         <button className="local-data-flow-action" onClick={onOpenModels} type="button">查看模型连接</button>
       </header>
@@ -66,7 +66,7 @@ export function LocalDataFlowBoard({ gatewayAttached, connectedProviderCount, ta
           </article>
         ))}
       </div>
-      <p className="local-data-flow-note">本地优先不等于隐藏网络调用：仅当你明确发起模型请求时，本机 Gateway 才会向已连接的第三方 API 发送该请求所需数据。</p>
+      <p className="local-data-flow-note">第三方 API 优先不等于隐式联网：仅当你明确发起模型请求时，本机 Gateway 才会向已连接的第三方 API 发送该请求所需数据。</p>
     </section>
   );
 }

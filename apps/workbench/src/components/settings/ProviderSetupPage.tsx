@@ -13,8 +13,8 @@ type ProviderPreset = {
 };
 
 const PRESETS: readonly ProviderPreset[] = [
+  { id: 'deepseek', protocol: 'openai-compatible', title: 'DeepSeek', description: '官方 OpenAI-compatible Chat Completions API。', defaultModel: 'deepseek-v4-pro' },
   { id: 'openai', protocol: 'openai-compatible', title: 'OpenAI', description: '官方 Chat Completions API。', defaultModel: 'gpt-5.6' },
-  { id: 'deepseek', protocol: 'openai-compatible', title: 'DeepSeek', description: '使用 OpenAI-compatible API。', defaultModel: 'deepseek-v4-pro' },
   { id: 'google-gemini', protocol: 'openai-compatible', title: 'Google Gemini', description: '使用 Gemini 的 OpenAI-compatible API。', defaultModel: 'gemini-3.7-flash' },
   { id: 'mistral', protocol: 'openai-compatible', title: 'Mistral AI', description: '使用 OpenAI-compatible API。', defaultModel: 'mistral-large-latest' },
   { id: 'openrouter', protocol: 'openai-compatible', title: 'OpenRouter', description: '通过一个已审核连接使用多个模型。', defaultModel: 'openrouter/auto' },

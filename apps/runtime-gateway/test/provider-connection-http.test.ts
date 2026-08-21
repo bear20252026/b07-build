@@ -123,6 +123,45 @@ test('Provider infer API 只在显式激活后调用受控 Driver，并以脱敏
   });
 });
 
+test('DeepSeek session inference 命中官方 chat completions 路径并安全聚合 SSE 输出', async () => {
+  await withGateway(async (baseUrl) => {
+    const headers = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };
+    const originalFetch = globalThis.fetch;
+    let target = '';
+    let authorization = '';
+    let remoteBody = '';
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const requestedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (requestedUrl === 'https://api.deepseek.com/chat/completions') {
+        target = requestedUrl;
+        authorization = String((init?.headers as Record<string, string> | undefined)?.authorization ?? '');
+        remoteBody = String(init?.body ?? '');
+        return new Response('data: {"choices":[{"delta":{"reasoning_content":"not returned"}}]}\n\ndata: {"choices":[{"delta":{"content":"Deep"}}]}\n\ndata: {"choices":[{"delta":{"content":"Seek"}}]}\n\ndata: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      }
+      return originalFetch(input, init);
+    }) as typeof fetch;
+    try {
+      const configured = await fetch(`${baseUrl}/api/providers/connections/deepseek/configure-session`, { method: 'POST', headers, body: JSON.stringify({ displayName: '我的 DeepSeek', model: 'deepseek-v4-pro', apiKey: 'sk-deepseek-session-only' }) });
+      assert.equal(configured.status, 200);
+      assert.equal((await configured.json() as { profileStatus: string }).profileStatus, 'active');
+      const inferred = await fetch(`${baseUrl}/api/providers/connections/deepseek/infer`, { method: 'POST', headers, body: JSON.stringify({ prompt: '请返回 DeepSeek' }) });
+      assert.equal(inferred.status, 200);
+      const result = await inferred.json() as Record<string, unknown>;
+      assert.equal(target, 'https://api.deepseek.com/chat/completions');
+      assert.equal(authorization, 'Bearer sk-deepseek-session-only');
+      assert.equal(result.output, 'DeepSeek');
+      assert.equal(result.model, 'deepseek-v4-pro');
+      assert.equal(remoteBody.includes('"stream":true'), true);
+      assert.equal(remoteBody.includes('请返回 DeepSeek'), true);
+      assert.equal(remoteBody.includes('sk-deepseek-session-only'), false);
+      assert.equal(JSON.stringify(result).includes('sk-deepseek-session-only'), false);
+      assert.equal(JSON.stringify(result).includes('https://api.deepseek.com'), false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
 test('Gateway 桌面附着仅接受已审核 Tauri 或本地开发来源的 CORS 预检', async () => {
   await withGateway(async (baseUrl) => {
     const accepted = await fetch(`${baseUrl}/api/providers/connections`, {

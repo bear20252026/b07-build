@@ -59,7 +59,7 @@ const BUILT_IN_ENTRIES: readonly ProviderCatalogEntry[] = Object.freeze([
   entry({
     id: 'deepseek', displayName: 'DeepSeek', transport: 'openai-chat-completions', driverId: 'remote.deepseek',
     baseUrl: 'https://api.deepseek.com', defaultModel: 'deepseek-v4-pro', credentialReference: 'env.deepseek',
-    documentationUrl: 'https://api-docs.deepseek.com/', capabilities: { supportsTools: true, contextWindow: 128_000, costTier: 'medium' },
+    documentationUrl: 'https://api-docs.deepseek.com/zh-cn/', capabilities: { supportsTools: true, contextWindow: 1_000_000, costTier: 'medium' },
   }),
   entry({
     id: 'mistral', displayName: 'Mistral AI', transport: 'openai-chat-completions', driverId: 'remote.mistral',

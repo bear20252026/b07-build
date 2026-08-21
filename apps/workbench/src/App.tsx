@@ -403,7 +403,7 @@ export function App() {
       <main className="workbench-main">
         <header className="workbench-titlebar">
           <div>
-            <div className="titlebar-kicker">AI WORK OS · LOCAL-FIRST</div>
+            <div className="titlebar-kicker">AI WORK OS · THIRD-PARTY API</div>
             <div className="titlebar-title">{pageTitle[activePage]}</div>
           </div>
           <div className="titlebar-actions">

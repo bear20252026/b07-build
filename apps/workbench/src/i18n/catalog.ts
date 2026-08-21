@@ -16,13 +16,13 @@ export const catalog = {
     },
     navigation: {
       aria: '工作台导航',
-      brandSubtitle: '个人本地工作台',
+      brandSubtitle: '第三方 API 工作台',
       newTask: '新建任务',
       chat: { label: '任务会话', description: '受控任务与恢复快照' },
       files: { label: '产物与引用', description: '交付物与知识来源' },
       schedule: { label: '计划任务', description: '本地可恢复执行' },
       settings: { label: '工作区设置', description: '本地运行时偏好' },
-      workspaceMeta: '本地优先 · 受控执行',
+      workspaceMeta: '第三方 API 优先 · 受控执行',
     },
     profile: {
       build: { label: 'Build', description: '实现与交付；高影响工具需要审批' },
@@ -34,12 +34,12 @@ export const catalog = {
     task: {
       title: '任务工作台',
       controlPlane: 'LOCAL CONTROL PLANE',
-      initialGoal: '提交一个目标，启动可恢复的本地受控任务。',
+      initialGoal: '连接第三方 API 后，提交一个目标，启动可恢复的受控任务。',
       currentCapabilities: '当前能力',
       eventProtocol: '事件协议 v1.0',
       leastPrivilege: '最小权限',
       sqliteSnapshot: 'SQLite 快照',
-      welcomeEyebrow: 'AI WORK OS · LOCAL-FIRST',
+      welcomeEyebrow: 'AI WORK OS · THIRD-PARTY API',
       welcomeTitle: '今天想推进什么成果？',
       eventStreamAria: '任务事件流',
       snapshotAria: '当前任务快照',
@@ -55,7 +55,7 @@ export const catalog = {
       eventCount: (count: number) => `${count} 条真实事件`,
       noEvents: '尚未接收到运行时事件。启动本地网关后提交一个目标。',
       goalAria: '任务目标',
-      goalPlaceholder: '描述期望成果；系统会在本地生成可解释、可恢复的受控计划…',
+      goalPlaceholder: '描述期望成果；系统将通过已连接的第三方 API 生成可解释、可恢复的受控计划…',
       composerHint: 'Ctrl / ⌘ + Enter 提交。高风险动作会进入审批流。',
       submit: '开始任务',
       submitting: '提交中…',
@@ -156,12 +156,12 @@ export const catalog = {
       local: 'Local', localFirst: 'Local-first', tokens: 'tokens', processing: 'Processing…', workspace: 'Workspace', graphiteTheme: 'Graphite theme', lightTheme: 'Switch to light theme', darkTheme: 'Switch to dark theme', language: 'Language',
     },
     navigation: {
-      aria: 'Workbench navigation', brandSubtitle: 'Personal local workbench', newTask: 'New task',
+      aria: 'Workbench navigation', brandSubtitle: 'Third-party API workbench', newTask: 'New task',
       chat: { label: 'Task sessions', description: 'Controlled tasks and recovery snapshots' },
       files: { label: 'Artifacts & citations', description: 'Deliverables and knowledge sources' },
       schedule: { label: 'Scheduled tasks', description: 'Local recoverable execution' },
       settings: { label: 'Workspace settings', description: 'Local runtime preferences' },
-      workspaceMeta: 'Local-first · controlled execution',
+      workspaceMeta: 'Third-party API · controlled execution',
     },
     profile: {
       build: { label: 'Build', description: 'Implement and deliver; high-impact tools require approval' },
@@ -171,7 +171,7 @@ export const catalog = {
       selectAria: 'Select Agent Profile',
     },
     task: {
-      title: 'Task workbench', controlPlane: 'LOCAL CONTROL PLANE', initialGoal: 'Submit a goal to start a recoverable, locally controlled task.', currentCapabilities: 'Current capabilities', eventProtocol: 'Event protocol v1.0', leastPrivilege: 'Least privilege', sqliteSnapshot: 'SQLite snapshots', welcomeEyebrow: 'AI WORK OS · LOCAL-FIRST', welcomeTitle: 'What outcome will you move forward today?', eventStreamAria: 'Task event stream', snapshotAria: 'Current task snapshot', runtimeSnapshot: 'Live runtime snapshot', noTask: 'No task yet', noTaskDescription: 'SQLite-persisted task state will appear here after you submit a goal.', provenance: (count: number, untrusted: number) => `${count} input provenance summaries · ${untrusted} untrusted inputs isolated`, provenanceNote: 'Input provenance is recorded only as a digest. Untrusted content cannot directly trigger writes, network access, Shell, or browser control.', attempt: (attempt: number, nodes: number) => `Attempt ${attempt} · ${nodes} nodes`, concurrencyPeak: (count: number) => `Concurrency peak ${count}`, approveAndResume: (nodeId: string) => `Approve and resume ${nodeId}`, resume: 'Resume from snapshot', activity: 'Task activity', eventCount: (count: number) => `${count} live events`, noEvents: 'No runtime events yet. Start the local gateway and submit a goal.', goalAria: 'Task goal', goalPlaceholder: 'Describe the desired outcome; the system will create an explainable, recoverable local plan…', composerHint: 'Ctrl / ⌘ + Enter to submit. High-risk actions enter approval.', submit: 'Start task', submitting: 'Submitting…', status: { created: 'Created', running: 'Running', blocked: 'Awaiting approval', completed: 'Completed', failed: 'Failed', idle: 'Awaiting task' }, error: { connect: 'Unable to reach the local task service', resume: 'Unable to resume task', approve: 'Approval or task resume failed' },
+      title: 'Task workbench', controlPlane: 'LOCAL CONTROL PLANE', initialGoal: 'Connect a third-party API, then submit a goal to start a recoverable controlled task.', currentCapabilities: 'Current capabilities', eventProtocol: 'Event protocol v1.0', leastPrivilege: 'Least privilege', sqliteSnapshot: 'SQLite snapshots', welcomeEyebrow: 'AI WORK OS · THIRD-PARTY API', welcomeTitle: 'What outcome will you move forward today?', eventStreamAria: 'Task event stream', snapshotAria: 'Current task snapshot', runtimeSnapshot: 'Live runtime snapshot', noTask: 'No task yet', noTaskDescription: 'SQLite-persisted task state will appear here after you submit a goal.', provenance: (count: number, untrusted: number) => `${count} input provenance summaries · ${untrusted} untrusted inputs isolated`, provenanceNote: 'Input provenance is recorded only as a digest. Untrusted content cannot directly trigger writes, network access, Shell, or browser control.', attempt: (attempt: number, nodes: number) => `Attempt ${attempt} · ${nodes} nodes`, concurrencyPeak: (count: number) => `Concurrency peak ${count}`, approveAndResume: (nodeId: string) => `Approve and resume ${nodeId}`, resume: 'Resume from snapshot', activity: 'Task activity', eventCount: (count: number) => `${count} live events`, noEvents: 'No runtime events yet. Start the local gateway and submit a goal.', goalAria: 'Task goal', goalPlaceholder: 'Describe the desired outcome; the connected third-party API will produce an explainable, recoverable controlled plan…', composerHint: 'Ctrl / ⌘ + Enter to submit. High-risk actions enter approval.', submit: 'Start task', submitting: 'Submitting…', status: { created: 'Created', running: 'Running', blocked: 'Awaiting approval', completed: 'Completed', failed: 'Failed', idle: 'Awaiting task' }, error: { connect: 'Unable to reach the local task service', resume: 'Unable to resume task', approve: 'Approval or task resume failed' },
     },
     insights: {
       aria: 'Control plane insights',
