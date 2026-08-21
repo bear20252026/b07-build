@@ -1,26 +1,20 @@
 import type { WorkbenchPage } from './workbench-page';
 
-export type WorkbenchSurface = 'chat-home' | 'task-workbench' | 'settings';
+export type WorkbenchSurface = 'chat-home' | 'task-page' | 'settings';
 
 export interface ResolveWorkbenchSurfaceInput {
   activePage: WorkbenchPage;
   hasTaskSnapshot: boolean;
-  taskFileCount: number;
-  deliveryCount: number;
 }
 
 /**
- * P20 的页面职责判定。
+ * P22 的页面职责判定。
  *
- * Settings 由显式页面意图唯一决定。聊天页只有在已存在受控 task/run 或 task/run 专属成果时
- * 才扩展为任务工作台并显示 Inspector；这避免无任务首屏预先展示空文件系统或运维面板。
+ * 聊天首页始终是轻量任务入口；任务详情必须由显式 `task` 页面意图和已有 task/run 同时决定。
+ * 设置由其它显式页面意图唯一决定。该纯函数不读取 Gateway、文件或持久化状态。
  */
-export function resolveWorkbenchSurface({
-  activePage,
-  hasTaskSnapshot,
-  taskFileCount,
-  deliveryCount,
-}: ResolveWorkbenchSurfaceInput): WorkbenchSurface {
-  if (activePage !== 'workspace') return 'settings';
-  return hasTaskSnapshot || taskFileCount > 0 || deliveryCount > 0 ? 'task-workbench' : 'chat-home';
+export function resolveWorkbenchSurface({ activePage, hasTaskSnapshot }: ResolveWorkbenchSurfaceInput): WorkbenchSurface {
+  if (activePage === 'workspace') return 'chat-home';
+  if (activePage === 'task' && hasTaskSnapshot) return 'task-page';
+  return 'settings';
 }

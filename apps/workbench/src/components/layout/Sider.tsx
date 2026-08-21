@@ -50,6 +50,7 @@ const SETTINGS_NAV: readonly { group: string; items: readonly NavItem[] }[] = [
 
 export interface SiderProps {
   activePage: WorkbenchPage;
+  hasActiveTask: boolean;
   theme: 'light' | 'dark';
   onThemeToggle(): void;
   onNewTask(): void;
@@ -75,11 +76,14 @@ function NavigationItem({ activePage, item, onNavigate }: { activePage: Workbenc
  * 参考 AionUi 的两态侧栏：主工作区只承载任务入口，设置状态替换为二级设置导航。
  * 这仅改变阅读与跳转层级；所有 Gateway 请求仍必须由用户明确点击的页面动作触发。
  */
-export function Sider({ activePage, theme, onThemeToggle, onNewTask, onNavigate }: SiderProps) {
+export function Sider({ activePage, hasActiveTask, theme, onThemeToggle, onNewTask, onNavigate }: SiderProps) {
   const { locale, messages, setLocale } = useLocale();
   const [companionId, setCompanionId] = useState<Companion['id']>('orbit');
   const nextLocale = locale === 'zh-CN' ? 'en' : 'zh-CN';
-  const isSettings = activePage !== 'workspace';
+  const isSettings = activePage !== 'workspace' && activePage !== 'task';
+  const workspaceNav = hasActiveTask
+    ? [...WORKSPACE_NAV, { key: 'task' as const, icon: '▣', label: '当前任务', description: '类型化任务页面与受控成果' }]
+    : WORKSPACE_NAV;
   const companion = COMPANIONS.find((item) => item.id === companionId) ?? COMPANIONS[0];
 
   return (
@@ -104,7 +108,7 @@ export function Sider({ activePage, theme, onThemeToggle, onNewTask, onNavigate 
         <>
           <button className="sider-new-task" onClick={onNewTask} type="button"><span aria-hidden="true">＋</span> {messages.navigation.newTask}</button>
           <div className="sider-section-label">{messages.common.workspace}</div>
-          <div className="sider-nav">{WORKSPACE_NAV.map((item) => <NavigationItem activePage={activePage} item={item} key={item.key} onNavigate={onNavigate} />)}</div>
+          <div className="sider-nav">{workspaceNav.map((item) => <NavigationItem activePage={activePage} item={item} key={item.key} onNavigate={onNavigate} />)}</div>
         </>
       )}
       <div className="sider-spacer" />

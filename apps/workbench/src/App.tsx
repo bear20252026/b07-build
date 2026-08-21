@@ -22,6 +22,7 @@ import { WORKBENCH_PROFILE_IDS } from './components/workspace/agent-profiles';
 import { LocalDataFlowBoard } from './components/workspace/LocalDataFlowBoard';
 import { TaskStoryboard } from './components/workspace/TaskStoryboard';
 import { TaskOutcomeBoard } from './components/workspace/TaskOutcomeBoard';
+import { TaskPage } from './components/workspace/TaskPage';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
 import {
@@ -140,12 +141,12 @@ export function App() {
   const { messages } = useLocale();
   const profiles = profileUi(messages);
   const profile = profiles[activeProfile];
-  const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, models: '模型连接', connections: '已连接模型', operations: '运行记录', capabilities: '扩展与能力', security: '安全与系统' };
+  const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, task: '当前任务', models: '模型连接', connections: '已连接模型', operations: '运行记录', capabilities: '扩展与能力', security: '安全与系统' };
   const blockedNodeId = snapshot && Object.entries(snapshot.nodeOutcomes).find(([, outcome]) => outcome === 'blocked')?.[0];
   const provenance = snapshot?.inputProvenance ?? [];
   const untrustedInputCount = provenance.filter((input) => input.trust === 'external-untrusted' || input.trust === 'derived-untrusted').length;
-  const workbenchSurface = resolveWorkbenchSurface({ activePage, hasTaskSnapshot: Boolean(snapshot), taskFileCount: taskFiles.length, deliveryCount: deliveries.length });
-  const isTaskWorkbench = workbenchSurface === 'task-workbench';
+  const workbenchSurface = resolveWorkbenchSurface({ activePage, hasTaskSnapshot: Boolean(snapshot) });
+  const isTaskPage = workbenchSurface === 'task-page';
 
   useEffect(() => {
     if (!gatewayAttached) return;
@@ -358,6 +359,7 @@ export function App() {
       await hydrate(nextSnapshot);
       setActiveGoal(goal);
       setDraft('');
+      setActivePage('task');
     } catch (error) {
       setServiceError(error instanceof Error ? error.message : messages.task.error.connect);
     } finally {
@@ -435,9 +437,10 @@ export function App() {
   };
 
   return (
-    <div className={`workbench-shell ${isTaskWorkbench ? 'with-preview' : 'focus-page'} theme-${theme}`}>
+    <div className={`workbench-shell ${isTaskPage ? 'with-preview' : 'focus-page'} theme-${theme}`}>
       <Sider
         activePage={activePage}
+        hasActiveTask={Boolean(snapshot)}
         onNavigate={setActivePage}
         onNewTask={() => { setActivePage('workspace'); focusTaskComposer(); }}
         onThemeToggle={() => setTheme((current) => current === 'light' ? 'dark' : 'light')}
@@ -453,7 +456,7 @@ export function App() {
             {activePage !== 'models' && <button className={`gateway-attach-button${gatewayAttached ? ' attached' : ''}`} type="button" onClick={gatewayAttached ? detachGateway : startAndAttachGateway} disabled={attachingGateway}>
               {attachingGateway ? '正在启动并附着…' : gatewayAttached ? '断开本机 Gateway' : '启动并附着 Gateway'}
             </button>}
-            {isTaskWorkbench && <><div className="profile-switcher" aria-label={messages.profile.selectAria}>
+            {isTaskPage && <><div className="profile-switcher" aria-label={messages.profile.selectAria}>
               {WORKBENCH_PROFILE_IDS.map((profileId) => (
                 <button
                   className={`agent-chip${activeProfile === profileId ? ' active' : ''}`}
@@ -473,7 +476,21 @@ export function App() {
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
             {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} connectedProviderCount={providerConnections?.length ?? 0} gatewayAttached={gatewayAttached} messages={messages} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} profiles={profiles} />}
-            {isTaskWorkbench && <>
+            {isTaskPage && snapshot && <TaskPage
+              activeGoal={activeGoal}
+              authorityLabel={messages.authority.mode[snapshot.authorityMode ?? authorityMode].label}
+              blockedNodeId={blockedNodeId}
+              deliveryCount={deliveries.length}
+              eventCount={events.length}
+              onApproveAndResume={approveAndResume}
+              onBackToChat={() => setActivePage('workspace')}
+              onOpenInspector={focusTaskInspector}
+              onResume={resume}
+              pending={pending}
+              profileLabel={profiles[snapshot.profileId].label}
+              snapshot={snapshot}
+              taskFileCount={taskFiles.length}
+            >
             <div className="welcome-card">
               <div className="welcome-eyebrow">{messages.task.welcomeEyebrow}</div>
               <h1>{messages.task.welcomeTitle}</h1>
@@ -498,13 +515,7 @@ export function App() {
               <div><div className="snapshot-eyebrow">{messages.task.runtimeSnapshot}</div><strong>{snapshot ? statusLabel(snapshot.status, messages) : messages.task.noTask}</strong><span>{snapshot ? `${messages.task.attempt(snapshot.attempt, Object.keys(snapshot.nodeOutcomes).length)} · ${messages.authority.mode[snapshot.authorityMode ?? 'review'].label}` : messages.task.noTaskDescription}</span>{snapshot && <span className={`provenance-status${untrustedInputCount > 0 ? ' tainted' : ''}`}>{messages.task.provenance(provenance.length, untrustedInputCount)}</span>}{snapshot && untrustedInputCount > 0 && <span className="provenance-note">{messages.task.provenanceNote}</span>}</div>
               {snapshot && <div className="snapshot-actions">{snapshot.status === 'blocked' && blockedNodeId && <button className="snapshot-primary" disabled={pending} onClick={approveAndResume} type="button">{pending ? messages.common.processing : messages.task.approveAndResume(blockedNodeId)}</button>}{(snapshot.status === 'blocked' || snapshot.status === 'failed') && <button className="snapshot-secondary" disabled={pending} onClick={resume} type="button">{messages.task.resume}</button>}</div>}
             </section>
-            </>}
-            {activePage === 'models' && <ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerConnections : []} error={providerConnectionError} pendingProviderId={pendingProviderId} onAttach={startAndAttachGateway} onDetach={detachGateway} onConfigure={configureProviderSession} onConfigureCustom={configureCustomProviderSession} onManageConnections={() => setActivePage('connections')} />}
-            {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查看状态、手动测试模型目录或发送一次受限文本请求；不会自动调用第三方 API。</p></div><ProviderConnectionCenter connections={gatewayAttached ? providerConnections : []} probes={providerConnectionProbes} inferences={providerInferences} error={providerConnectionError} pendingProviderId={pendingProviderId} onRefresh={refreshProviderConnections} onRegister={registerProviderConnection} onActivate={activateProviderConnection} onProbe={probeProviderConnection} onInfer={inferProviderConnection} /></section>}
-            {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /></section>}
-            {activePage === 'capabilities' && <section className="page-stack"><div className="page-heading"><span>EXTENSIONS & CAPABILITIES</span><h1>扩展与能力</h1><p>按需读取扩展、本地模型与控制面摘要；此页不会启动模型、修改 Provider 或读取密钥。</p></div><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /></section>}
-            {activePage === 'security' && <section className="page-stack"><div className="page-heading"><span>SECURITY & SYSTEM</span><h1>安全与系统</h1><p>所有项目均为只读证据与审计摘要；此页不能自动修复、信任或执行。</p></div><SecurityPostureAuditBoard error={securityPostureAuditError} messages={messages} report={securityPostureAudit} /><ComponentLockBoard error={componentLockReportError} messages={messages} report={componentLockReport} /><ComponentManagementReceiptBoard error={componentManagementReportError} messages={messages} report={componentManagementReport} /><NativeHostAuthenticationBoard error={nativeHostAuthenticationReportError} messages={messages} report={nativeHostAuthenticationReport} /><WindowsNativeReleaseBoard error={windowsNativeReleaseReportError} messages={messages} report={windowsNativeReleaseReport} /></section>}
-            {isTaskWorkbench && <section className="event-section">
+            <section className="event-section">
               <div className="section-heading">
                 <span>{messages.task.activity}</span>
                 <span className="event-count">{messages.task.eventCount(events.length)}</span>
@@ -524,7 +535,13 @@ export function App() {
                   );
                 })}
               </div>
-            </section>}
+            </section>
+            </TaskPage>}
+            {activePage === 'models' && <ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerConnections : []} error={providerConnectionError} pendingProviderId={pendingProviderId} onAttach={startAndAttachGateway} onDetach={detachGateway} onConfigure={configureProviderSession} onConfigureCustom={configureCustomProviderSession} onManageConnections={() => setActivePage('connections')} />}
+            {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查看状态、手动测试模型目录或发送一次受限文本请求；不会自动调用第三方 API。</p></div><ProviderConnectionCenter connections={gatewayAttached ? providerConnections : []} probes={providerConnectionProbes} inferences={providerInferences} error={providerConnectionError} pendingProviderId={pendingProviderId} onRefresh={refreshProviderConnections} onRegister={registerProviderConnection} onActivate={activateProviderConnection} onProbe={probeProviderConnection} onInfer={inferProviderConnection} /></section>}
+            {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /></section>}
+            {activePage === 'capabilities' && <section className="page-stack"><div className="page-heading"><span>EXTENSIONS & CAPABILITIES</span><h1>扩展与能力</h1><p>按需读取扩展、本地模型与控制面摘要；此页不会启动模型、修改 Provider 或读取密钥。</p></div><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /></section>}
+            {activePage === 'security' && <section className="page-stack"><div className="page-heading"><span>SECURITY & SYSTEM</span><h1>安全与系统</h1><p>所有项目均为只读证据与审计摘要；此页不能自动修复、信任或执行。</p></div><SecurityPostureAuditBoard error={securityPostureAuditError} messages={messages} report={securityPostureAudit} /><ComponentLockBoard error={componentLockReportError} messages={messages} report={componentLockReport} /><ComponentManagementReceiptBoard error={componentManagementReportError} messages={messages} report={componentManagementReport} /><NativeHostAuthenticationBoard error={nativeHostAuthenticationReportError} messages={messages} report={nativeHostAuthenticationReport} /><WindowsNativeReleaseBoard error={windowsNativeReleaseReportError} messages={messages} report={windowsNativeReleaseReport} /></section>}
           </div>
         </section>
         {activePage === 'workspace' && <div className="task-composer">
@@ -554,7 +571,7 @@ export function App() {
           </div>
         </div>}
       </main>
-      {isTaskWorkbench && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={loadTaskFilePreview} onFileDiff={loadTaskFileDiff} onCreateDelivery={createTaskDelivery} deliveryDownloadUrl={taskDeliveryDownloadUrl} />}
+      {isTaskPage && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={loadTaskFilePreview} onFileDiff={loadTaskFileDiff} onCreateDelivery={createTaskDelivery} deliveryDownloadUrl={taskDeliveryDownloadUrl} />}
     </div>
   );
 }
