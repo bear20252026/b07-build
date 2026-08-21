@@ -1,3 +1,8 @@
+import { useState } from 'react';
+import orbitCompanion from '../../assets/companions/orbit.png';
+import moriCompanion from '../../assets/companions/mori.png';
+import pixelCompanion from '../../assets/companions/pixel.png';
+import sageCompanion from '../../assets/companions/sage.png';
 import { useLocale } from '../../i18n/LocaleProvider';
 
 /** 工作区与设置页均是显式前端意图；不授予 Gateway、文件或执行权限。 */
@@ -8,6 +13,16 @@ type NavItem = { key: WorkbenchPage; icon: string; label: string; description: s
 const WORKSPACE_NAV: readonly NavItem[] = [
   { key: 'workspace', icon: '◌', label: '工作区', description: '任务对话、当前状态与交付预览' },
   { key: 'models', icon: '◇', label: '模型连接', description: '设置第三方 API 并开始对话' },
+];
+
+type Companion = { id: 'orbit' | 'mori' | 'pixel' | 'sage'; name: string; role: string; image: string };
+
+/** 原创本地静态角色：只改变 Workbench 阅读体验，不驱动模型、Profile、工具或权限。 */
+const COMPANIONS: readonly Companion[] = [
+  { id: 'orbit', name: 'Orbit', role: '实现与交付', image: orbitCompanion },
+  { id: 'mori', name: 'Mori', role: '分析与规划', image: moriCompanion },
+  { id: 'pixel', name: 'Pixel', role: '快速探索', image: pixelCompanion },
+  { id: 'sage', name: 'Sage', role: '隔离阅读', image: sageCompanion },
 ];
 
 const SETTINGS_NAV: readonly { group: string; items: readonly NavItem[] }[] = [
@@ -62,8 +77,10 @@ function NavigationItem({ activePage, item, onNavigate }: { activePage: Workbenc
  */
 export function Sider({ activePage, theme, onThemeToggle, onNewTask, onNavigate }: SiderProps) {
   const { locale, messages, setLocale } = useLocale();
+  const [companionId, setCompanionId] = useState<Companion['id']>('orbit');
   const nextLocale = locale === 'zh-CN' ? 'en' : 'zh-CN';
   const isSettings = activePage !== 'workspace';
+  const companion = COMPANIONS.find((item) => item.id === companionId) ?? COMPANIONS[0];
 
   return (
     <nav className={`sider${isSettings ? ' settings-mode' : ''}`} aria-label={messages.navigation.aria}>
@@ -91,6 +108,15 @@ export function Sider({ activePage, theme, onThemeToggle, onNewTask, onNavigate 
         </>
       )}
       <div className="sider-spacer" />
+      {!isSettings && <section className="companion-card" aria-label="当前 Agent 小玩偶">
+        <div className="companion-current">
+          <img alt={`${companion.name}，${companion.role}`} className="companion-portrait" src={companion.image} />
+          <div><span>当前助手</span><strong>{companion.name}</strong><small>{companion.role}</small></div>
+        </div>
+        <div aria-label="选择 Agent 小玩偶风格" className="companion-picker" role="group">
+          {COMPANIONS.map((item) => <button aria-label={`选择 ${item.name}：${item.role}`} aria-pressed={item.id === companion.id} className={`companion-choice${item.id === companion.id ? ' active' : ''}`} key={item.id} onClick={() => setCompanionId(item.id)} type="button"><img alt="" src={item.image} /></button>)}
+        </div>
+      </section>}
       <div className="sider-workspace"><div className="sider-workspace-indicator" aria-hidden="true" /><div><div className="sider-workspace-name">b07-build</div><div className="sider-workspace-meta">{isSettings ? '设置不会中断当前任务' : messages.navigation.workspaceMeta}</div></div></div>
       <div className="sider-footer">
         <button className="sider-settings-entry" onClick={() => onNavigate(isSettings ? 'workspace' : 'models')} type="button">{isSettings ? '返回对话' : '打开设置'}</button>
