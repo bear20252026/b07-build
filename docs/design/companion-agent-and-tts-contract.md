@@ -43,3 +43,9 @@ AIRI 在 MIT 许可下提供 3D VRM / Live2D 状态、自动眨眼、注视与�
 [2] [MiMo — OpenAI Chat Completions compatibility](https://mimo.mi.com/docs/en-US/api/chat/openai-api)
 
 [3] [Project AIRI README](https://github.com/moeru-ai/airi)
+
+## MiMo TTS 认证与免费条件复核（2026-08-22）
+
+小米 MiMo V2.5 TTS 官方文档在准备工作中要求获取 API Key，示例使用 `MIMO_API_KEY` 和 `https://api.xiaomimimo.com/v1`。该文档的计费说明同时标注为“限时免费”。因此，Companion 的独立 MiMo TTS 档案在当前活动期内可以产生零费用调用，但**免费不等于免认证**：它仍必须作为独立 Provider 会话连接保存，密钥只存在 Gateway 进程内存，关闭 Gateway 后失效。
+
+独立档案应命名为 `companion-mimo-tts`。它和普通 Chat 连接共用已审核 MiMo Provider，却使用独立的用途标记与固定模型 `mimo-v2.5-tts`；它只接受用户明确点击的单段试听文本，只返回一次性音频投影，且不得继承普通任务对话历史、工具调用或执行权限。预置音色无需额外配置；音色设计和音色复刻会涉及人设提示或用户音频样本，必须另行建立数据处理与授权流程，不能默认启用。

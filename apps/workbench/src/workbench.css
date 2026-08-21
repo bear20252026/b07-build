@@ -1077,3 +1077,35 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 @media (max-width: 760px) { .companion-tts-preview { grid-template-columns: 1fr; }.companion-tts-preview > div { grid-row: auto; }.companion-tts-preview > small, .companion-tts-preview > p[role='status'] { grid-column: auto; } }
 .companion-studio-summary { display: grid; grid-template-columns: minmax(180px, .78fr) minmax(0, 1.22fr); gap: 18px; margin-top: 14px; padding: 18px; border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border)); border-radius: 20px; background: linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 48%, var(--panel)), var(--panel)); box-shadow: var(--shadow-soft); }.companion-studio-summary h2 { margin: 4px 0; font-size: 18px; letter-spacing: -.035em; }.companion-studio-summary p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }.companion-studio-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-content: start; }.companion-studio-summary-grid button, .companion-card-grid button { min-height: 74px; padding: 11px; text-align: left; color: var(--text-strong); border: 1px solid var(--border); border-radius: 13px; background: color-mix(in srgb, var(--panel) 88%, transparent); transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }.companion-studio-summary-grid button:hover, .companion-card-grid button:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); box-shadow: var(--shadow-soft); }.companion-studio-summary-grid strong, .companion-card-grid strong { display: block; font-size: 11px; }.companion-studio-summary-grid small, .companion-card-grid small { display: block; margin-top: 5px; color: var(--muted); font-size: 9px; }.companion-studio-page .page-heading { margin-bottom: 4px; }.companion-studio-list { display: grid; gap: 10px; }.companion-studio-list article { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow-soft); }.companion-studio-list h2 { margin: 0; font-size: 14px; letter-spacing: -.025em; }.companion-studio-list p { margin: 4px 0; color: var(--muted); font-size: 10px; line-height: 1.45; }.companion-studio-list small { color: var(--muted-strong); font-size: 9px; }.companion-module-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }.companion-module-list article { min-height: 92px; }.companion-card-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }.companion-card-grid button { min-height: 118px; background: linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 36%, var(--panel)), var(--panel)); }.companion-card-grid button span { display: block; margin-bottom: 14px; color: var(--muted); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }.companion-card-grid button.active { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent), var(--shadow-soft); }.companion-card-grid button.active small { color: var(--accent); }
 @media (max-width: 760px) { .companion-studio-summary { grid-template-columns: 1fr; }.companion-studio-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.companion-module-list, .companion-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.companion-studio-list article { align-items: flex-start; flex-direction: column; }.companion-studio-list .companion-switch { align-self: stretch; justify-content: space-between; } }
+/* Companion 首屏优先：默认控制页在常规桌面窗口中无需纵向滚动即可审查主要状态。 */
+.settings-overlay { inset: 8px; grid-template-columns: 196px minmax(0, 1fr); border-radius: 18px; }
+.settings-overlay-sidebar { padding: 14px 10px; }
+.settings-overlay-titlebar { min-height: 64px; padding: 12px 18px; }
+.settings-overlay-titlebar h1 { margin: 1px 0; font-size: 18px; }
+.settings-overlay-titlebar p { display: none; }
+.settings-overlay-content { padding: 14px 18px 18px; }
+.companion-control-page { display: grid; grid-template-columns: minmax(0, 1.03fr) minmax(260px, .97fr); gap: 9px; align-content: start; }
+.companion-control-page .companion-page-heading { grid-column: 1 / -1; margin: 0; min-height: 42px; }
+.companion-control-page .companion-page-heading p { display: none; }
+.companion-control-page .companion-page-heading h1 { font-size: 19px; }
+.companion-control-hero { grid-column: 1 / -1; min-height: 68px; padding: 11px 14px; }
+.companion-control-hero h2 { margin: 2px 0; font-size: 15px; }
+.companion-control-hero p { margin: 0; font-size: 10px; line-height: 1.35; }
+.companion-visual-settings, .companion-voice-settings, .companion-restricted-capabilities { min-height: 164px; padding: 13px; gap: 10px; }
+.companion-visual-settings { grid-column: 1; grid-row: 3; }
+.companion-voice-settings { grid-column: 2; grid-row: 3; }
+.companion-restricted-capabilities { grid-column: 1 / -1; grid-row: 4; min-height: 108px; grid-template-columns: 130px minmax(0, 1fr); }
+.companion-visual-settings h2, .companion-voice-settings h2, .companion-restricted-capabilities h2 { margin: 2px 0; font-size: 13px; }
+.companion-visual-settings p, .companion-voice-settings p, .companion-restricted-capabilities p { margin: 0; font-size: 9px; line-height: 1.35; }
+.companion-mode-options { gap: 6px; }
+.companion-mode-options button { min-height: 72px; padding: 8px; }
+.companion-mode-options button small { line-height: 1.2; }
+.companion-permission-list { gap: 6px; }
+.companion-permission-list label { min-height: 44px; padding: 8px; }
+.companion-permission-list small { display: none; }
+.companion-restricted-capabilities > div:last-child { gap: 6px; }
+.companion-restricted-capabilities article { min-height: 42px; padding: 7px 8px; }
+.companion-restricted-capabilities article small { display: none; }
+.companion-tts-preview { grid-column: 1 / -1; }
+@media (max-width: 920px) { .settings-overlay { grid-template-columns: 176px minmax(0, 1fr); } .companion-control-page { grid-template-columns: 1fr; } .companion-visual-settings, .companion-voice-settings, .companion-restricted-capabilities { grid-column: 1; grid-row: auto; } .companion-restricted-capabilities { grid-template-columns: 1fr; } }
+@media (max-height: 700px) and (min-width: 921px) { .settings-overlay { inset: 4px; } .settings-overlay-titlebar { min-height: 52px; padding-block: 8px; } .companion-control-page { gap: 6px; } .companion-control-hero { min-height: 56px; } .companion-visual-settings, .companion-voice-settings { min-height: 138px; } .companion-restricted-capabilities { min-height: 86px; } }
