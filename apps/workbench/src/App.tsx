@@ -3,6 +3,8 @@ import './components/observability/GatewayAttachment.css';
 import { invoke } from '@tauri-apps/api/core';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider, type WorkbenchPage } from './components/layout/Sider';
+import { CommandPalette } from './components/layout/CommandPalette';
+import { createWorkbenchCommandCatalog, type WorkbenchCommand } from './components/layout/command-catalog';
 import { resolveWorkbenchSurface } from './components/layout/workbench-surface';
 import { ControlPlaneDiagnosticsBoard } from './components/observability/ControlPlaneDiagnosticsBoard';
 import { ComponentLockBoard } from './components/observability/ComponentLockBoard';
@@ -147,6 +149,7 @@ export function App() {
   const untrustedInputCount = provenance.filter((input) => input.trust === 'external-untrusted' || input.trust === 'derived-untrusted').length;
   const workbenchSurface = resolveWorkbenchSurface({ activePage, hasTaskSnapshot: Boolean(snapshot) });
   const isTaskPage = workbenchSurface === 'task-page';
+  const commandCatalog = createWorkbenchCommandCatalog({ hasActiveTask: Boolean(snapshot) });
 
   useEffect(() => {
     if (!gatewayAttached) return;
@@ -436,6 +439,23 @@ export function App() {
     focusTaskComposer();
   };
 
+  const executeCommand = (command: WorkbenchCommand): void => {
+    switch (command.action.kind) {
+      case 'navigate':
+        setActivePage(command.action.page);
+        return;
+      case 'focus-task-composer':
+        setActivePage('workspace');
+        focusTaskComposer();
+        return;
+      case 'focus-task-inspector':
+        if (!snapshot) return;
+        setActivePage('task');
+        window.setTimeout(focusTaskInspector, 0);
+        return;
+    }
+  };
+
   return (
     <div className={`workbench-shell ${isTaskPage ? 'with-preview' : 'focus-page'} theme-${theme}`}>
       <Sider
@@ -453,6 +473,7 @@ export function App() {
             <div className="titlebar-title">{pageTitle[activePage]}</div>
           </div>
           <div className="titlebar-actions">
+            <CommandPalette commands={commandCatalog} onExecute={executeCommand} />
             {activePage !== 'models' && <button className={`gateway-attach-button${gatewayAttached ? ' attached' : ''}`} type="button" onClick={gatewayAttached ? detachGateway : startAndAttachGateway} disabled={attachingGateway}>
               {attachingGateway ? '正在启动并附着…' : gatewayAttached ? '断开本机 Gateway' : '启动并附着 Gateway'}
             </button>}
