@@ -50,7 +50,7 @@ import {
   EnvironmentCredentialResolver,
   SessionCredentialResolver,
   LocalModelHealthRegistry,
-  ProviderConnectionService,
+  MimoTtsService, ProviderConnectionService,
   ProviderInferenceService,
   ProviderProfileRegistry,
   SqliteProviderProfileStore, SessionCustomProviderService,
@@ -66,8 +66,7 @@ import { createTaskFileWorkspaceComposition } from './task-file-workspace-compos
 import { createTaskRuntimeComposition } from './task-runtime-composition.js';
 import { createBrowserSessionComposition } from './browser-session-composition.js';
 import { handleGatewayRequest } from './http/router.js';
-const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318);
-const DEFAULT_KNOWLEDGE_WORKSPACE_ID = 'default-local';
+const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318); const DEFAULT_KNOWLEDGE_WORKSPACE_ID = 'default-local';
 const BASELINE_RULES: readonly CapabilityPolicyRule[] = [
   { capability: 'document.parse', decision: 'allow', reason: '本地任务模板允许文档解析' },
   { capability: 'model.chat', decision: 'allow', reason: '本地任务模板允许受控模型推理' },
@@ -131,6 +130,7 @@ export function createGatewayComposition(): GatewayComposition {
   const providerCredentials = new SessionCredentialResolver(new EnvironmentCredentialResolver((name) => process.env[name]));
   const providerConnections = new ProviderConnectionService(BUILT_IN_PROVIDER_CATALOG, providerProfiles, providerCredentials);
   const providerInference = new ProviderInferenceService(BUILT_IN_PROVIDER_CATALOG, providerProfiles, providerCredentials);
+  const mimoTts = new MimoTtsService(BUILT_IN_PROVIDER_CATALOG, providerProfiles, providerCredentials);
   const customProviders = new SessionCustomProviderService(providerCredentials);
   const localModelHealth = new LocalModelHealthRegistry();
   const skillPackStore = new SqliteSkillPackStore(skillPackPath);
@@ -235,7 +235,7 @@ export function createGatewayComposition(): GatewayComposition {
   return {
     dependencies: {
       ...taskRuntime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
-      extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, customProviders, apiUsage, browserSessions, localModelHealth, knowledgeWorkspaces, knowledgeImports, agencyRoles, skillPacks,
+      extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, mimoTts, customProviders, apiUsage, browserSessions, localModelHealth, knowledgeWorkspaces, knowledgeImports, agencyRoles, skillPacks,
       agentAdapters, schedules, runTrajectory, runWorkspace, taskFiles, projects, administratorLeases, trustedDesktopIssuers,
       controlPlaneDiagnostics: () => createControlPlaneDiagnosticReport({
         extensions: extensionRegistry,

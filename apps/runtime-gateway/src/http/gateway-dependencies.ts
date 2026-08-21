@@ -20,7 +20,7 @@ import type {
   TrustedDesktopIssuerRegistry,
 } from '@awo/agent-runtime';
 import type { AgencyRoleCatalog, KnowledgeImportSessionRegistry, KnowledgeWorkspaceService, SkillPackRegistry } from '@awo/knowledge-workflow';
-import type { LocalModelHealthRegistry, ProviderConnectionService, ProviderInferenceService, ProviderProfileRegistry, SessionCustomProviderService } from '@awo/provider-sdk';
+import type { LocalModelHealthRegistry, MimoTtsService, ProviderConnectionService, ProviderInferenceService, ProviderProfileRegistry, SessionCustomProviderService } from '@awo/provider-sdk';
 import type { InputProvenanceV1, TaskEvent } from '@awo/protocol';
 import type { ControlPlaneDiagnosticReportV1 } from '../control-plane-diagnostics.js';
 import type { SecurityPostureReportV1 } from '@awo/agent-runtime';
@@ -46,6 +46,8 @@ export interface GatewayDependencies {
   readonly providerInference: ProviderInferenceService;
   /** 已完成 Provider 推理的本机、脱敏用量账本；不记录输入、输出、key 或端点。 */
   readonly apiUsage: ApiUsageLedger;
+  /** 仅供本地操作者一次性试听 MiMo 预置音色；不读取对话历史、不持久化音频或秘密。 */
+  readonly mimoTts: MimoTtsService;
   /** 浏览会话只记录授权、暂停、结束与脱敏范围摘要；它不创建浏览器或执行网页/桌面动作。 */
   readonly browserSessions: BrowserSessionControlPlane;
   /** custom 连接只存在当前 Gateway 进程；route 无法读取其 endpoint、header 或密钥。 */

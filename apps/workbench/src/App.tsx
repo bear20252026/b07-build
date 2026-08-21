@@ -15,6 +15,7 @@ import { LocalModelHealthBoard } from './components/observability/LocalModelHeal
 import { ApiUsageAuditPage, ApiUsageSummaryCard } from './components/observability/ApiUsageBoards';
 import { AgencyRoleCatalogPage } from './components/observability/AgencyRoleCatalogPage';
 import { BrowserSessionControlPage, BrowserSessionSummaryCard } from './components/observability/BrowserSessionControlPanel';
+import { CompanionControlPage, CompanionSummaryCard } from './components/observability/CompanionControlPanel';
 import { KnowledgeImportPanel } from './components/observability/KnowledgeImportPanel';
 import { ProviderSetupPage } from './components/settings/ProviderSetupPage';
 import { ProviderConnectionCenter } from './components/observability/ProviderConnectionCenter';
@@ -49,6 +50,7 @@ import { createProjectClient } from './runtime/project-client';
 import { useProjectWorkspace } from './runtime/use-project-workspace';
 import { useProviderControlPlane } from './runtime/use-provider-control-plane';
 import { useTaskExecution } from './runtime/use-task-execution';
+import { loadCompanionPreferences, saveCompanionPreferences, updateCompanionPreferences } from './runtime/companion-preferences';
 
 const localGatewayClient = HttpWorkbenchTaskClient.forLocalGateway();
 const localProjectClient = createProjectClient('http://127.0.0.1:4318');
@@ -135,6 +137,7 @@ export function App() {
   const [activeGoal, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
   const [authorityMode, setAuthorityMode] = useState<WorkbenchAuthorityMode>('review');
+  const [companionPreferences, setCompanionPreferences] = useState(() => loadCompanionPreferences());
   const { messages } = useLocale();
   const taskExecution = useTaskExecution(gatewayAttached, {
     gatewayRequired: '请先显式附着本机 Gateway；桌面应用不会自动启动或连接服务。',
@@ -147,7 +150,12 @@ export function App() {
   const providerControl = useProviderControlPlane(gatewayAttached, gatewayErrorText, localGatewayClient);
   const profiles = profileUi(messages);
   const profile = profiles[activeProfile];
-  const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, projects: '项目', task: '当前任务', models: '模型连接', connections: '已连接模型', operations: '运行记录', 'api-usage': 'API 使用审计', capabilities: '扩展与能力', 'agency-roles': '预置专业角色', 'browser-sessions': '浏览会话控制', security: '安全与系统' };
+  const updateCompanion = (change: Parameters<typeof updateCompanionPreferences>[1]): void => setCompanionPreferences((current) => {
+    const next = updateCompanionPreferences(current, change);
+    saveCompanionPreferences(next);
+    return next;
+  });
+  const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, projects: '项目', task: '当前任务', models: '模型连接', connections: '已连接模型', operations: '运行记录', 'api-usage': 'API 使用审计', capabilities: '扩展与能力', 'agency-roles': '预置专业角色', 'browser-sessions': '浏览会话控制', companion: 'Companion Agent', security: '安全与系统' };
   const blockedNodeId = snapshot && Object.entries(snapshot.nodeOutcomes).find(([, outcome]) => outcome === 'blocked')?.[0];
   const provenance = snapshot?.inputProvenance ?? [];
   const untrustedInputCount = provenance.filter((input) => input.trust === 'external-untrusted' || input.trust === 'derived-untrusted').length;
@@ -271,9 +279,10 @@ export function App() {
     {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查看状态、手动测试模型目录或发送一次受限文本请求；不会自动调用第三方 API。</p></div><ProviderConnectionCenter connections={gatewayAttached ? providerControl.connections : []} probes={providerControl.probes} inferences={providerControl.inferences} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onRefresh={providerControl.refresh} onRegister={providerControl.register} onActivate={providerControl.activate} onProbe={providerControl.probe} onInfer={providerControl.infer} /></section>}
     {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><ApiUsageSummaryCard gatewayAttached={gatewayAttached} onOpen={() => setActivePage('api-usage')} /><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /></section>}
     {activePage === 'api-usage' && <ApiUsageAuditPage gatewayAttached={gatewayAttached} onBack={() => setActivePage('operations')} />}
-    {activePage === 'capabilities' && <section className="page-stack"><div className="page-heading"><span>EXTENSIONS & CAPABILITIES</span><h1>扩展与能力</h1><p>按需读取扩展、本地模型与控制面摘要；此页不会启动模型、修改 Provider 或读取密钥。</p></div><BrowserSessionSummaryCard gatewayAttached={gatewayAttached} onOpen={() => setActivePage('browser-sessions')} /><section className="agency-role-entry"><div><span className="panel-eyebrow">LICENSED ROLE CATALOG</span><h2>预置专业角色</h2><p>浏览带 MIT 归因的专业角色，并仅在你明确操作后将某个角色添加为待审查的 Skill Pack 候选。</p></div><button title="进入三级角色目录，查看来源、版权、角色原文和候选添加动作。" onClick={() => setActivePage('agency-roles')} type="button">浏览角色目录 →</button></section><KnowledgeImportPanel gatewayAttached={gatewayAttached} /><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /></section>}
+    {activePage === 'capabilities' && <section className="page-stack"><div className="page-heading"><span>EXTENSIONS & CAPABILITIES</span><h1>扩展与能力</h1><p>按需读取扩展、本地模型与控制面摘要；此页不会启动模型、修改 Provider 或读取密钥。</p></div><CompanionSummaryCard preferences={companionPreferences} onOpen={() => setActivePage('companion')} /><BrowserSessionSummaryCard gatewayAttached={gatewayAttached} onOpen={() => setActivePage('browser-sessions')} /><section className="agency-role-entry"><div><span className="panel-eyebrow">LICENSED ROLE CATALOG</span><h2>预置专业角色</h2><p>浏览带 MIT 归因的专业角色，并仅在你明确操作后将某个角色添加为待审查的 Skill Pack 候选。</p></div><button title="进入三级角色目录，查看来源、版权、角色原文和候选添加动作。" onClick={() => setActivePage('agency-roles')} type="button">浏览角色目录 →</button></section><KnowledgeImportPanel gatewayAttached={gatewayAttached} /><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /></section>}
     {activePage === 'agency-roles' && <AgencyRoleCatalogPage gatewayAttached={gatewayAttached} onBack={() => setActivePage('capabilities')} />}
     {activePage === 'browser-sessions' && <BrowserSessionControlPage gatewayAttached={gatewayAttached} onBack={() => setActivePage('capabilities')} />}
+    {activePage === 'companion' && <CompanionControlPage gatewayAttached={gatewayAttached} preferences={companionPreferences} onBack={() => setActivePage('capabilities')} onUpdate={updateCompanion} />}
     {activePage === 'security' && <section className="page-stack"><div className="page-heading"><span>SECURITY & SYSTEM</span><h1>安全与系统</h1><p>所有项目均为只读证据与审计摘要；此页不能自动修复、信任或执行。</p></div><SecurityPostureAuditBoard error={securityPostureAuditError} messages={messages} report={securityPostureAudit} /><ComponentLockBoard error={componentLockReportError} messages={messages} report={componentLockReport} /><ComponentManagementReceiptBoard error={componentManagementReportError} messages={messages} report={componentManagementReport} /><NativeHostAuthenticationBoard error={nativeHostAuthenticationReportError} messages={messages} report={nativeHostAuthenticationReport} /><WindowsNativeReleaseBoard error={windowsNativeReleaseReportError} messages={messages} report={windowsNativeReleaseReport} /></section>}
   </>;
 

@@ -19,7 +19,7 @@ const NAVIGATION: readonly { group: string; items: readonly SettingsItem[] }[] =
 
 function navigationPage(activePage: WorkbenchPage): WorkbenchPage {
   if (activePage === 'api-usage') return 'operations';
-  if (activePage === 'agency-roles' || activePage === 'browser-sessions') return 'capabilities';
+  if (activePage === 'agency-roles' || activePage === 'browser-sessions' || activePage === 'companion') return 'capabilities';
   return activePage;
 }
 

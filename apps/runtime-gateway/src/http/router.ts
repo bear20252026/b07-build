@@ -10,6 +10,7 @@ import { handleControlPlaneDiagnosticRoutes } from './routes/control-plane-diagn
 import { handleComponentLockReportRoutes } from './routes/component-lock-report.js';
 import { handleComponentManagementReportRoutes } from './routes/component-management-report.js';
 import { handleNativeHostAuthenticationReportRoutes } from './routes/native-host-authentication-report.js';
+import { handleMimoTtsRoutes } from './routes/mimo-tts.js';
 import { handleProviderConnectionRoutes } from './routes/provider-connections.js';
 import { handleProjectRoutes } from './routes/projects.js';
 import { handleWindowsNativeReleaseReportRoutes } from './routes/windows-native-release-report.js';
@@ -35,6 +36,7 @@ const ROUTE_PIPELINE: readonly GatewayRoute[] = [
   handleScheduleRoutes,
   handleAgentAdapterRoutes,
   handleLocalModelRoutes,
+  handleMimoTtsRoutes,
   handleProviderConnectionRoutes,
   handleApiUsageRoutes,
   handleBrowserSessionRoutes,
