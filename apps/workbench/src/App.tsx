@@ -496,7 +496,7 @@ export function App() {
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
-            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerConnections?.length ?? 0} gatewayAttached={gatewayAttached} messages={messages} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} profiles={profiles} />}
+            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerConnections?.length ?? 0} gatewayAttached={gatewayAttached} messages={messages} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} onTemplate={(template) => { setDraft(template.goal); setActiveProfile(template.profileId); setAuthorityMode(template.authorityMode); focusTaskComposer(); }} profiles={profiles} />}
             {isTaskPage && snapshot && <TaskPage
               activeGoal={activeGoal}
               authorityLabel={messages.authority.mode[snapshot.authorityMode ?? authorityMode].label}

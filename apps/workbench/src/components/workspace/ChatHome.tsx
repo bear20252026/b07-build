@@ -2,6 +2,7 @@ import type { AgentProfileId } from '@awo/protocol';
 import type { Translation } from '../../i18n/catalog';
 import { WORKBENCH_PROFILE_IDS } from './agent-profiles';
 import { createWorkModeAuditProjection } from './work-mode-projection';
+import { TASK_TEMPLATES, type TaskTemplate } from './task-templates-and-closeout';
 
 export interface ChatHomeProps {
   activeProfile: AgentProfileId;
@@ -13,6 +14,7 @@ export interface ChatHomeProps {
   onOpenModels(): void;
   onProfileChange(profileId: AgentProfileId): void;
   onSuggestion(goal: string): void;
+  onTemplate(template: TaskTemplate): void;
 }
 
 /**
@@ -31,6 +33,7 @@ export function ChatHome({
   onOpenModels,
   onProfileChange,
   onSuggestion,
+  onTemplate,
 }: ChatHomeProps) {
   const home = messages.home;
   const modelTitle = gatewayAttached && connectedProviderCount > 0
@@ -66,6 +69,7 @@ export function ChatHome({
           })}
         </div>
       </section>
+      <section className="chat-home-suggestions" aria-label="任务模板"><span>任务模板</span><div>{TASK_TEMPLATES.map((template) => <button key={template.id} onClick={() => onTemplate(template)} type="button">{template.title}</button>)}</div></section>
       <section className={`chat-home-provider${gatewayAttached && connectedProviderCount > 0 ? ' ready' : ''}`} aria-label="第三方模型连接状态">
         <div>
           <span>MODEL CONNECTION</span>
