@@ -11,6 +11,7 @@ import { ComponentLockBoard } from './components/observability/ComponentLockBoar
 import { ComponentManagementReceiptBoard } from './components/observability/ComponentManagementReceiptBoard';
 import { ExtensionCenter } from './components/observability/ExtensionCenter';
 import { LocalModelHealthBoard } from './components/observability/LocalModelHealthBoard';
+import { ApiUsageAuditPage, ApiUsageSummaryCard } from './components/observability/ApiUsageBoards';
 import { KnowledgeImportPanel } from './components/observability/KnowledgeImportPanel';
 import { ProviderSetupPage } from './components/settings/ProviderSetupPage';
 import { ProviderConnectionCenter } from './components/observability/ProviderConnectionCenter';
@@ -143,7 +144,7 @@ export function App() {
   const providerControl = useProviderControlPlane(gatewayAttached, gatewayErrorText, localGatewayClient);
   const profiles = profileUi(messages);
   const profile = profiles[activeProfile];
-  const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, projects: '项目', task: '当前任务', models: '模型连接', connections: '已连接模型', operations: '运行记录', capabilities: '扩展与能力', security: '安全与系统' };
+  const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, projects: '项目', task: '当前任务', models: '模型连接', connections: '已连接模型', operations: '运行记录', 'api-usage': 'API 使用审计', capabilities: '扩展与能力', security: '安全与系统' };
   const blockedNodeId = snapshot && Object.entries(snapshot.nodeOutcomes).find(([, outcome]) => outcome === 'blocked')?.[0];
   const provenance = snapshot?.inputProvenance ?? [];
   const untrustedInputCount = provenance.filter((input) => input.trust === 'external-untrusted' || input.trust === 'derived-untrusted').length;
@@ -369,7 +370,8 @@ export function App() {
             </TaskPage>}
             {activePage === 'models' && <ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerControl.connections : []} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onAttach={startAndAttachGateway} onDetach={detachGateway} onConfigure={providerControl.configure} onConfigureCustom={providerControl.configureCustom} onManageConnections={() => setActivePage('connections')} />}
             {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查看状态、手动测试模型目录或发送一次受限文本请求；不会自动调用第三方 API。</p></div><ProviderConnectionCenter connections={gatewayAttached ? providerControl.connections : []} probes={providerControl.probes} inferences={providerControl.inferences} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onRefresh={providerControl.refresh} onRegister={providerControl.register} onActivate={providerControl.activate} onProbe={providerControl.probe} onInfer={providerControl.infer} /></section>}
-            {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /></section>}
+            {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><ApiUsageSummaryCard gatewayAttached={gatewayAttached} onOpen={() => setActivePage('api-usage')} /><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /></section>}
+            {activePage === 'api-usage' && <ApiUsageAuditPage gatewayAttached={gatewayAttached} onBack={() => setActivePage('operations')} />}
             {activePage === 'capabilities' && <section className="page-stack"><div className="page-heading"><span>EXTENSIONS & CAPABILITIES</span><h1>扩展与能力</h1><p>按需读取扩展、本地模型与控制面摘要；此页不会启动模型、修改 Provider 或读取密钥。</p></div><KnowledgeImportPanel gatewayAttached={gatewayAttached} /><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /></section>}
             {activePage === 'security' && <section className="page-stack"><div className="page-heading"><span>SECURITY & SYSTEM</span><h1>安全与系统</h1><p>所有项目均为只读证据与审计摘要；此页不能自动修复、信任或执行。</p></div><SecurityPostureAuditBoard error={securityPostureAuditError} messages={messages} report={securityPostureAudit} /><ComponentLockBoard error={componentLockReportError} messages={messages} report={componentLockReport} /><ComponentManagementReceiptBoard error={componentManagementReportError} messages={messages} report={componentManagementReport} /><NativeHostAuthenticationBoard error={nativeHostAuthenticationReportError} messages={messages} report={nativeHostAuthenticationReport} /><WindowsNativeReleaseBoard error={windowsNativeReleaseReportError} messages={messages} report={windowsNativeReleaseReport} /></section>}
           </div>

@@ -1,6 +1,7 @@
 import type {
   AdministratorAuthorityLedger,
   AgentAdapterControlPlane,
+  ApiUsageLedger,
   AuditedScheduleControlPlane,
   ExtensionActivationPlanner,
   ExtensionDoctor,
@@ -42,6 +43,8 @@ export interface GatewayDependencies {
   readonly providerConnections: ProviderConnectionService;
   /** 实际推理仅接受现有 active Profile；route 不能传入凭据、端点、驱动或工具定义。 */
   readonly providerInference: ProviderInferenceService;
+  /** 已完成 Provider 推理的本机、脱敏用量账本；不记录输入、输出、key 或端点。 */
+  readonly apiUsage: ApiUsageLedger;
   /** custom 连接只存在当前 Gateway 进程；route 无法读取其 endpoint、header 或密钥。 */
   readonly customProviders: SessionCustomProviderService;
   readonly localModelHealth: LocalModelHealthRegistry;

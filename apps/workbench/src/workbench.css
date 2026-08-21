@@ -975,3 +975,34 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
   .companion-current[data-motion='celebrate'] .companion-portrait-stage { animation: none; }
   .companion-current[data-motion='celebrate'] .companion-portrait-stage::after { display: none; }
 }
+
+/* API usage：设置二级摘要 + 三级审计，不进入聊天首页。 */
+.api-usage-summary-card, .api-usage-receipts { display: grid; gap: 14px; padding: 20px; border: 1px solid var(--border); border-radius: 22px; background: color-mix(in srgb, var(--panel) 95%, var(--panel-subtle)); box-shadow: var(--shadow-soft); }
+.api-usage-summary-header, .api-usage-page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.api-usage-summary-header h2, .api-usage-receipts h2 { margin: 5px 0 6px; color: var(--text-strong); font-size: 17px; letter-spacing: -.025em; }
+.api-usage-summary-header p, .api-usage-receipts p { margin: 0; color: var(--muted-strong); font-size: 12px; line-height: 1.6; }
+.api-usage-summary-header button, .api-usage-page-heading button { min-height: 33px; padding: 0 10px; color: var(--text-strong); font: 650 12px var(--font-ui); border: 1px solid var(--border); border-radius: 10px; background: var(--panel-subtle); }
+.api-usage-page-heading > div:last-child { display: flex; gap: 8px; }
+.api-usage-summary-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.api-usage-summary-metrics > div { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--border); border-radius: 13px; background: var(--panel-subtle); }
+.api-usage-summary-metrics span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.api-usage-summary-metrics strong { overflow: hidden; color: var(--text-strong); font-size: 14px; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
+.api-usage-unknown { display: grid; gap: 3px; padding: 10px 11px; color: var(--muted-strong); border: 1px solid color-mix(in srgb, var(--warning) 34%, var(--border)); border-radius: 12px; background: var(--warning-soft); font-size: 11px; line-height: 1.5; }
+.api-usage-unknown strong { color: var(--warning); font-size: 12px; }
+.api-usage-open { display: flex; align-items: center; justify-content: space-between; min-height: 38px; padding: 0 12px; color: #fff; font: 650 12px var(--font-ui); border: 1px solid var(--accent-strong); border-radius: 11px; background: var(--accent-strong); }
+.api-usage-open:disabled, .api-usage-summary-header button:disabled, .api-usage-page-heading button:disabled { opacity: .5; cursor: wait; }
+.api-usage-inline-note, .api-usage-empty { padding: 11px 12px; margin: 0; color: var(--muted-strong); border: 1px dashed var(--border-strong); border-radius: 12px; background: var(--panel-subtle); font-size: 12px; line-height: 1.55; }
+.api-usage-error { padding: 10px 12px; margin: 0; color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 32%, var(--border)); border-radius: 12px; background: var(--danger-soft); font-size: 12px; }
+.api-usage-filters { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; padding: 13px; border: 1px solid var(--border); border-radius: 15px; background: var(--panel); }
+.api-usage-filters label { display: grid; gap: 5px; color: var(--muted-strong); font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.api-usage-filters select { min-width: 155px; min-height: 35px; padding: 0 9px; color: var(--text-strong); font: 12px var(--font-ui); border: 1px solid var(--border); border-radius: 10px; background: var(--panel-subtle); }
+.api-usage-filters select:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.api-usage-filters > span { padding-bottom: 9px; color: var(--muted); font-size: 11px; }
+.api-usage-model-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.api-usage-model-grid > article { display: grid; gap: 5px; min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--panel); }
+.api-usage-model-grid > article > span { overflow: hidden; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-overflow: ellipsis; white-space: nowrap; }
+.api-usage-model-grid > article > strong { overflow: hidden; color: var(--text-strong); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.api-usage-model-grid > article > div { display: flex; align-items: baseline; gap: 5px; margin-top: 5px; }.api-usage-model-grid b { color: var(--text-strong); font-size: 24px; letter-spacing: -.04em; }.api-usage-model-grid small { color: var(--muted); font-size: 10px; }.api-usage-model-grid p { margin: 0; color: var(--muted-strong); font-size: 11px; line-height: 1.5; }.api-usage-model-grid em, .api-usage-receipt-list em { color: var(--warning); font-size: 10px; font-style: normal; }
+.api-usage-receipt-list { display: grid; gap: 7px; }.api-usage-receipt-list article { display: grid; grid-template-columns: 175px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-subtle); }.api-usage-receipt-list span, .api-usage-receipt-list small { color: var(--muted); font-size: 10px; }.api-usage-receipt-list strong { overflow: hidden; color: var(--text-strong); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.api-usage-receipt-list small { overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }.api-usage-receipt-list em { grid-column: 2 / -1; }
+@media (max-width: 940px) { .api-usage-model-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.api-usage-receipt-list article { grid-template-columns: 1fr auto; }.api-usage-receipt-list em { grid-column: 1 / -1; }.api-usage-receipt-list small { text-align: left; } }
+@media (max-width: 640px) { .api-usage-summary-header, .api-usage-page-heading { flex-direction: column; }.api-usage-summary-header button, .api-usage-page-heading > div, .api-usage-page-heading button { width: 100%; }.api-usage-summary-metrics, .api-usage-model-grid { grid-template-columns: 1fr; }.api-usage-filters { align-items: stretch; flex-direction: column; }.api-usage-filters select { width: 100%; }.api-usage-receipt-list article { grid-template-columns: 1fr; }.api-usage-receipt-list em { grid-column: 1; } }

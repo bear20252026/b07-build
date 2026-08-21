@@ -3,6 +3,7 @@ import { applyWorkbenchCors, createHttpRequestContext, errorStatus, sendJson } f
 import type { GatewayDependencies } from './gateway-dependencies.js';
 import type { GatewayRoute } from './route-contract.js';
 import { handleAgentAdapterRoutes } from './routes/agent-adapters.js';
+import { handleApiUsageRoutes } from './routes/api-usage.js';
 import { handleControlPlaneDiagnosticRoutes } from './routes/control-plane-diagnostics.js';
 import { handleComponentLockReportRoutes } from './routes/component-lock-report.js';
 import { handleComponentManagementReportRoutes } from './routes/component-management-report.js';
@@ -33,6 +34,7 @@ const ROUTE_PIPELINE: readonly GatewayRoute[] = [
   handleAgentAdapterRoutes,
   handleLocalModelRoutes,
   handleProviderConnectionRoutes,
+  handleApiUsageRoutes,
   handleSkillAndProviderRoutes,
   handleExtensionRoutes,
   handleKnowledgeRoutes,

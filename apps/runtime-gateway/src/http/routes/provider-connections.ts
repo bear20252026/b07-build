@@ -95,9 +95,18 @@ export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, re
         sendJson(response, 400, { error: 'infer 只接受 prompt 与可选 model；不得提交 API key、token、endpoint、工具或 agent 配置' });
         return true;
       }
-      sendJson(response, 200, isCustomProviderId(providerId)
+      const result = isCustomProviderId(providerId)
         ? await dependencies.customProviders.infer({ providerId, ...inference })
-        : await dependencies.providerInference.infer({ providerId, ...inference }));
+        : await dependencies.providerInference.infer({ providerId, ...inference });
+      // 计量只取已经脱敏的完成结果；账本问题不得把成功模型调用转换为失败响应。
+      try {
+        dependencies.apiUsage.recordCompleted({
+          providerId: result.providerId, profileId: result.profileId, profileRevision: result.profileRevision,
+          model: result.model, dataBoundary: result.dataBoundary, latencyMs: result.latencyMs,
+          outputCharacters: result.outputCharacters, recordedAt: Date.now(),
+        });
+      } catch { /* 计量是只读可观测性补充，不改变已完成推理的用户可见事实。 */ }
+      sendJson(response, 200, result);
       return true;
     }
     if (operation === 'configure-session') {

@@ -4,6 +4,7 @@ import type { CapabilityPolicyRule } from '@awo/protocol';
 import {
   AdministratorAuthorityLedger,
   AgentAdapterControlPlane,
+  ApiUsageLedger,
   ComponentLockfileLedger,
   AuthenticatedNativeComponentManagementBridge, ComponentManagementAuthority,
   ComponentProvenanceRegistry,
@@ -16,6 +17,7 @@ import {
   RuleBasedCapabilityPolicy,
   RunTrajectoryLedger,
   SqliteAdapterApprovalMailboxStore,
+  SqliteApiUsageStore,
   SqliteAdministratorLeaseStore,
   SqliteComponentLockfileStore,
   SqliteComponentManagementReceiptStore,
@@ -88,6 +90,7 @@ export function createGatewayComposition(): GatewayComposition {
   const extensionManifestPath = resolve(process.env.AWO_EXTENSION_MANIFEST_DB ?? '.awo/extension-manifests.sqlite');
   const extensionPlanPath = resolve(process.env.AWO_EXTENSION_PLAN_DB ?? '.awo/extension-plans.sqlite');
   const providerProfilePath = resolve(process.env.AWO_PROVIDER_PROFILE_DB ?? '.awo/provider-profiles.sqlite');
+  const apiUsagePath = resolve(process.env.AWO_API_USAGE_DB ?? '.awo/api-usage.sqlite');
   const skillPackPath = resolve(process.env.AWO_SKILL_PACK_DB ?? '.awo/skill-packs.sqlite');
   const knowledgeImportPath = resolve(process.env.AWO_KNOWLEDGE_IMPORT_DB ?? '.awo/knowledge-imports.sqlite');
   const agentAdapterManifestPath = resolve(process.env.AWO_AGENT_ADAPTER_MANIFEST_DB ?? '.awo/agent-adapters.sqlite');
@@ -118,6 +121,8 @@ export function createGatewayComposition(): GatewayComposition {
   const extensionPlanStore = new SqliteExtensionPlanStore(extensionPlanPath);
   const providerProfileStore = new SqliteProviderProfileStore(providerProfilePath);
   const providerProfiles = new ProviderProfileRegistry(providerProfileStore);
+  const apiUsageStore = new SqliteApiUsageStore(apiUsagePath);
+  const apiUsage = new ApiUsageLedger(apiUsageStore);
   // 仅 composition root 允许从本机 Gateway 进程环境取得凭据；route、Profile SQLite 与 WebView 均不可见。
   const providerCredentials = new SessionCredentialResolver(new EnvironmentCredentialResolver((name) => process.env[name]));
   const providerConnections = new ProviderConnectionService(BUILT_IN_PROVIDER_CATALOG, providerProfiles, providerCredentials);
@@ -194,6 +199,7 @@ export function createGatewayComposition(): GatewayComposition {
       () => extensionManifestStore.close(),
       () => extensionPlanStore.close(),
       () => providerProfileStore.close(),
+      () => apiUsageStore.close(),
       () => skillPackStore.close(),
       () => knowledgeImportStore.close(),
       () => agentAdapterManifestStore.close(),
@@ -223,7 +229,7 @@ export function createGatewayComposition(): GatewayComposition {
   return {
     dependencies: {
       ...taskRuntime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
-      extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, customProviders, localModelHealth, knowledgeWorkspaces, knowledgeImports, skillPacks,
+      extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, customProviders, apiUsage, localModelHealth, knowledgeWorkspaces, knowledgeImports, skillPacks,
       agentAdapters, schedules, runTrajectory, runWorkspace, taskFiles, projects, administratorLeases, trustedDesktopIssuers,
       controlPlaneDiagnostics: () => createControlPlaneDiagnosticReport({
         extensions: extensionRegistry,

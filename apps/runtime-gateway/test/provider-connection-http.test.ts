@@ -7,7 +7,7 @@ import { startLocalGateway } from '../src/gateway-application.js';
 
 const DATABASE_VARIABLES = [
   'AWO_SNAPSHOT_DB', 'AWO_KNOWLEDGE_WORKSPACE_DB', 'AWO_KNOWLEDGE_WORKSPACE_DIR', 'AWO_RECEIPT_DB', 'AWO_SUBTASK_DB', 'AWO_MCP_MANIFEST_DB',
-  'AWO_EXTENSION_MANIFEST_DB', 'AWO_EXTENSION_PLAN_DB', 'AWO_PROVIDER_PROFILE_DB', 'AWO_SKILL_PACK_DB', 'AWO_AGENT_ADAPTER_MANIFEST_DB',
+  'AWO_EXTENSION_MANIFEST_DB', 'AWO_EXTENSION_PLAN_DB', 'AWO_PROVIDER_PROFILE_DB', 'AWO_API_USAGE_DB', 'AWO_SKILL_PACK_DB', 'AWO_KNOWLEDGE_IMPORT_DB', 'AWO_AGENT_ADAPTER_MANIFEST_DB',
   'AWO_AGENT_ADAPTER_SESSION_DB', 'AWO_AGENT_ADAPTER_MAILBOX_DB', 'AWO_SCHEDULE_MANIFEST_DB', 'AWO_SCHEDULE_RUN_DB', 'AWO_RUN_TRAJECTORY_DB',
   'AWO_ADMINISTRATOR_LEASE_DB', 'AWO_TRUSTED_DESKTOP_ISSUER_DB', 'AWO_COMPONENT_PROVENANCE_DB', 'AWO_COMPONENT_LOCKFILE_DB',
   'AWO_COMPONENT_MANAGEMENT_RECEIPT_DB', 'AWO_NATIVE_HOST_BRIDGE_TRUST_DB', 'AWO_NATIVE_HOST_CHALLENGE_DB', 'AWO_WINDOWS_NATIVE_RELEASE_EVIDENCE_DB',
@@ -117,6 +117,14 @@ test('Provider infer API 只在显式激活后调用受控 Driver，并以脱敏
       assert.equal(authorization, 'Bearer sk-test-never-returned');
       assert.equal(remoteBody.includes('hello from workbench'), true);
       assert.equal(remoteBody.includes('sk-test-never-returned'), false);
+      const usageSummary = await (await fetch(`${baseUrl}/api/usage/summary`)).json() as Record<string, unknown>;
+      assert.equal(usageSummary.totalCalls, 1);
+      assert.equal(usageSummary.tokenStatus, 'not-reported');
+      const usageReceipts = await (await fetch(`${baseUrl}/api/usage/receipts`)).text();
+      assert.equal(usageReceipts.includes('hello from workbench'), false);
+      assert.equal(usageReceipts.includes('gateway output'), false);
+      assert.equal(usageReceipts.includes('sk-test-never-returned'), false);
+      assert.equal(usageReceipts.includes('https://api.openai.com'), false);
     } finally {
       globalThis.fetch = originalFetch;
     }
