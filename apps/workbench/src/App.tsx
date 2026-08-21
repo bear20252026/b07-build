@@ -546,6 +546,7 @@ export function App() {
               deliveryCount={deliveries.length}
               citationCount={workspaceArtifacts.length}
               evidenceCount={workspaceArtifacts.length}
+              providerConnections={providerConnections ?? []}
               eventCount={events.length}
               onApproveAndResume={approveAndResume}
               onBackToChat={() => setActivePage('workspace')}
