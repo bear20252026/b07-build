@@ -179,3 +179,46 @@ test('Gateway 桌面附着仅接受已审核 Tauri 或本地开发来源的 CORS
     assert.equal(rejected.headers.get('access-control-allow-origin'), null);
   });
 });
+
+
+test('Custom compatible Provider 只接受显式 HTTPS session 配置，并通过固定会话端点推理且绝不回显 URL 或 API key', async () => {
+  await withGateway(async (baseUrl) => {
+    const headers = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };
+    const malformed = await fetch(`${baseUrl}/api/providers/connections/custom/configure-session`, { method: 'POST', headers, body: JSON.stringify({ displayName: '我的自有模型', protocol: 'openai-compatible', baseUrl: 'http://localhost:3000/v1', model: 'owner-model-v1', apiKey: 'sk-custom-never-returned' }) });
+    assert.equal(malformed.status, 400);
+    const configured = await fetch(`${baseUrl}/api/providers/connections/custom/configure-session`, { method: 'POST', headers, body: JSON.stringify({ displayName: '我的自有模型', protocol: 'openai-compatible', baseUrl: 'https://models.example.test/v1', model: 'owner-model-v1', apiKey: 'sk-custom-never-returned' }) });
+    assert.equal(configured.status, 200);
+    const status = await configured.json() as Record<string, unknown>;
+    const providerId = String(status.providerId);
+    assert.match(providerId, /^custom-[a-z0-9-]+$/);
+    assert.equal(status.profileStatus, 'active');
+    assert.equal(JSON.stringify(status).includes('models.example.test'), false);
+    assert.equal(JSON.stringify(status).includes('sk-custom-never-returned'), false);
+    const listed = await (await fetch(`${baseUrl}/api/providers/connections`)).text();
+    assert.equal(listed.includes('models.example.test'), false);
+    assert.equal(listed.includes('sk-custom-never-returned'), false);
+
+    const originalFetch = globalThis.fetch;
+    let target = '';
+    let authorization = '';
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const requestedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (requestedUrl !== 'https://models.example.test/v1/chat/completions') return originalFetch(input, init);
+      target = requestedUrl;
+      authorization = String((init?.headers as Record<string, string> | undefined)?.authorization ?? '');
+      return new Response('data: {"choices":[{"delta":{"content":"custom gateway"}}]}\n\ndata: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }) as typeof fetch;
+    try {
+      const inferred = await fetch(`${baseUrl}/api/providers/connections/${encodeURIComponent(providerId)}/infer`, { method: 'POST', headers, body: JSON.stringify({ prompt: 'hello custom model' }) });
+      assert.equal(inferred.status, 200);
+      const result = await inferred.json() as Record<string, unknown>;
+      assert.equal(target, 'https://models.example.test/v1/chat/completions');
+      assert.equal(authorization, 'Bearer sk-custom-never-returned');
+      assert.equal(result.output, 'custom gateway');
+      assert.equal(JSON.stringify(result).includes('models.example.test'), false);
+      assert.equal(JSON.stringify(result).includes('sk-custom-never-returned'), false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

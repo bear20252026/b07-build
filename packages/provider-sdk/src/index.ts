@@ -51,3 +51,5 @@ export type {
 } from './provider-connection-service';
 export { ProviderInferenceService } from './provider-inference-service';
 export type { ProviderDriverFactory, ProviderInferenceRequest, ProviderInferenceResult } from './provider-inference-service';
+export { SessionCustomProviderService } from './session-custom-provider-service';
+export type { ConfigureCustomProviderSessionRequest, CustomProviderInferenceRequest, CustomProviderProtocol } from './session-custom-provider-service';

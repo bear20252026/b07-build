@@ -62,6 +62,26 @@ const BUILT_IN_ENTRIES: readonly ProviderCatalogEntry[] = Object.freeze([
     documentationUrl: 'https://api-docs.deepseek.com/zh-cn/', capabilities: { supportsTools: true, contextWindow: 1_000_000, costTier: 'medium' },
   }),
   entry({
+    id: 'mimo', displayName: 'Xiaomi MiMo', transport: 'openai-chat-completions', driverId: 'remote.mimo',
+    baseUrl: 'https://api.xiaomimimo.com', defaultModel: 'mimo-v2.5-pro', credentialReference: 'env.mimo',
+    documentationUrl: 'https://mimo.mi.com/docs/zh-CN/quick-start/summary/first-api-call', capabilities: { supportsTools: true, contextWindow: 128_000, costTier: 'medium' },
+  }),
+  entry({
+    id: 'longcat', displayName: 'LongCat', transport: 'openai-chat-completions', driverId: 'remote.longcat',
+    baseUrl: 'https://api.longcat.chat/openai', defaultModel: 'LongCat-2.0', credentialReference: 'env.longcat',
+    documentationUrl: 'https://longcat.chat/platform/docs/zh/', capabilities: { supportsTools: true, contextWindow: 1_000_000, costTier: 'medium' },
+  }),
+  entry({
+    id: 'kimi', displayName: 'Moonshot Kimi', transport: 'openai-chat-completions', driverId: 'remote.kimi',
+    baseUrl: 'https://api.moonshot.cn', defaultModel: 'kimi-k3', credentialReference: 'env.kimi',
+    documentationUrl: 'https://platform.kimi.com/docs/overview', capabilities: { supportsTools: true, supportsVision: true, contextWindow: 1_000_000, costTier: 'medium' },
+  }),
+  entry({
+    id: 'zhipu', displayName: 'Zhipu GLM', transport: 'openai-chat-completions', driverId: 'remote.zhipu',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.3', credentialReference: 'env.zhipu',
+    documentationUrl: 'https://docs.bigmodel.cn/cn/guide/develop/openai/introduction', capabilities: { supportsTools: true, contextWindow: 128_000, costTier: 'medium' },
+  }),
+  entry({
     id: 'mistral', displayName: 'Mistral AI', transport: 'openai-chat-completions', driverId: 'remote.mistral',
     baseUrl: 'https://api.mistral.ai', defaultModel: 'mistral-large-latest', credentialReference: 'env.mistral',
     documentationUrl: 'https://docs.mistral.ai/studio-api/conversations/chat-completion', capabilities: { supportsTools: true, supportsVision: true, contextWindow: 128_000, costTier: 'medium' },

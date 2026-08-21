@@ -352,6 +352,7 @@ export interface WorkbenchTaskClient {
   providerConnections(): Promise<readonly WorkbenchProviderConnection[]>;
   registerProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection>;
   configureProviderSession(providerId: string, input: { displayName?: string; model?: string; apiKey: string }): Promise<WorkbenchProviderConnection>;
+  configureCustomProviderSession(input: { displayName: string; protocol: 'openai-compatible' | 'anthropic-compatible'; baseUrl: string; model: string; apiKey: string }): Promise<WorkbenchProviderConnection>;
   activateProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection>;
   probeProviderConnection(providerId: string): Promise<WorkbenchProviderConnectionProbe>;
   inferProviderConnection(providerId: string, prompt: string, model?: string): Promise<WorkbenchProviderInference>;
@@ -386,7 +387,7 @@ function assertProviderConnection(value: unknown): asserts value is WorkbenchPro
     Object.keys(item).some((key) => !['schemaVersion', 'providerId', 'displayName', 'driverId', 'defaultModel', 'credentialReference', 'credentialAvailability', 'profileStatus', 'profileRevision', 'canReadSecret', 'canAutoConnect'].includes(key))
     || item.schemaVersion !== 1 || typeof item.providerId !== 'string' || !/^[a-z][a-z0-9-]{1,63}$/.test(item.providerId)
     || typeof item.displayName !== 'string' || typeof item.driverId !== 'string' || typeof item.defaultModel !== 'string'
-    || typeof item.credentialReference !== 'string' || !/^env\.[a-z][a-z0-9-]{1,63}$/.test(item.credentialReference)
+    || typeof item.credentialReference !== 'string' || !(/^(?:env\.[a-z][a-z0-9-]{1,63}|session\.custom-[a-z0-9-]{8,96})$/.test(item.credentialReference))
     || !['available', 'missing', 'unsupported-reference'].includes(String(item.credentialAvailability))
     || !['not-registered', 'registered', 'active', 'disabled', 'revoked'].includes(String(item.profileStatus))
     || (item.profileRevision !== undefined && (!Number.isSafeInteger(item.profileRevision) || (item.profileRevision as number) < 1))
@@ -914,6 +915,22 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
       body: JSON.stringify({ apiKey: input.apiKey.trim(), ...(input.displayName?.trim() ? { displayName: input.displayName.trim() } : {}), ...(input.model?.trim() ? { model: input.model.trim() } : {}) }),
     });
     if (!response.ok) throw new Error(await response.text() || `快速配置失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertProviderConnection(payload);
+    return payload;
+  }
+
+  async configureCustomProviderSession(input: { displayName: string; protocol: 'openai-compatible' | 'anthropic-compatible'; baseUrl: string; model: string; apiKey: string }): Promise<WorkbenchProviderConnection> {
+    if (!input.displayName.trim() || input.displayName.trim().length > 80 || !['openai-compatible', 'anthropic-compatible'].includes(input.protocol) || !input.model.trim() || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{1,127}$/.test(input.model.trim()) || !input.apiKey.trim() || input.apiKey.length > 4_096 || /[\r\n\0]/.test(input.apiKey)) throw new Error('自定义模型配置无效');
+    let endpoint: URL;
+    try { endpoint = new URL(input.baseUrl.trim()); } catch { throw new Error('自定义 Base URL 无效'); }
+    if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || (endpoint.port && endpoint.port !== '443')) throw new Error('自定义 Base URL 必须是无认证信息的 HTTPS 标准端口地址');
+    const response = await fetch(`${this.providerConnectionsUrl}/custom/configure-session`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1', 'idempotency-key': createIdempotencyKey('custom-provider-configure') },
+      body: JSON.stringify({ displayName: input.displayName.trim(), protocol: input.protocol, baseUrl: input.baseUrl.trim(), model: input.model.trim(), apiKey: input.apiKey.trim() }),
+    });
+    if (!response.ok) throw new Error(await response.text() || `自定义模型配置失败 (${response.status})`);
     const payload: unknown = await response.json();
     assertProviderConnection(payload);
     return payload;

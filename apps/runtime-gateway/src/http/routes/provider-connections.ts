@@ -30,6 +30,19 @@ function readSessionConfiguration(body: unknown): { displayName?: string; model?
   return { apiKey: candidate.apiKey, displayName: candidate.displayName as string | undefined, model: candidate.model as string | undefined };
 }
 
+/** custom endpoint 只在一次显式登记时接收；后续 probe/infer 只按 session providerId 调用。 */
+function readCustomSessionConfiguration(body: unknown): { displayName: string; protocol: 'openai-compatible' | 'anthropic-compatible'; baseUrl: string; model: string; apiKey: string } | undefined {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
+  const candidate = body as Record<string, unknown>;
+  if (Object.keys(candidate).some((key) => key !== 'displayName' && key !== 'protocol' && key !== 'baseUrl' && key !== 'model' && key !== 'apiKey')) return undefined;
+  if (typeof candidate.displayName !== 'string' || (candidate.protocol !== 'openai-compatible' && candidate.protocol !== 'anthropic-compatible') || typeof candidate.baseUrl !== 'string' || typeof candidate.model !== 'string' || typeof candidate.apiKey !== 'string') return undefined;
+  return { displayName: candidate.displayName, protocol: candidate.protocol, baseUrl: candidate.baseUrl, model: candidate.model, apiKey: candidate.apiKey };
+}
+
+function isCustomProviderId(value: string): boolean {
+  return /^custom-[a-z0-9-]{8,96}$/.test(value);
+}
+
 /**
  * Provider connection 管道：Profile metadata 与 credential availability 的显式控制面。
  * 它不读取运行时环境配置。除 `configure-session` 外不接收密钥、token、URL、工具或 agent 配置；
@@ -37,7 +50,25 @@ function readSessionConfiguration(body: unknown): { displayName?: string; model?
  */
 export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, response, url, segments, dependencies }) => {
   if (request.method === 'GET' && url.pathname === '/api/providers/connections') {
-    sendJson(response, 200, dependencies.providerConnections.list());
+    sendJson(response, 200, [...dependencies.providerConnections.list(), ...dependencies.customProviders.list()]);
+    return true;
+  }
+  const isCustomConfiguration = url.pathname === '/api/providers/connections/custom/configure-session';
+  if (isCustomConfiguration) {
+    if (request.method !== 'POST' || !isOperatorRequest(request)) {
+      sendJson(response, request.method === 'POST' ? 403 : 404, { error: '自定义供应商连接必须由本地操作者显式发起' });
+      return true;
+    }
+    try {
+      const configuration = readCustomSessionConfiguration(await readJsonBody(request));
+      if (!configuration) {
+        sendJson(response, 400, { error: '自定义连接只接受 displayName、protocol、baseUrl、model 与 apiKey；不得提交 headers、工具或任意请求字段' });
+        return true;
+      }
+      sendJson(response, 200, dependencies.customProviders.configureSession(configuration));
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : '自定义供应商连接无效' });
+    }
     return true;
   }
   if (segments[0] !== 'api' || segments[1] !== 'providers' || segments[2] !== 'connections' || !segments[3] || !segments[4] || segments.length !== 5) return false;
@@ -53,7 +84,9 @@ export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, re
         sendJson(response, 400, { error: 'probe 不接受请求正文；不会接收密钥或模型输入' });
         return true;
       }
-      sendJson(response, 200, await dependencies.providerConnections.probe(providerId));
+      sendJson(response, 200, isCustomProviderId(providerId)
+        ? await dependencies.customProviders.probe(providerId)
+        : await dependencies.providerConnections.probe(providerId));
       return true;
     }
     if (operation === 'infer') {
@@ -62,7 +95,9 @@ export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, re
         sendJson(response, 400, { error: 'infer 只接受 prompt 与可选 model；不得提交 API key、token、endpoint、工具或 agent 配置' });
         return true;
       }
-      sendJson(response, 200, await dependencies.providerInference.infer({ providerId, ...inference }));
+      sendJson(response, 200, isCustomProviderId(providerId)
+        ? await dependencies.customProviders.infer({ providerId, ...inference })
+        : await dependencies.providerInference.infer({ providerId, ...inference }));
       return true;
     }
     if (operation === 'configure-session') {

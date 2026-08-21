@@ -53,7 +53,7 @@ import {
   ProviderConnectionService,
   ProviderInferenceService,
   ProviderProfileRegistry,
-  SqliteProviderProfileStore,
+  SqliteProviderProfileStore, SessionCustomProviderService,
 } from '@awo/provider-sdk';
 import type { GatewayDependencies } from './http/gateway-dependencies.js';
 import { createControlPlaneDiagnosticReport } from './control-plane-diagnostics.js';
@@ -126,6 +126,7 @@ export function createGatewayComposition(): GatewayComposition {
   const providerCredentials = new SessionCredentialResolver(new EnvironmentCredentialResolver((name) => process.env[name]));
   const providerConnections = new ProviderConnectionService(BUILT_IN_PROVIDER_CATALOG, providerProfiles, providerCredentials);
   const providerInference = new ProviderInferenceService(BUILT_IN_PROVIDER_CATALOG, providerProfiles, providerCredentials);
+  const customProviders = new SessionCustomProviderService(providerCredentials);
   const localModelHealth = new LocalModelHealthRegistry();
   const skillPackStore = new SqliteSkillPackStore(skillPackPath);
   const skillPacks = new SkillPackRegistry(skillPackStore);
@@ -281,7 +282,7 @@ export function createGatewayComposition(): GatewayComposition {
   return {
     dependencies: {
       runtime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
-      extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, localModelHealth, knowledgeWorkspaces, skillPacks,
+      extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, customProviders, localModelHealth, knowledgeWorkspaces, skillPacks,
       agentAdapters, schedules, runTrajectory, runWorkspace, taskFiles, administratorLeases, trustedDesktopIssuers,
       controlPlaneDiagnostics: () => createControlPlaneDiagnosticReport({
         extensions: extensionRegistry,

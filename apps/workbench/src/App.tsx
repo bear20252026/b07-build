@@ -253,6 +253,19 @@ export function App() {
       .finally(() => setPendingProviderId(undefined));
   };
 
+  const configureCustomProviderSession = (input: { displayName: string; protocol: 'openai-compatible' | 'anthropic-compatible'; baseUrl: string; model: string; apiKey: string }): void => {
+    if (!gatewayAttached) {
+      setProviderConnectionError('请先附着本机 Gateway，再保存自定义模型连接。');
+      return;
+    }
+    setPendingProviderId('custom');
+    setProviderConnectionError(undefined);
+    void localGatewayClient.configureCustomProviderSession(input)
+      .then((connection) => setProviderConnections((current) => [...(current ?? []), connection].sort((left, right) => left.displayName.localeCompare(right.displayName))))
+      .catch((error: unknown) => setProviderConnectionError(gatewayErrorText(error)))
+      .finally(() => setPendingProviderId(undefined));
+  };
+
   const registerProviderConnection = (providerId: string): void => {
     if (!gatewayAttached) {
       setProviderConnectionError('请先显式附着本机 Gateway。');
@@ -453,7 +466,7 @@ export function App() {
               {snapshot && <div className="snapshot-actions">{snapshot.status === 'blocked' && blockedNodeId && <button className="snapshot-primary" disabled={pending} onClick={approveAndResume} type="button">{pending ? messages.common.processing : messages.task.approveAndResume(blockedNodeId)}</button>}{(snapshot.status === 'blocked' || snapshot.status === 'failed') && <button className="snapshot-secondary" disabled={pending} onClick={resume} type="button">{messages.task.resume}</button>}</div>}
             </section>
             </>}
-            {activePage === 'models' && <ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerConnections : []} error={providerConnectionError} pendingProviderId={pendingProviderId} onAttach={startAndAttachGateway} onDetach={detachGateway} onConfigure={configureProviderSession} onManageConnections={() => setActivePage('connections')} />}
+            {activePage === 'models' && <ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerConnections : []} error={providerConnectionError} pendingProviderId={pendingProviderId} onAttach={startAndAttachGateway} onDetach={detachGateway} onConfigure={configureProviderSession} onConfigureCustom={configureCustomProviderSession} onManageConnections={() => setActivePage('connections')} />}
             {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查看状态、手动测试模型目录或发送一次受限文本请求；不会自动调用第三方 API。</p></div><ProviderConnectionCenter connections={gatewayAttached ? providerConnections : []} probes={providerConnectionProbes} inferences={providerInferences} error={providerConnectionError} pendingProviderId={pendingProviderId} onRefresh={refreshProviderConnections} onRegister={registerProviderConnection} onActivate={activateProviderConnection} onProbe={probeProviderConnection} onInfer={inferProviderConnection} /></section>}
             {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /></section>}
             {activePage === 'capabilities' && <section className="page-stack"><div className="page-heading"><span>EXTENSIONS & CAPABILITIES</span><h1>扩展与能力</h1><p>按需读取扩展、本地模型与控制面摘要；此页不会启动模型、修改 Provider 或读取密钥。</p></div><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /></section>}

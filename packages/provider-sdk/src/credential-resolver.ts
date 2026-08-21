@@ -29,10 +29,23 @@ const ENVIRONMENT_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'env.deepseek': 'DEEPSEEK_API_KEY',
   'env.mistral': 'MISTRAL_API_KEY',
   'env.openrouter': 'OPENROUTER_API_KEY',
+  'env.mimo': 'MIMO_API_KEY',
+  'env.longcat': 'LONGCAT_API_KEY',
+  'env.kimi': 'MOONSHOT_API_KEY',
+  'env.zhipu': 'ZAI_API_KEY',
 });
 
+function isEnvironmentReference(value: string): boolean {
+  return /^env\.[a-z][a-z0-9-]{1,63}$/.test(value) && Boolean(ENVIRONMENT_NAMES[value]);
+}
+
+/** 仅 custom session service 生成；不对应环境变量，也绝不序列化。 */
+function isCustomSessionReference(value: string): boolean {
+  return /^session\.custom-[a-z0-9-]{8,96}$/.test(value);
+}
+
 function safeReference(value: string): boolean {
-  return /^env\.[a-z][a-z0-9-]{1,63}$/.test(value);
+  return isEnvironmentReference(value) || isCustomSessionReference(value);
 }
 
 /**
@@ -42,19 +55,19 @@ function safeReference(value: string): boolean {
 export class EnvironmentCredentialResolver implements CredentialResolver {
   constructor(private readonly lookup: (name: string) => string | undefined) {}
   availability(reference: string): CredentialAvailabilitySummary {
-    if (!safeReference(reference) || !ENVIRONMENT_NAMES[reference]) return { reference, availability: 'unsupported-reference' };
+    if (!isEnvironmentReference(reference)) return { reference, availability: 'unsupported-reference' };
     const value = this.lookup(ENVIRONMENT_NAMES[reference]);
     return { reference, availability: value?.trim() ? 'available' : 'missing' };
   }
   resolve(reference: string): string | undefined {
-    if (!safeReference(reference) || !ENVIRONMENT_NAMES[reference]) return undefined;
+    if (!isEnvironmentReference(reference)) return undefined;
     const value = this.lookup(ENVIRONMENT_NAMES[reference]);
     return value?.trim() || undefined;
   }
 }
 
 /**
- * Gateway session 内存覆盖层。它只接受已审核 `env.*` reference 的短生命周期 key：
+ * Gateway session 内存覆盖层。它只接受已审核 `env.*` 或 custom service 生成的 `session.custom-*` 短生命周期 key：
  * 不提供读取、列举、序列化或持久化接口；进程退出即清空。外部只能获得 availability。
  */
 export class SessionCredentialResolver implements CredentialResolver, SessionCredentialStore {
@@ -62,18 +75,18 @@ export class SessionCredentialResolver implements CredentialResolver, SessionCre
   constructor(private readonly fallback: CredentialResolver) {}
 
   availability(reference: string): CredentialAvailabilitySummary {
-    if (!safeReference(reference) || !ENVIRONMENT_NAMES[reference]) return { reference, availability: 'unsupported-reference' };
+    if (!safeReference(reference)) return { reference, availability: 'unsupported-reference' };
     if (this.sessionSecrets.has(reference)) return { reference, availability: 'available' };
-    return this.fallback.availability(reference);
+    return isEnvironmentReference(reference) ? this.fallback.availability(reference) : { reference, availability: 'missing' };
   }
 
   resolve(reference: string): string | undefined {
-    if (!safeReference(reference) || !ENVIRONMENT_NAMES[reference]) return undefined;
-    return this.sessionSecrets.get(reference) ?? this.fallback.resolve(reference);
+    if (!safeReference(reference)) return undefined;
+    return this.sessionSecrets.get(reference) ?? (isEnvironmentReference(reference) ? this.fallback.resolve(reference) : undefined);
   }
 
   storeFromExplicitOperatorIntent(reference: string, apiKey: string): void {
-    if (!safeReference(reference) || !ENVIRONMENT_NAMES[reference]) throw new Error('凭据引用不受支持');
+    if (!safeReference(reference)) throw new Error('凭据引用不受支持');
     const normalized = apiKey.trim();
     if (normalized.length < 8 || normalized.length > 4_096 || /[\r\n\0]/.test(normalized)) throw new Error('API key 格式无效');
     this.sessionSecrets.set(reference, normalized);

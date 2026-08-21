@@ -43,7 +43,7 @@ function createBuiltInDriver(entry: ProviderCatalogEntry): ModelDriver {
   return new OpenAICompatible(entry.baseUrl, {
     id: entry.driverId,
     capabilities: entry.capabilities,
-    ...((entry.id === 'google-gemini' || entry.id === 'deepseek') ? { chatCompletionsPath: '/chat/completions' as const } : {}),
+    ...((entry.id === 'google-gemini' || entry.id === 'deepseek' || entry.id === 'zhipu') ? { chatCompletionsPath: '/chat/completions' as const } : {}),
   });
 }
 
