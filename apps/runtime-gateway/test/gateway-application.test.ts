@@ -24,6 +24,7 @@ const DATABASE_VARIABLES = [
   'AWO_AGENT_ADAPTER_MAILBOX_DB',
   'AWO_SCHEDULE_MANIFEST_DB',
   'AWO_SCHEDULE_RUN_DB',
+  'AWO_PROJECT_WORKSPACE_DB',
 ] as const;
 
 function withIsolatedGatewayPaths<T>(run: () => T): T {
