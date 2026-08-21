@@ -17,7 +17,8 @@
     "desktop:dev": "npm run dev --workspace=@awo/desktop-shell",
     "desktop:build": "npm run build --workspace=@awo/desktop-shell",
     "desktop:typecheck": "npm run typecheck --workspace=@awo/desktop-shell",
-    "gateway:sidecar": "node scripts/windows/build-gateway-sidecar.mjs"
+    "gateway:sidecar": "node scripts/windows/build-gateway-sidecar.mjs",
+    "performance:check": "npm run build --workspace=@awo/workbench && node tools/performance-budget.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

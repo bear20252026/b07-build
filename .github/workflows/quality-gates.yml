@@ -24,6 +24,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build --workspace=@awo/workbench
+      - run: node tools/performance-budget.mjs
       - run: npm audit --omit=dev --audit-level=high
 
   rust:
