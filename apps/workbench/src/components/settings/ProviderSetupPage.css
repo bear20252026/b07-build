@@ -21,3 +21,21 @@
 .provider-compatibility-note { padding: 0 4px; }
 @media (max-width: 920px) { .provider-preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 680px) { .provider-setup-page { padding: 20px 16px 32px; }.settings-page-header, .provider-next-step { flex-direction: column; }.settings-gateway-status { width: 100%; }.provider-onboarding-form, .provider-protocol-grid { grid-template-columns: 1fr; }.provider-next-step button { align-self: stretch; } }
+
+/* P18: AFFiNE 式线性三步连接页；只重组空间与层级，不改变主题 token。 */
+.provider-setup-page--three-step .provider-onboarding { gap: 12px; max-width: 920px; }
+.provider-preset-grid--simple .provider-preset { min-height: 70px; padding: 11px 12px; }
+.provider-preset-grid--simple .provider-preset small { line-height: 1.35; }
+.provider-onboarding-form--simple { grid-template-columns: minmax(0, 1fr); max-width: 640px; }
+.provider-onboarding-form--simple .provider-key-field { grid-column: auto; }
+.provider-model-adjust, .provider-next-link, .provider-protocol-inline button { color: var(--text); font: inherit; font-size: 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel-subtle); }
+.provider-model-adjust { justify-self: start; padding: 7px 9px; }
+.provider-model-adjust:hover, .provider-next-link:hover { border-color: var(--accent); color: var(--text-strong); }
+.provider-advanced-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.provider-protocol-inline { display: inline-flex; justify-self: start; gap: 4px; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-subtle); }
+.provider-protocol-inline button { padding: 6px 8px; border-color: transparent; }
+.provider-protocol-inline button.active { color: var(--text-strong); border-color: var(--accent-strong); background: var(--accent-soft); }
+.onboarding-step--final { margin-top: 2px; }
+.provider-submit-row { display: flex; align-items: center; gap: 10px; }
+.provider-next-link { padding: 8px 10px; }
+@media (max-width: 680px) { .provider-advanced-fields { grid-template-columns: 1fr; }.provider-submit-row { align-items: stretch; flex-direction: column; }.provider-onboarding-form--simple { max-width: none; } }
