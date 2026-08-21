@@ -3,6 +3,7 @@ import './components/observability/GatewayAttachment.css';
 import { invoke } from '@tauri-apps/api/core';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider, type WorkbenchPage } from './components/layout/Sider';
+import { resolveWorkbenchSurface } from './components/layout/workbench-surface';
 import { ControlPlaneDiagnosticsBoard } from './components/observability/ControlPlaneDiagnosticsBoard';
 import { ComponentLockBoard } from './components/observability/ComponentLockBoard';
 import { ComponentManagementReceiptBoard } from './components/observability/ComponentManagementReceiptBoard';
@@ -16,6 +17,8 @@ import { SecurityPostureAuditBoard } from './components/observability/SecurityPo
 import { TrajectoryBoard } from './components/observability/TrajectoryBoard';
 import { RunWorkspaceBoard } from './components/observability/RunWorkspaceBoard';
 import { PreviewPanel } from './components/preview/PreviewPanel';
+import { ChatHome } from './components/workspace/ChatHome';
+import { WORKBENCH_PROFILE_IDS } from './components/workspace/agent-profiles';
 import { LocalDataFlowBoard } from './components/workspace/LocalDataFlowBoard';
 import { TaskStoryboard } from './components/workspace/TaskStoryboard';
 import { useLocale } from './i18n/LocaleProvider';
@@ -95,7 +98,7 @@ function statusLabel(status: WorkbenchTaskSnapshot['status'] | undefined, messag
 }
 
 export function App() {
-  const [activePage, setActivePage] = useState<WorkbenchPage>('models');
+  const [activePage, setActivePage] = useState<WorkbenchPage>('workspace');
   const [gatewayAttached, setGatewayAttached] = useState(false);
   const [gatewayAttachmentError, setGatewayAttachmentError] = useState<string>();
   const [attachingGateway, setAttachingGateway] = useState(false);
@@ -139,6 +142,8 @@ export function App() {
   const blockedNodeId = snapshot && Object.entries(snapshot.nodeOutcomes).find(([, outcome]) => outcome === 'blocked')?.[0];
   const provenance = snapshot?.inputProvenance ?? [];
   const untrustedInputCount = provenance.filter((input) => input.trust === 'external-untrusted' || input.trust === 'derived-untrusted').length;
+  const workbenchSurface = resolveWorkbenchSurface({ activePage, hasTaskSnapshot: Boolean(snapshot), taskFileCount: taskFiles.length, deliveryCount: deliveries.length });
+  const isTaskWorkbench = workbenchSurface === 'task-workbench';
 
   useEffect(() => {
     if (!gatewayAttached) return;
@@ -408,12 +413,21 @@ export function App() {
     document.getElementById('task-inspector')?.focus();
   };
 
+  const focusTaskComposer = (): void => {
+    window.setTimeout(() => document.querySelector<HTMLTextAreaElement>(`[aria-label="${messages.task.goalAria}"]`)?.focus(), 0);
+  };
+
+  const useSuggestedGoal = (goal: string): void => {
+    setDraft(goal);
+    focusTaskComposer();
+  };
+
   return (
-    <div className={`workbench-shell ${activePage === 'workspace' ? 'with-preview' : 'focus-page'} theme-${theme}`}>
+    <div className={`workbench-shell ${isTaskWorkbench ? 'with-preview' : 'focus-page'} theme-${theme}`}>
       <Sider
         activePage={activePage}
         onNavigate={setActivePage}
-        onNewTask={() => { setActivePage('workspace'); window.setTimeout(() => document.querySelector<HTMLTextAreaElement>(`[aria-label="${messages.task.goalAria}"]`)?.focus(), 0); }}
+        onNewTask={() => { setActivePage('workspace'); focusTaskComposer(); }}
         onThemeToggle={() => setTheme((current) => current === 'light' ? 'dark' : 'light')}
         theme={theme}
       />
@@ -427,8 +441,8 @@ export function App() {
             {activePage !== 'models' && <button className={`gateway-attach-button${gatewayAttached ? ' attached' : ''}`} type="button" onClick={gatewayAttached ? detachGateway : startAndAttachGateway} disabled={attachingGateway}>
               {attachingGateway ? '正在启动并附着…' : gatewayAttached ? '断开本机 Gateway' : '启动并附着 Gateway'}
             </button>}
-            {activePage === 'workspace' && <><div className="profile-switcher" aria-label={messages.profile.selectAria}>
-              {(Object.keys(profiles) as AgentProfileId[]).map((profileId) => (
+            {isTaskWorkbench && <><div className="profile-switcher" aria-label={messages.profile.selectAria}>
+              {WORKBENCH_PROFILE_IDS.map((profileId) => (
                 <button
                   className={`agent-chip${activeProfile === profileId ? ' active' : ''}`}
                   key={profileId}
@@ -446,7 +460,8 @@ export function App() {
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
-            {activePage === 'workspace' && <>
+            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} connectedProviderCount={providerConnections?.length ?? 0} gatewayAttached={gatewayAttached} messages={messages} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} profiles={profiles} />}
+            {isTaskWorkbench && <>
             <div className="welcome-card">
               <div className="welcome-eyebrow">{messages.task.welcomeEyebrow}</div>
               <h1>{messages.task.welcomeTitle}</h1>
@@ -476,7 +491,7 @@ export function App() {
             {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /></section>}
             {activePage === 'capabilities' && <section className="page-stack"><div className="page-heading"><span>EXTENSIONS & CAPABILITIES</span><h1>扩展与能力</h1><p>按需读取扩展、本地模型与控制面摘要；此页不会启动模型、修改 Provider 或读取密钥。</p></div><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /></section>}
             {activePage === 'security' && <section className="page-stack"><div className="page-heading"><span>SECURITY & SYSTEM</span><h1>安全与系统</h1><p>所有项目均为只读证据与审计摘要；此页不能自动修复、信任或执行。</p></div><SecurityPostureAuditBoard error={securityPostureAuditError} messages={messages} report={securityPostureAudit} /><ComponentLockBoard error={componentLockReportError} messages={messages} report={componentLockReport} /><ComponentManagementReceiptBoard error={componentManagementReportError} messages={messages} report={componentManagementReport} /><NativeHostAuthenticationBoard error={nativeHostAuthenticationReportError} messages={messages} report={nativeHostAuthenticationReport} /><WindowsNativeReleaseBoard error={windowsNativeReleaseReportError} messages={messages} report={windowsNativeReleaseReport} /></section>}
-            {activePage === 'workspace' && <section className="event-section">
+            {isTaskWorkbench && <section className="event-section">
               <div className="section-heading">
                 <span>{messages.task.activity}</span>
                 <span className="event-count">{messages.task.eventCount(events.length)}</span>
@@ -526,7 +541,7 @@ export function App() {
           </div>
         </div>}
       </main>
-      {activePage === 'workspace' && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={loadTaskFilePreview} onFileDiff={loadTaskFileDiff} onCreateDelivery={createTaskDelivery} deliveryDownloadUrl={taskDeliveryDownloadUrl} />}
+      {isTaskWorkbench && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={loadTaskFilePreview} onFileDiff={loadTaskFileDiff} onCreateDelivery={createTaskDelivery} deliveryDownloadUrl={taskDeliveryDownloadUrl} />}
     </div>
   );
 }
