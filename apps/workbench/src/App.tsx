@@ -25,6 +25,7 @@ import { LocalDataFlowBoard } from './components/workspace/LocalDataFlowBoard';
 import { TaskStoryboard } from './components/workspace/TaskStoryboard';
 import { TaskOutcomeBoard } from './components/workspace/TaskOutcomeBoard';
 import { TaskPage } from './components/workspace/TaskPage';
+import { ProjectBoard } from './components/workspace/ProjectBoard';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
 import {
@@ -47,8 +48,10 @@ import {
   type WorkbenchTaskDeliveryReceipt,
   type WorkbenchSecurityPostureReport,
 } from './runtime/task-client';
+import { createProjectClient, type WorkbenchProject, type WorkbenchProjectTaskRef } from './runtime/project-client';
 
 const localGatewayClient = HttpWorkbenchTaskClient.forLocalGateway();
+const localProjectClient = createProjectClient('http://127.0.0.1:4318');
 
 function profileUi(messages: Translation): Record<AgentProfileId, { label: string; description: string }> {
   return messages.profile;
@@ -113,6 +116,11 @@ export function App() {
   const [taskFiles, setTaskFiles] = useState<readonly WorkbenchTaskFile[]>([]);
   const [deliveries, setDeliveries] = useState<readonly WorkbenchTaskDeliveryReceipt[]>([]);
   const [deliveryPending, setDeliveryPending] = useState(false);
+  const [projects, setProjects] = useState<readonly WorkbenchProject[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>();
+  const [projectTasks, setProjectTasks] = useState<readonly WorkbenchProjectTaskRef[]>([]);
+  const [projectPending, setProjectPending] = useState(false);
+  const [projectError, setProjectError] = useState<string>();
   const [localModels, setLocalModels] = useState<readonly WorkbenchLocalModelHealth[]>();
   const [localModelError, setLocalModelError] = useState<string>();
   const [providerConnections, setProviderConnections] = useState<readonly WorkbenchProviderConnection[]>();
@@ -143,12 +151,13 @@ export function App() {
   const { messages } = useLocale();
   const profiles = profileUi(messages);
   const profile = profiles[activeProfile];
-  const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, task: '当前任务', models: '模型连接', connections: '已连接模型', operations: '运行记录', capabilities: '扩展与能力', security: '安全与系统' };
+  const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, projects: '项目', task: '当前任务', models: '模型连接', connections: '已连接模型', operations: '运行记录', capabilities: '扩展与能力', security: '安全与系统' };
   const blockedNodeId = snapshot && Object.entries(snapshot.nodeOutcomes).find(([, outcome]) => outcome === 'blocked')?.[0];
   const provenance = snapshot?.inputProvenance ?? [];
   const untrustedInputCount = provenance.filter((input) => input.trust === 'external-untrusted' || input.trust === 'derived-untrusted').length;
   const workbenchSurface = resolveWorkbenchSurface({ activePage, hasTaskSnapshot: Boolean(snapshot) });
   const isTaskPage = workbenchSurface === 'task-page';
+  const isProjectPage = workbenchSurface === 'project-page';
   const commandCatalog = createWorkbenchCommandCatalog({ hasActiveTask: Boolean(snapshot) });
 
   useEffect(() => {
@@ -161,6 +170,24 @@ export function App() {
   // gatewayErrorText only normalizes UI errors and is recreated with the component.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gatewayAttached]);
+
+  useEffect(() => {
+    if (!gatewayAttached || activePage !== 'projects') return;
+    let disposed = false;
+    void localProjectClient.list().then((items) => { if (!disposed) setProjects(items); }).catch((error: unknown) => { if (!disposed) setProjectError(gatewayErrorText(error)); });
+    return () => { disposed = true; };
+  // project page only reads the fixed local Gateway when explicitly opened.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gatewayAttached, activePage]);
+
+  useEffect(() => {
+    if (!gatewayAttached || !selectedProjectId || activePage !== 'projects') return;
+    let disposed = false;
+    void localProjectClient.listTasks(selectedProjectId).then((items) => { if (!disposed) setProjectTasks(items); }).catch((error: unknown) => { if (!disposed) setProjectError(gatewayErrorText(error)); });
+    return () => { disposed = true; };
+  // project task refs are metadata-only and load only for the selected project page.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gatewayAttached, activePage, selectedProjectId]);
 
   useEffect(() => {
     if (!gatewayAttached || activePage !== 'capabilities') return;
@@ -236,6 +263,20 @@ export function App() {
     setTaskFiles([]);
     setDeliveries([]);
     setDeliveryPending(false);
+  };
+
+  const createProject = (input: { title: string; description?: string }): void => {
+    if (!gatewayAttached || projectPending) return;
+    setProjectPending(true); setProjectError(undefined);
+    void localProjectClient.create(input).then((created) => { setProjects((items) => [created, ...items]); setSelectedProjectId(created.projectId); setProjectTasks([]); }).catch((error: unknown) => setProjectError(gatewayErrorText(error))).finally(() => setProjectPending(false));
+  };
+
+  const selectProject = (projectId: string): void => { setSelectedProjectId(projectId); setProjectTasks([]); setProjectError(undefined); };
+
+  const attachCurrentTaskToProject = (): void => {
+    if (!gatewayAttached || !snapshot || !selectedProjectId || projectPending) return;
+    setProjectPending(true); setProjectError(undefined);
+    void localProjectClient.attachTask({ projectId: selectedProjectId, taskId: snapshot.taskId, runId: snapshot.runId }).then((reference) => { setProjectTasks((items) => items.some((item) => item.taskId === reference.taskId && item.runId === reference.runId) ? items : [...items, reference]); setProjects((items) => items.map((project) => project.projectId === selectedProjectId ? { ...project, taskCount: project.taskCount + 1, lastTaskAt: reference.attachedAt } : project)); }).catch((error: unknown) => setProjectError(gatewayErrorText(error))).finally(() => setProjectPending(false));
   };
 
   const refreshProviderConnections = (): void => {
@@ -497,11 +538,13 @@ export function App() {
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
             {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerConnections?.length ?? 0} gatewayAttached={gatewayAttached} messages={messages} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} onTemplate={(template) => { setDraft(template.goal); setActiveProfile(template.profileId); setAuthorityMode(template.authorityMode); focusTaskComposer(); }} profiles={profiles} />}
+            {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} error={projectError} gatewayAttached={gatewayAttached} onAttachCurrentTask={attachCurrentTaskToProject} onBackToChat={() => setActivePage('workspace')} onCreate={createProject} onSelect={selectProject} pending={projectPending} projectTasks={projectTasks} projects={projects} selectedProjectId={selectedProjectId} />}
             {isTaskPage && snapshot && <TaskPage
               activeGoal={activeGoal}
               authorityLabel={messages.authority.mode[snapshot.authorityMode ?? authorityMode].label}
               blockedNodeId={blockedNodeId}
               deliveryCount={deliveries.length}
+              citationCount={workspaceArtifacts.length}
               eventCount={events.length}
               onApproveAndResume={approveAndResume}
               onBackToChat={() => setActivePage('workspace')}

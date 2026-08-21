@@ -18,3 +18,8 @@ test('复杂管理页保持为显式设置态，不受任务存在与否影响',
     assert.equal(resolveWorkbenchSurface({ activePage, hasTaskSnapshot: true }), 'settings');
   }
 });
+
+test('项目管理始终解析为独立二级工作表面，而不是首页或设置页', () => {
+  assert.equal(resolveWorkbenchSurface({ activePage: 'projects', hasTaskSnapshot: false }), 'project-page');
+  assert.equal(resolveWorkbenchSurface({ activePage: 'projects', hasTaskSnapshot: true }), 'project-page');
+});

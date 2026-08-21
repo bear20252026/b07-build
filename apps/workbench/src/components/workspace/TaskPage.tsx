@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { WorkbenchTaskSnapshot } from '../../runtime/task-client';
 import { createTaskPageProjection, type TaskPageBlock } from './task-page-projection';
+import { createTaskCloseoutProjection } from './task-templates-and-closeout';
 
 export interface TaskPageProps {
   snapshot: WorkbenchTaskSnapshot;
@@ -8,6 +9,7 @@ export interface TaskPageProps {
   eventCount: number;
   taskFileCount: number;
   deliveryCount: number;
+  citationCount: number;
   profileLabel: string;
   authorityLabel: string;
   pending: boolean;
@@ -42,6 +44,7 @@ export function TaskPage({
   eventCount,
   taskFileCount,
   deliveryCount,
+  citationCount,
   profileLabel,
   authorityLabel,
   pending,
@@ -54,6 +57,7 @@ export function TaskPage({
 }: TaskPageProps) {
   const projection = createTaskPageProjection({ snapshot, activeGoal, eventCount, taskFileCount, deliveryCount });
   const canResume = snapshot.status === 'blocked' || snapshot.status === 'failed';
+  const closeout = createTaskCloseoutProjection({ snapshot, fileCount: taskFileCount, deliveryCount, citationCount });
 
   return (
     <section className="task-page" aria-label="当前任务页面">
@@ -69,6 +73,7 @@ export function TaskPage({
       <div className="task-page-block-grid">
         {projection.blocks.map((block) => <WorkBlock block={block} key={block.id} onOpenInspector={onOpenInspector} />)}
       </div>
+      <section className={`task-page-closeout${closeout.ready ? ' ready' : ''}`} aria-label="交付收尾审查"><div><span>DELIVERY CHECK</span><strong>{closeout.ready ? '可进入人工交付审查' : '尚未满足收尾条件'}</strong><p>{closeout.summary}</p></div><ul>{closeout.checks.map((check) => <li className={check.done ? 'done' : ''} key={check.id}>{check.done ? '✓' : '○'} {check.label}</li>)}</ul><button onClick={onOpenInspector} type="button">在 Inspector 审查</button></section>
       {(snapshot.status === 'blocked' || snapshot.status === 'failed') && <section className="task-page-recovery" aria-label="任务恢复操作">
         <div><span>EXPLICIT RECOVERY</span><strong>{snapshot.status === 'blocked' ? '需要人工确认后才能继续' : '可从受控检查点恢复'}</strong><p>恢复与审批是显式运行意图；任务页不会替你自动批准、重放或执行副作用。</p></div>
         <div className="task-page-recovery-actions">

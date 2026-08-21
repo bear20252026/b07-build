@@ -1,6 +1,6 @@
 import type { WorkbenchPage } from './workbench-page';
 
-export type WorkbenchSurface = 'chat-home' | 'task-page' | 'settings';
+export type WorkbenchSurface = 'chat-home' | 'project-page' | 'task-page' | 'settings';
 
 export interface ResolveWorkbenchSurfaceInput {
   activePage: WorkbenchPage;
@@ -15,6 +15,7 @@ export interface ResolveWorkbenchSurfaceInput {
  */
 export function resolveWorkbenchSurface({ activePage, hasTaskSnapshot }: ResolveWorkbenchSurfaceInput): WorkbenchSurface {
   if (activePage === 'workspace') return 'chat-home';
+  if (activePage === 'projects') return 'project-page';
   if (activePage === 'task' && hasTaskSnapshot) return 'task-page';
   return 'settings';
 }

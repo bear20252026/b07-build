@@ -12,7 +12,8 @@ export type { WorkbenchPage } from './workbench-page';
 type NavItem = { key: WorkbenchPage; icon: string; label: string; description: string };
 
 const WORKSPACE_NAV: readonly NavItem[] = [
-  { key: 'workspace', icon: '◌', label: '工作区', description: '任务对话、当前状态与交付预览' },
+  { key: 'workspace', icon: '◌', label: '工作区', description: '极简任务发起与当前工作方式' },
+  { key: 'projects', icon: '▤', label: '项目', description: '本地项目、任务归属与成果组织' },
 ];
 
 type Companion = { id: 'orbit' | 'mori' | 'pixel' | 'sage'; name: string; role: string; image: string };
@@ -80,7 +81,7 @@ export function Sider({ activePage, hasActiveTask, theme, onThemeToggle, onNewTa
   const { locale, messages, setLocale } = useLocale();
   const [companionId, setCompanionId] = useState<Companion['id']>('orbit');
   const nextLocale = locale === 'zh-CN' ? 'en' : 'zh-CN';
-  const isSettings = activePage !== 'workspace' && activePage !== 'task';
+  const isSettings = activePage !== 'workspace' && activePage !== 'projects' && activePage !== 'task';
   const workspaceNav = hasActiveTask
     ? [...WORKSPACE_NAV, { key: 'task' as const, icon: '▣', label: '当前任务', description: '类型化任务页面与受控成果' }]
     : WORKSPACE_NAV;
