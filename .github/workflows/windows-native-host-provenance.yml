@@ -19,7 +19,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Check out exact source revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up stable Rust with Windows x64 target
         uses: dtolnay/rust-toolchain@stable
@@ -66,7 +66,7 @@ jobs:
           if (-not $?) { throw 'Setup.exe candidate verification failed.' }
 
       - name: Upload candidate ZIP and Setup.exe package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: awo-native-host-helper-windows-x64-candidates
           if-no-files-found: error

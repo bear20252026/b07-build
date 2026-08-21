@@ -88,7 +88,7 @@ test('Gateway sidecar 固定在 loopback 端口并拒绝用户参数与环境变
 test('桌面候选来源证明工作流仅构建、上传和证明安装器，不安装或启动任何本地运行时', () => {
   for (const expected of [
     'runs-on: windows-latest', 'contents: read', 'id-token: write', 'attestations: write',
-    'npm ci', 'npm run gateway:sidecar', 'npm run desktop:build', 'actions/upload-artifact@v4', 'actions/attest@v4',
+    'npm ci', 'npm run gateway:sidecar', 'npm run desktop:build', 'actions/upload-artifact@v7', 'actions/attest@v4',
     "signingStatus = 'unsigned-candidate'", 'canAutoStartGateway = $false', 'bundlesExplicitGatewaySidecar = $true',
     'canAutoStartNativeHelper = $false', 'canPromoteBridgeTrust = $false',
   ]) assert.ok(provenanceWorkflow.includes(expected), `桌面 provenance 工作流缺少：${expected}`);
