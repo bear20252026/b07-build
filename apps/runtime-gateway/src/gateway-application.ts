@@ -37,6 +37,7 @@ import {
   TrustedDesktopIssuerRegistry,
 } from '@awo/agent-runtime';
 import {
+  AgencyRoleCatalog,
   KnowledgeImportSessionRegistry,
   KnowledgeWorkspaceService,
   SkillPackRegistry,
@@ -131,6 +132,7 @@ export function createGatewayComposition(): GatewayComposition {
   const localModelHealth = new LocalModelHealthRegistry();
   const skillPackStore = new SqliteSkillPackStore(skillPackPath);
   const skillPacks = new SkillPackRegistry(skillPackStore);
+  const agencyRoles = new AgencyRoleCatalog();
   const knowledgeImportStore = new SqliteKnowledgeImportSessionStore(knowledgeImportPath);
   const knowledgeImports = new KnowledgeImportSessionRegistry(knowledgeImportStore);
   const agentAdapterManifestStore = new SqliteAgentAdapterManifestStore(agentAdapterManifestPath);
@@ -229,7 +231,7 @@ export function createGatewayComposition(): GatewayComposition {
   return {
     dependencies: {
       ...taskRuntime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
-      extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, customProviders, apiUsage, localModelHealth, knowledgeWorkspaces, knowledgeImports, skillPacks,
+      extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, customProviders, apiUsage, localModelHealth, knowledgeWorkspaces, knowledgeImports, agencyRoles, skillPacks,
       agentAdapters, schedules, runTrajectory, runWorkspace, taskFiles, projects, administratorLeases, trustedDesktopIssuers,
       controlPlaneDiagnostics: () => createControlPlaneDiagnosticReport({
         extensions: extensionRegistry,

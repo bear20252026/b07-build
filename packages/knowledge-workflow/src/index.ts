@@ -8,6 +8,7 @@ export {
   SqliteWorkspaceKnowledgeStoreFactory,
 } from './knowledge-workspace.js';
 export { SqliteVectorKnowledgeStore } from './sqlite-vector-knowledge-store.js';
+export { AgencyRoleCatalog } from './agency-role-catalog.js';
 export {
   InMemoryKnowledgeImportSessionStore,
   KnowledgeImportSessionRegistry,
@@ -54,6 +55,11 @@ export type {
   SkillPackStatus,
   SkillPackStore,
 } from './skill-pack.js';
+export type {
+  AgencyRoleDefinition,
+  AgencyRoleSource,
+  AgencyRoleSummary,
+} from './agency-role-catalog.js';
 export type {
   KnowledgeImportSessionStore,
   KnowledgeImportSessionV1,
