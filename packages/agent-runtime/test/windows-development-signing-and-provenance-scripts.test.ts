@@ -58,7 +58,7 @@ test('GitHub Windows provenance 工作流只构建候选包并生成 SLSA 来源
     'VERIFY-CANDIDATE.ps1',
     'VERIFY-SETUP-CANDIDATE.ps1',
     'choco install InnoSetup --version=6.7.1',
-    'actions/upload-artifact@v4',
+    'actions/upload-artifact@v7',
     'name: awo-native-host-helper-windows-x64-candidates',
     'actions/attest@v4',
     'subject-path: ${{ steps.package.outputs.archive }}',
