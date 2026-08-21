@@ -159,15 +159,26 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .sider-label { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .sider-spacer { flex: 1; }
 .companion-card { display: grid; gap: 10px; padding: 11px; border: 1px solid var(--border); border-radius: 18px; background: color-mix(in srgb, var(--panel) 92%, var(--panel-subtle)); box-shadow: 0 8px 24px color-mix(in srgb, var(--text-strong) 4%, transparent); }
-.companion-current { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.companion-portrait { width: 43px; height: 43px; flex: 0 0 auto; object-fit: contain; border-radius: 14px; background: var(--panel-muted); }
-.companion-current > div { display: grid; min-width: 0; gap: 1px; }
-.companion-current span { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .08em; }
+.companion-current { width: 100%; display: flex; align-items: center; gap: 9px; min-width: 0; padding: 2px; color: inherit; text-align: left; border: 0; border-radius: 14px; background: transparent; }
+.companion-portrait-stage { position: relative; display: grid; place-items: center; width: 46px; height: 46px; flex: 0 0 auto; animation: companion-idle 4.8s cubic-bezier(.45, 0, .55, 1) infinite; }
+.companion-portrait { position: relative; z-index: 1; width: 43px; height: 43px; object-fit: contain; border-radius: 14px; background: var(--panel-muted); filter: drop-shadow(0 5px 5px color-mix(in srgb, var(--text-strong) 13%, transparent)); }
+.companion-portrait-stage i { position: absolute; z-index: 0; width: 34px; height: 9px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 22%, transparent); filter: blur(4px); transform: translateY(20px) scale(.82); animation: companion-shadow 4.8s cubic-bezier(.45, 0, .55, 1) infinite; }
+.companion-current-copy { display: grid; min-width: 0; gap: 1px; }
+.companion-current-copy > span { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .08em; }
 .companion-current strong { overflow: hidden; color: var(--text-strong); font-size: 12px; font-weight: 720; text-overflow: ellipsis; white-space: nowrap; }
 .companion-current small { overflow: hidden; color: var(--muted-strong); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.companion-current[data-motion='attention'] .companion-portrait-stage { animation: companion-attention 720ms cubic-bezier(.23, 1, .32, 1) both; }
+.companion-current[data-motion='celebrate'] .companion-portrait-stage { animation: companion-celebrate 820ms cubic-bezier(.23, 1, .32, 1) both; }
+.companion-current[data-motion='celebrate'] .companion-portrait-stage::after { content: '✦'; position: absolute; top: -7px; right: -5px; z-index: 2; color: var(--accent-strong); font-size: 14px; animation: companion-spark 820ms ease-out both; }
+@keyframes companion-idle { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-3px) rotate(-1deg); } }
+@keyframes companion-shadow { 0%, 100% { opacity: .44; transform: translateY(20px) scale(.82); } 50% { opacity: .22; transform: translateY(20px) scale(.66); } }
+@keyframes companion-attention { 0% { transform: translateY(0) rotate(0); } 52% { transform: translateY(-4px) rotate(3deg); } 100% { transform: translateY(-2px) rotate(0); } }
+@keyframes companion-celebrate { 0% { transform: translateY(0) scale(1); } 42% { transform: translateY(-9px) scale(1.07) rotate(-5deg); } 72% { transform: translateY(1px) scale(.98) rotate(3deg); } 100% { transform: translateY(0) scale(1) rotate(0); } }
+@keyframes companion-spark { 0% { opacity: 0; transform: translate(-2px, 4px) scale(.5) rotate(0); } 42% { opacity: 1; transform: translate(3px, -5px) scale(1) rotate(18deg); } 100% { opacity: 0; transform: translate(8px, -13px) scale(.76) rotate(36deg); } }
 .companion-picker { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
 .companion-choice { aspect-ratio: 1; min-width: 0; padding: 2px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 10px; background: var(--panel-muted); transition: border-color 140ms cubic-bezier(0.23, 1, 0.32, 1), background 140ms cubic-bezier(0.23, 1, 0.32, 1), transform 140ms cubic-bezier(0.23, 1, 0.32, 1); }
 .companion-choice:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.companion-choice:active { transform: scale(.95); }
 .companion-choice.active { border-color: var(--accent-strong); background: var(--accent-soft); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 17%, transparent); }
 .companion-choice img { width: 100%; height: 100%; object-fit: contain; }
 .sider-workspace { display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 14px; background: color-mix(in srgb, var(--panel) 70%, transparent); }
@@ -931,3 +942,36 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 
 /* P32：模型决策收据只说明既有选择和脱敏连接，不触发自动调用。 */
 .task-page-model-receipt { display: grid; gap: 4px; margin: 16px 0; border: 1px solid var(--border); border-radius: 14px; background: var(--panel-subtle); padding: 13px 15px; }.task-page-model-receipt span { color: var(--accent-strong); font-size: 9px; font-weight: 800; letter-spacing: .1em; }.task-page-model-receipt strong { color: var(--text-strong); font-size: 13px; }.task-page-model-receipt p { margin: 0; color: var(--muted-strong); font-size: 12px; }
+
+/* P2：手动知识导入只存在于二级能力页面，强调范围、预算与可审查收据。 */
+.knowledge-import-panel { display: grid; gap: 14px; padding: 20px; border: 1px solid var(--border); border-radius: 22px; background: color-mix(in srgb, var(--panel) 94%, var(--panel-subtle)); box-shadow: var(--shadow-soft); }
+.knowledge-import-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.knowledge-import-panel h2 { margin: 5px 0 6px; color: var(--text-strong); font-size: 17px; letter-spacing: -.025em; }
+.knowledge-import-panel p { margin: 0; color: var(--muted-strong); font-size: 12px; line-height: 1.6; }
+.knowledge-import-status { flex: 0 0 auto; padding: 5px 8px; color: var(--muted); font-size: 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel-muted); }
+.knowledge-import-status.ready { color: var(--success); border-color: color-mix(in srgb, var(--success) 36%, var(--border)); background: var(--success-soft); }
+.knowledge-import-form { display: grid; grid-template-columns: 1.35fr 1.55fr .65fr; gap: 11px; }
+.knowledge-import-form label { display: grid; gap: 6px; color: var(--text-strong); font-size: 11px; font-weight: 680; }
+.knowledge-import-form select, .knowledge-import-form input, .knowledge-import-form textarea { width: 100%; color: var(--text-strong); outline: 0; font: 12px var(--font-ui); border: 1px solid var(--border); border-radius: 11px; background: var(--panel-subtle); }
+.knowledge-import-form select, .knowledge-import-form input { min-height: 37px; padding: 0 10px; }
+.knowledge-import-form textarea { min-height: 142px; padding: 10px; line-height: 1.55; resize: vertical; }
+.knowledge-import-form select:focus, .knowledge-import-form input:focus, .knowledge-import-form textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.knowledge-import-text, .knowledge-import-footer { grid-column: 1 / -1; }
+.knowledge-import-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.knowledge-import-footer button { min-height: 34px; flex: 0 0 auto; padding: 0 12px; color: #fff; font: 650 12px var(--font-ui); border: 1px solid var(--accent-strong); border-radius: 10px; background: var(--accent-strong); transition: transform 140ms cubic-bezier(.23, 1, .32, 1), opacity 140ms ease; }
+.knowledge-import-footer button:active { transform: scale(.98); }
+.knowledge-import-footer button:disabled { opacity: .5; cursor: wait; }
+.knowledge-import-note { padding: 10px 12px; border: 1px dashed var(--border-strong); border-radius: 12px; background: var(--panel-subtle); }
+.knowledge-import-error { padding: 10px 12px; color: var(--danger) !important; border: 1px solid color-mix(in srgb, var(--danger) 32%, var(--border)); border-radius: 12px; background: var(--danger-soft); }
+.knowledge-import-receipt { display: grid; gap: 3px; padding: 11px 12px; color: var(--muted-strong); border: 1px solid color-mix(in srgb, var(--success) 34%, var(--border)); border-radius: 13px; background: var(--success-soft); font-size: 11px; line-height: 1.5; }
+.knowledge-import-receipt strong { color: var(--success); font-size: 12px; }
+.knowledge-import-receipt small { color: var(--muted); }
+@media (max-width: 760px) { .knowledge-import-panel > header, .knowledge-import-footer { align-items: stretch; flex-direction: column; }.knowledge-import-form { grid-template-columns: 1fr; }.knowledge-import-footer button { width: 100%; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .companion-portrait-stage,
+  .companion-portrait-stage i,
+  .companion-current[data-motion='attention'] .companion-portrait-stage,
+  .companion-current[data-motion='celebrate'] .companion-portrait-stage { animation: none; }
+  .companion-current[data-motion='celebrate'] .companion-portrait-stage::after { display: none; }
+}

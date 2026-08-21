@@ -17,7 +17,7 @@ import type {
   TaskFileWorkspace,
   TrustedDesktopIssuerRegistry,
 } from '@awo/agent-runtime';
-import type { KnowledgeWorkspaceService, SkillPackRegistry } from '@awo/knowledge-workflow';
+import type { KnowledgeImportSessionRegistry, KnowledgeWorkspaceService, SkillPackRegistry } from '@awo/knowledge-workflow';
 import type { LocalModelHealthRegistry, ProviderConnectionService, ProviderInferenceService, ProviderProfileRegistry, SessionCustomProviderService } from '@awo/provider-sdk';
 import type { InputProvenanceV1, TaskEvent } from '@awo/protocol';
 import type { ControlPlaneDiagnosticReportV1 } from '../control-plane-diagnostics.js';
@@ -46,6 +46,8 @@ export interface GatewayDependencies {
   readonly customProviders: SessionCustomProviderService;
   readonly localModelHealth: LocalModelHealthRegistry;
   readonly knowledgeWorkspaces: KnowledgeWorkspaceService;
+  /** 显式文本导入的摘要、预算与可恢复状态账本；路由不获得文件系统。 */
+  readonly knowledgeImports: KnowledgeImportSessionRegistry;
   readonly skillPacks: SkillPackRegistry;
   readonly agentAdapters: AgentAdapterControlPlane;
   readonly schedules: AuditedScheduleControlPlane;

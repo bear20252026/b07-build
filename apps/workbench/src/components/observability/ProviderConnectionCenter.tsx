@@ -52,7 +52,7 @@ export function ProviderConnectionCenter({ connections, probes, inferences, erro
           <h2>商业模型连接</h2>
           <p>仅通过本地 Gateway 显式连接；密钥始终留在 Gateway host，不写入工作台、Profile 账本或任务事件。</p>
         </div>
-        <button className="panel-refresh-button" type="button" onClick={onRefresh}>刷新状态</button>
+        <button className="panel-refresh-button" title="重新读取本机 Gateway 的脱敏连接目录；不探测网络、不调用模型。" type="button" onClick={onRefresh}>刷新状态</button>
       </div>
       {error && <p className="provider-connection-error" role="alert">{error}</p>}
       {!connections && <p className="provider-connection-empty">正在读取本地 Gateway 的供应商目录…</p>}
@@ -79,7 +79,7 @@ export function ProviderConnectionCenter({ connections, probes, inferences, erro
               {probeLabel(probe) && <span className={`provider-probe-result ${probe?.outcome}`}>{probeLabel(probe)}</span>}
             </div>
             <div className="provider-connection-actions">
-              {connection.profileStatus === 'not-registered' && <button type="button" disabled={pending} onClick={() => onRegister(connection.providerId)}>{pending ? '处理中…' : '登记连接'}</button>}
+              {connection.profileStatus === 'not-registered' && <button type="button" title="创建不含 API key 的本地 Profile metadata；不会联网或调用模型。" disabled={pending} onClick={() => onRegister(connection.providerId)}>{pending ? '处理中…' : '登记连接'}</button>}
               {connection.profileStatus === 'registered' && <button type="button" disabled={!canActivate || pending} title={canActivate ? '显式启用此供应商 Profile；不测试连接' : '请先在 Gateway host 配置凭据引用'} onClick={() => onActivate(connection.providerId)}>{pending ? '处理中…' : '启用 Profile'}</button>}
               {connection.profileStatus === 'active' && <button type="button" disabled={!canProbe || pending} title={canProbe ? '显式发起一次只读模型目录探测' : 'Gateway 当前未发现凭据'} onClick={() => onProbe(connection.providerId)}>{pending ? '诊断中…' : '测试连接'}</button>}
               {(connection.profileStatus === 'disabled' || connection.profileStatus === 'revoked') && <span className="provider-connection-locked">此 Profile 已被显式限制，不能由 Workbench 重新启用。</span>}
@@ -91,7 +91,7 @@ export function ProviderConnectionCenter({ connections, probes, inferences, erro
                 <input className="provider-model-input" aria-label={`${connection.displayName} 模型标识`} value={model} maxLength={128} onChange={(event) => setModels((current) => ({ ...current, [connection.providerId]: event.target.value }))} placeholder={`可选：覆写默认模型 ${connection.defaultModel}`} />
                 <div className="provider-inference-footer">
                   <span>发送前请确认文本可离开本机。执行时不会自动调用工具或启动其他连接。</span>
-                  <button type="button" disabled={!draft.trim() || pending} onClick={() => onInfer(connection.providerId, draft, model.trim() || undefined)}>{pending ? '请求中…' : '发送文本请求'}</button>
+                  <button type="button" title="仅向当前已启用 Provider 发送一次受限文本请求；不会调用工具、MCP、Shell、浏览器或其他 Provider。" disabled={!draft.trim() || pending} onClick={() => onInfer(connection.providerId, draft, model.trim() || undefined)}>{pending ? '请求中…' : '发送文本请求'}</button>
                 </div>
                 {inference && <div className="provider-inference-result"><div><strong>{inference.model}</strong><span>{inference.outputCharacters} 字符 · {inference.latencyMs} ms · Profile r{inference.profileRevision}</span></div><pre>{inference.output || '模型未返回文本内容。'}</pre></div>}
               </div>

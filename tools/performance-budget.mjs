@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = process.cwd();
-const limits = Object.freeze({ workbenchJavaScriptBytes: 500_000, workbenchCssBytes: 150_000, gatewayCompositionLines: 350 });
+const limits = Object.freeze({ workbenchJavaScriptBytes: 500_000, workbenchCssBytes: 150_000, gatewayCompositionLines: 300 });
 const assets = resolve(root, 'apps/workbench/dist/assets');
 const files = readdirSync(assets).map((name) => ({ name, bytes: statSync(resolve(assets, name)).size }));
 const javascript = files.filter((file) => file.name.endsWith('.js')).reduce((total, file) => total + file.bytes, 0);

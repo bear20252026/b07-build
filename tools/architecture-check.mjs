@@ -47,7 +47,7 @@ assertNoMatch(domain, /(?:from\s+['"](?:\.\.\/)*apps\/|@awo\/(?:workbench|runtim
 assertNoMatch(routes, /(?:node:sqlite|\bDatabaseSync\b|\bcreateServer\b|\bprocess\.env\b|\bnew\s+Sqlite[A-Za-z0-9_]+)/u, 'route-infrastructure-leak');
 
 assertMaxLines(join(root, 'apps/runtime-gateway/src/main.ts'), 40, 'gateway-entry-must-stay-thin');
-assertMaxLines(join(root, 'apps/runtime-gateway/src/gateway-application.ts'), 350, 'gateway-composition-root-budget');
+assertMaxLines(join(root, 'apps/runtime-gateway/src/gateway-application.ts'), 300, 'gateway-composition-root-budget');
 assertMaxLines(join(root, 'apps/runtime-gateway/src/http/router.ts'), 100, 'gateway-router-budget');
 
 for (const oldPath of [

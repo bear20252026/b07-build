@@ -1,7 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
-import type { AgentProfileId, CapabilityPolicyRule, InputProvenanceV1, TaskEvent } from '@awo/protocol';
+import type { CapabilityPolicyRule } from '@awo/protocol';
 import {
   AdministratorAuthorityLedger,
   AgentAdapterControlPlane,
@@ -12,8 +11,6 @@ import {
   ExtensionActivationPlanner,
   ExtensionDoctor,
   ExtensionRegistry,
-  InMemoryApprovalPort,
-  LocalTaskRuntimeService,
   McpRegistry,
   ReadOnlySubtaskService,
   RuleBasedCapabilityPolicy,
@@ -36,11 +33,12 @@ import {
   SqliteTaskSnapshotStore,
   SqliteTrustedDesktopIssuerStore,
   TrustedDesktopIssuerRegistry,
-  type TaskRuntimeRequest,
 } from '@awo/agent-runtime';
 import {
+  KnowledgeImportSessionRegistry,
   KnowledgeWorkspaceService,
   SkillPackRegistry,
+  SqliteKnowledgeImportSessionStore,
   SqliteKnowledgeWorkspaceStore,
   SqliteSkillPackStore,
   SqliteWorkspaceKnowledgeStoreFactory,
@@ -63,7 +61,7 @@ import { createGatewayComponentManagementReport } from './component-management-r
 import { createNativeHostAuthenticationComposition } from './native-host-authentication-composition.js';
 import { createWindowsNativeReleaseComposition } from './windows-native-release-composition.js';
 import { createTaskFileWorkspaceComposition } from './task-file-workspace-composition.js'; import { createProjectWorkspaceComposition } from './project-workspace-composition.js';
-import { createTaskNodes } from './task-node-factory.js';
+import { createTaskRuntimeComposition } from './task-runtime-composition.js';
 import { handleGatewayRequest } from './http/router.js';
 const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318);
 const DEFAULT_KNOWLEDGE_WORKSPACE_ID = 'default-local';
@@ -76,9 +74,6 @@ const BASELINE_RULES: readonly CapabilityPolicyRule[] = [
   { capability: 'shell.execute', decision: 'require_approval', reason: 'Shell 执行必须经本地审批' },
   { capability: 'browser.control', decision: 'require_approval', reason: '浏览器控制必须经本地审批' },
 ];
-function runKey(taskId: string, runId: string): string {
-  return `${taskId}:${runId}`;
-}
 /** 仅由已完成平台进程/二进制身份验证的 native adapter 持有；不传入 HTTP router 或 renderer。 */
 export interface GatewayNativeHostPort { readonly componentManagement: AuthenticatedNativeComponentManagementBridge; readonly releaseEvidence: import('@awo/agent-runtime').WindowsNativeHostReleaseEvidenceLedger; }
 export interface GatewayComposition { readonly dependencies: GatewayDependencies; readonly nativeHost: GatewayNativeHostPort; close(): void; }
@@ -94,6 +89,7 @@ export function createGatewayComposition(): GatewayComposition {
   const extensionPlanPath = resolve(process.env.AWO_EXTENSION_PLAN_DB ?? '.awo/extension-plans.sqlite');
   const providerProfilePath = resolve(process.env.AWO_PROVIDER_PROFILE_DB ?? '.awo/provider-profiles.sqlite');
   const skillPackPath = resolve(process.env.AWO_SKILL_PACK_DB ?? '.awo/skill-packs.sqlite');
+  const knowledgeImportPath = resolve(process.env.AWO_KNOWLEDGE_IMPORT_DB ?? '.awo/knowledge-imports.sqlite');
   const agentAdapterManifestPath = resolve(process.env.AWO_AGENT_ADAPTER_MANIFEST_DB ?? '.awo/agent-adapters.sqlite');
   const agentAdapterSessionPath = resolve(process.env.AWO_AGENT_ADAPTER_SESSION_DB ?? '.awo/agent-adapter-sessions.sqlite');
   const agentAdapterMailboxPath = resolve(process.env.AWO_AGENT_ADAPTER_MAILBOX_DB ?? '.awo/agent-adapter-mailbox.sqlite');
@@ -130,6 +126,8 @@ export function createGatewayComposition(): GatewayComposition {
   const localModelHealth = new LocalModelHealthRegistry();
   const skillPackStore = new SqliteSkillPackStore(skillPackPath);
   const skillPacks = new SkillPackRegistry(skillPackStore);
+  const knowledgeImportStore = new SqliteKnowledgeImportSessionStore(knowledgeImportPath);
+  const knowledgeImports = new KnowledgeImportSessionRegistry(knowledgeImportStore);
   const agentAdapterManifestStore = new SqliteAgentAdapterManifestStore(agentAdapterManifestPath);
   const agentAdapterSessionStore = new SqliteAgentAdapterSessionStore(agentAdapterSessionPath);
   const agentAdapterMailboxStore = new SqliteAdapterApprovalMailboxStore(agentAdapterMailboxPath);
@@ -167,10 +165,14 @@ export function createGatewayComposition(): GatewayComposition {
       at: Date.now(),
     });
   }
-  const runtime = new LocalTaskRuntimeService(store);
-  const requests = new Map<string, TaskRuntimeRequest>();
-  const eventsByRun = new Map<string, TaskEvent[]>();
-  const approvedActions = new Set<string>();
+  const taskRuntime = createTaskRuntimeComposition({
+    snapshotStore: store,
+    baselineRules: BASELINE_RULES,
+    administratorLeases,
+    runTrajectory,
+    runWorkspace,
+    taskFiles,
+  });
   const extensionActivationPlanner = new ExtensionActivationPlanner(
     extensionRegistry,
     new RuleBasedCapabilityPolicy(BASELINE_RULES),
@@ -178,70 +180,6 @@ export function createGatewayComposition(): GatewayComposition {
     createGatewayExtensionProvenanceLockGuard(componentProvenances, componentLockfiles),
   );
   const extensionDoctor = new ExtensionDoctor(extensionRegistry);
-  function createEvent(type: TaskEvent['type'], taskId: string, runId: string, payload: Record<string, unknown>): TaskEvent {
-    return { protocolVersion: '1.0', eventId: `gateway:${runId}:${type}:${randomUUID()}`, taskId, runId, at: Date.now(), type, ...payload } as TaskEvent;
-  }
-  function createTaskRequest(
-    goal: string,
-    profileId: AgentProfileId,
-    authorityMode: import('@awo/protocol').ExecutionAuthorityMode,
-    identity: { taskId: string; runId: string },
-    externalInputProvenance: readonly InputProvenanceV1[] = [],
-  ): TaskRuntimeRequest {
-    const { taskId, runId } = identity;
-    // 目标正文来自当前本地提交者；外部内容只能经 HTTP decoder 以 untrusted 摘要并入。
-    const inputProvenance: readonly InputProvenanceV1[] = [
-      {
-        schemaVersion: 1,
-        inputId: `gateway-goal:${taskId}`,
-        trust: 'operator-authored',
-        sourceKind: 'operator',
-        contentDigest: createHash('sha256').update(goal).digest('hex'),
-      },
-      ...externalInputProvenance,
-    ];
-    const generatedFilesByCall = new Map<string, readonly { logicalPath: string; content: string }[]>();
-    const existingEvents = eventsByRun.get(runKey(taskId, runId));
-    const events: TaskEvent[] = existingEvents ?? [
-      createEvent('task.created', taskId, runId, { goal }),
-      createEvent('agent.profile.selected', taskId, runId, { profileId }),
-      createEvent('execution.authority.selected', taskId, runId, { authorityMode }),
-      createEvent('input.provenance.recorded', taskId, runId, { provenance: inputProvenance }),
-      createEvent('plan.proposed', taskId, runId, { steps: createTaskNodes(profileId).map((node) => ({ id: node.id, description: node.tool.name, risk: node.tool.risk })) }),
-    ];
-    if (!existingEvents) {
-      for (const event of events) runTrajectory.recordTaskEvent(event, 'gateway.intent');
-    }
-    const request: TaskRuntimeRequest = {
-      taskId, runId, goal, profileId, authorityMode, inputProvenance, administratorLeases, nodes: createTaskNodes(profileId),
-      baselinePolicy: new RuleBasedCapabilityPolicy(BASELINE_RULES),
-      approvals: new InMemoryApprovalPort(approvedActions),
-      runner: {
-        async run(node) {
-          if (node.tool.capability === 'filesystem.write') {
-            generatedFilesByCall.set(node.id, [{
-              logicalPath: 'deliverables/task-delivery.md',
-              content: `# 受控任务交付\n\n本文件由已批准的 filesystem.write 工具在本地 task/run 专属目录中创建。\n\n- task: ${taskId}\n- run: ${runId}\n- 可自动执行：否\n- 可自动解压：否\n`,
-            }]);
-          }
-          return { ok: true, outputRef: `local://task/${taskId}/${node.id}` };
-        },
-      },
-      emit(nextEvent) {
-        events.push(nextEvent);
-        runTrajectory.recordTaskEvent(nextEvent, 'task-runtime');
-        const artifact = runWorkspace.recordTaskEvent(nextEvent);
-        if (nextEvent.type === 'tool.result' && nextEvent.status === 'ok' && artifact) {
-          for (const file of generatedFilesByCall.get(nextEvent.callId) ?? []) {
-            taskFiles.publishTextFile({ taskId, runId, artifactLedgerId: artifact.artifactLedgerId, ...file, createdAt: nextEvent.at });
-          }
-          generatedFilesByCall.delete(nextEvent.callId);
-        }
-      },
-    };
-    eventsByRun.set(runKey(taskId, runId), events);
-    return request;
-  }
   let closed = false;
   const closeResources = (): void => {
     if (closed) return;
@@ -257,6 +195,7 @@ export function createGatewayComposition(): GatewayComposition {
       () => extensionPlanStore.close(),
       () => providerProfileStore.close(),
       () => skillPackStore.close(),
+      () => knowledgeImportStore.close(),
       () => agentAdapterManifestStore.close(),
       () => agentAdapterSessionStore.close(),
       () => agentAdapterMailboxStore.close(),
@@ -283,8 +222,8 @@ export function createGatewayComposition(): GatewayComposition {
   };
   return {
     dependencies: {
-      runtime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
-      extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, customProviders, localModelHealth, knowledgeWorkspaces, skillPacks,
+      ...taskRuntime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
+      extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, customProviders, localModelHealth, knowledgeWorkspaces, knowledgeImports, skillPacks,
       agentAdapters, schedules, runTrajectory, runWorkspace, taskFiles, projects, administratorLeases, trustedDesktopIssuers,
       controlPlaneDiagnostics: () => createControlPlaneDiagnosticReport({
         extensions: extensionRegistry,
@@ -312,7 +251,6 @@ export function createGatewayComposition(): GatewayComposition {
         trustedDesktopIssuers,
       }),
       defaultKnowledgeWorkspaceId: DEFAULT_KNOWLEDGE_WORKSPACE_ID,
-      requests, eventsByRun, approvedActions, createTaskRequest, createEvent,
     },
     nativeHost: { ...nativeHostAuthentication.nativeHost, ...windowsNativeRelease.nativeHost },
     close: closeResources,

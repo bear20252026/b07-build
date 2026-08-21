@@ -9,6 +9,11 @@ export {
 } from './knowledge-workspace.js';
 export { SqliteVectorKnowledgeStore } from './sqlite-vector-knowledge-store.js';
 export {
+  InMemoryKnowledgeImportSessionStore,
+  KnowledgeImportSessionRegistry,
+  SqliteKnowledgeImportSessionStore,
+} from './knowledge-import-session.js';
+export {
   InMemorySkillPackStore,
   SkillPackRegistry,
   SqliteSkillPackStore,
@@ -49,6 +54,12 @@ export type {
   SkillPackStatus,
   SkillPackStore,
 } from './skill-pack.js';
+export type {
+  KnowledgeImportSessionStore,
+  KnowledgeImportSessionV1,
+  KnowledgeImportStatus,
+  StartKnowledgeImportRequest,
+} from './knowledge-import-session.js';
 export type {
   KnowledgeChunk,
   KnowledgeChunkMatch,

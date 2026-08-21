@@ -39,3 +39,44 @@
 .provider-submit-row { display: flex; align-items: center; gap: 10px; }
 .provider-next-link { padding: 8px 10px; }
 @media (max-width: 680px) { .provider-advanced-fields { grid-template-columns: 1fr; }.provider-submit-row { align-items: stretch; flex-direction: column; }.provider-onboarding-form--simple { max-width: none; } }
+
+/* P1：紧凑、低装饰的连接选择表面；功能状态仍以文本而不是单独图形表达。 */
+.provider-preset-grid--simple { gap: 8px; }
+.provider-preset-grid--simple .provider-preset {
+  position: relative;
+  min-height: 72px;
+  padding: 12px 13px;
+  border-radius: 14px;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--panel) 78%, transparent) inset;
+}
+.provider-preset-grid--simple .provider-preset::after {
+  content: '';
+  position: absolute;
+  top: 11px;
+  right: 11px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background 150ms cubic-bezier(0.23, 1, 0.32, 1), box-shadow 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.provider-preset-grid--simple .provider-preset.active::after {
+  background: var(--accent-strong);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.provider-preset-grid--simple .provider-preset:active,
+.provider-model-adjust:active,
+.provider-next-link:active,
+.provider-onboarding-submit:active { transform: scale(.985); }
+.provider-preset-grid--simple .provider-preset:focus-visible,
+.provider-model-adjust:focus-visible,
+.provider-next-link:focus-visible,
+.provider-onboarding-submit:focus-visible,
+.provider-protocol-inline button:focus-visible { outline-offset: 3px; }
+.provider-submit-row { padding-top: 2px; }
+.provider-next-link { border-radius: 10px; }
+.provider-compatibility-note { max-width: 720px; }
+@media (prefers-reduced-motion: reduce) {
+  .provider-preset, .provider-preset::after, .provider-model-adjust, .provider-next-link, .provider-onboarding-submit { transition: none; }
+  .provider-preset:hover { transform: none; }
+}

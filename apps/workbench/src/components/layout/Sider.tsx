@@ -18,7 +18,7 @@ const WORKSPACE_NAV: readonly NavItem[] = [
 
 type Companion = { id: 'orbit' | 'mori' | 'pixel' | 'sage'; name: string; role: string; image: string };
 
-/** 原创本地静态角色：只改变 Workbench 阅读体验，不驱动模型、Profile、工具或权限。 */
+/** 原创本地动态角色：只改变 Workbench 阅读体验，不驱动模型、Profile、工具或权限。 */
 const COMPANIONS: readonly Companion[] = [
   { id: 'orbit', name: 'Orbit', role: '实现与交付', image: orbitCompanion },
   { id: 'mori', name: 'Mori', role: '分析与规划', image: moriCompanion },
@@ -80,12 +80,14 @@ function NavigationItem({ activePage, item, onNavigate }: { activePage: Workbenc
 export function Sider({ activePage, hasActiveTask, theme, onThemeToggle, onNewTask, onNavigate }: SiderProps) {
   const { locale, messages, setLocale } = useLocale();
   const [companionId, setCompanionId] = useState<Companion['id']>('orbit');
+  const [companionMotion, setCompanionMotion] = useState<'idle' | 'attention' | 'celebrate'>('idle');
   const nextLocale = locale === 'zh-CN' ? 'en' : 'zh-CN';
   const isSettings = activePage !== 'workspace' && activePage !== 'projects' && activePage !== 'task';
   const workspaceNav = hasActiveTask
     ? [...WORKSPACE_NAV, { key: 'task' as const, icon: '▣', label: '当前任务', description: '类型化任务页面与受控成果' }]
     : WORKSPACE_NAV;
   const companion = COMPANIONS.find((item) => item.id === companionId) ?? COMPANIONS[0];
+  const chooseCompanion = (id: Companion['id']): void => { setCompanionId(id); setCompanionMotion('celebrate'); };
 
   return (
     <nav className={`sider${isSettings ? ' settings-mode' : ''}`} aria-label={messages.navigation.aria}>
@@ -114,12 +116,12 @@ export function Sider({ activePage, hasActiveTask, theme, onThemeToggle, onNewTa
       )}
       <div className="sider-spacer" />
       {!isSettings && <section className="companion-card" aria-label="当前 Agent 小玩偶">
-        <div className="companion-current">
-          <img alt={`${companion.name}，${companion.role}`} className="companion-portrait" src={companion.image} />
-          <div><span>当前助手</span><strong>{companion.name}</strong><small>{companion.role}</small></div>
-        </div>
+        <button aria-label={`${companion.name} 动态玩偶：${companion.role}`} className="companion-current" data-motion={companionMotion} title="点击让玩偶回应。它只是本地界面动画，不会创建任务、调用模型或改变权限。" onAnimationEnd={() => setCompanionMotion('idle')} onBlur={() => setCompanionMotion('idle')} onClick={() => setCompanionMotion('celebrate')} onFocus={() => setCompanionMotion('attention')} onPointerEnter={() => setCompanionMotion('attention')} onPointerLeave={() => setCompanionMotion('idle')} type="button">
+          <span className="companion-portrait-stage" aria-hidden="true"><img alt="" className="companion-portrait" src={companion.image} /><i /></span>
+          <span className="companion-current-copy"><span>当前助手 · 动态状态</span><strong>{companion.name}</strong><small>{companion.role}</small></span>
+        </button>
         <div aria-label="选择 Agent 小玩偶风格" className="companion-picker" role="group">
-          {COMPANIONS.map((item) => <button aria-label={`选择 ${item.name}：${item.role}`} aria-pressed={item.id === companion.id} className={`companion-choice${item.id === companion.id ? ' active' : ''}`} key={item.id} onClick={() => setCompanionId(item.id)} type="button"><img alt="" src={item.image} /></button>)}
+          {COMPANIONS.map((item) => <button aria-label={`选择 ${item.name}：${item.role}`} aria-pressed={item.id === companion.id} className={`companion-choice${item.id === companion.id ? ' active' : ''}`} key={item.id} title={`切换为 ${item.name} 视觉风格；不会切换模型、任务 Profile 或权限。`} onClick={() => chooseCompanion(item.id)} type="button"><img alt="" src={item.image} /></button>)}
         </div>
       </section>}
       <div className="sider-workspace"><div className="sider-workspace-indicator" aria-hidden="true" /><div><div className="sider-workspace-name">b07-build</div><div className="sider-workspace-meta">{isSettings ? '设置不会中断当前任务' : messages.navigation.workspaceMeta}</div></div></div>

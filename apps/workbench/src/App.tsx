@@ -11,6 +11,7 @@ import { ComponentLockBoard } from './components/observability/ComponentLockBoar
 import { ComponentManagementReceiptBoard } from './components/observability/ComponentManagementReceiptBoard';
 import { ExtensionCenter } from './components/observability/ExtensionCenter';
 import { LocalModelHealthBoard } from './components/observability/LocalModelHealthBoard';
+import { KnowledgeImportPanel } from './components/observability/KnowledgeImportPanel';
 import { ProviderSetupPage } from './components/settings/ProviderSetupPage';
 import { ProviderConnectionCenter } from './components/observability/ProviderConnectionCenter';
 import { NativeHostAuthenticationBoard } from './components/observability/NativeHostAuthenticationBoard';
@@ -35,20 +36,15 @@ import {
   type WorkbenchComponentManagementReport,
   type WorkbenchControlPlaneDiagnostics,
   type WorkbenchLocalModelHealth,
-  type WorkbenchProviderConnection,
-  type WorkbenchProviderConnectionProbe,
-  type WorkbenchProviderInference,
   type WorkbenchNativeHostAuthenticationReport,
   type WorkbenchWindowsNativeReleaseReport,
   type WorkbenchTaskSnapshot,
-  type WorkbenchRunTrajectoryEvent,
-  type WorkbenchRunCheckpoint,
-  type WorkbenchRunWorkspaceArtifact,
-  type WorkbenchTaskFile,
-  type WorkbenchTaskDeliveryReceipt,
   type WorkbenchSecurityPostureReport,
 } from './runtime/task-client';
-import { createProjectClient, type WorkbenchProject, type WorkbenchProjectTaskRef } from './runtime/project-client';
+import { createProjectClient } from './runtime/project-client';
+import { useProjectWorkspace } from './runtime/use-project-workspace';
+import { useProviderControlPlane } from './runtime/use-provider-control-plane';
+import { useTaskExecution } from './runtime/use-task-execution';
 
 const localGatewayClient = HttpWorkbenchTaskClient.forLocalGateway();
 const localProjectClient = createProjectClient('http://127.0.0.1:4318');
@@ -104,30 +100,20 @@ function statusLabel(status: WorkbenchTaskSnapshot['status'] | undefined, messag
   return messages.task.status[status];
 }
 
+function gatewayErrorText(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (/Failed to fetch|DOCTYPE|Unexpected token|JSON/i.test(message)) return '未收到可用的 Gateway 响应。请点击“启动并附着 Gateway”，等待本机服务就绪后重试。';
+  if (/aborted|timeout/i.test(message)) return '本机 Gateway 暂未就绪或供应商响应超时。请稍候重试，并检查模型名称和 API key。';
+  return message && !/[<{]/.test(message) ? message : '连接请求未完成。请检查 Gateway 状态后重试。';
+}
+
 export function App() {
   const [activePage, setActivePage] = useState<WorkbenchPage>('workspace');
   const [gatewayAttached, setGatewayAttached] = useState(false);
   const [gatewayAttachmentError, setGatewayAttachmentError] = useState<string>();
   const [attachingGateway, setAttachingGateway] = useState(false);
-  const [events, setEvents] = useState<readonly TaskEvent[]>([]);
-  const [trajectory, setTrajectory] = useState<readonly WorkbenchRunTrajectoryEvent[]>([]);
-  const [workspaceArtifacts, setWorkspaceArtifacts] = useState<readonly WorkbenchRunWorkspaceArtifact[]>([]);
-  const [checkpoints, setCheckpoints] = useState<readonly WorkbenchRunCheckpoint[]>([]);
-  const [taskFiles, setTaskFiles] = useState<readonly WorkbenchTaskFile[]>([]);
-  const [deliveries, setDeliveries] = useState<readonly WorkbenchTaskDeliveryReceipt[]>([]);
-  const [deliveryPending, setDeliveryPending] = useState(false);
-  const [projects, setProjects] = useState<readonly WorkbenchProject[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>();
-  const [projectTasks, setProjectTasks] = useState<readonly WorkbenchProjectTaskRef[]>([]);
-  const [projectPending, setProjectPending] = useState(false);
-  const [projectError, setProjectError] = useState<string>();
   const [localModels, setLocalModels] = useState<readonly WorkbenchLocalModelHealth[]>();
   const [localModelError, setLocalModelError] = useState<string>();
-  const [providerConnections, setProviderConnections] = useState<readonly WorkbenchProviderConnection[]>();
-  const [providerConnectionProbes, setProviderConnectionProbes] = useState<Readonly<Record<string, WorkbenchProviderConnectionProbe | undefined>>>({});
-  const [providerInferences, setProviderInferences] = useState<Readonly<Record<string, WorkbenchProviderInference | undefined>>>({});
-  const [providerConnectionError, setProviderConnectionError] = useState<string>();
-  const [pendingProviderId, setPendingProviderId] = useState<string>();
   const [controlPlaneDiagnostics, setControlPlaneDiagnostics] = useState<WorkbenchControlPlaneDiagnostics>();
   const [controlPlaneDiagnosticError, setControlPlaneDiagnosticError] = useState<string>();
   const [securityPostureAudit, setSecurityPostureAudit] = useState<WorkbenchSecurityPostureReport>();
@@ -140,15 +126,21 @@ export function App() {
   const [nativeHostAuthenticationReportError, setNativeHostAuthenticationReportError] = useState<string>();
   const [windowsNativeReleaseReport, setWindowsNativeReleaseReport] = useState<WorkbenchWindowsNativeReleaseReport>();
   const [windowsNativeReleaseReportError, setWindowsNativeReleaseReportError] = useState<string>();
-  const [snapshot, setSnapshot] = useState<WorkbenchTaskSnapshot>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
   const [activeGoal, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
   const [authorityMode, setAuthorityMode] = useState<WorkbenchAuthorityMode>('review');
-  const [pending, setPending] = useState(false);
-  const [serviceError, setServiceError] = useState<string>();
   const { messages } = useLocale();
+  const taskExecution = useTaskExecution(gatewayAttached, {
+    gatewayRequired: '请先显式附着本机 Gateway；桌面应用不会自动启动或连接服务。',
+    submitFailed: messages.task.error.connect,
+    resumeFailed: messages.task.error.resume,
+    approvalFailed: messages.task.error.approve,
+  }, localGatewayClient);
+  const { snapshot, events, trajectory, workspaceArtifacts, checkpoints, taskFiles, deliveries, pending, deliveryPending, error: serviceError } = taskExecution;
+  const projectWorkspace = useProjectWorkspace(gatewayAttached, activePage, gatewayErrorText, localProjectClient);
+  const providerControl = useProviderControlPlane(gatewayAttached, gatewayErrorText, localGatewayClient);
   const profiles = profileUi(messages);
   const profile = profiles[activeProfile];
   const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, projects: '项目', task: '当前任务', models: '模型连接', connections: '已连接模型', operations: '运行记录', capabilities: '扩展与能力', security: '安全与系统' };
@@ -159,35 +151,6 @@ export function App() {
   const isTaskPage = workbenchSurface === 'task-page';
   const isProjectPage = workbenchSurface === 'project-page';
   const commandCatalog = createWorkbenchCommandCatalog({ hasActiveTask: Boolean(snapshot) });
-
-  useEffect(() => {
-    if (!gatewayAttached) return;
-    let disposed = false;
-    void localGatewayClient.providerConnections()
-      .then((connections) => { if (!disposed) setProviderConnections(connections); })
-      .catch((error: unknown) => { if (!disposed) setProviderConnectionError(gatewayErrorText(error)); });
-    return () => { disposed = true; };
-  // gatewayErrorText only normalizes UI errors and is recreated with the component.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gatewayAttached]);
-
-  useEffect(() => {
-    if (!gatewayAttached || activePage !== 'projects') return;
-    let disposed = false;
-    void localProjectClient.list().then((items) => { if (!disposed) setProjects(items); }).catch((error: unknown) => { if (!disposed) setProjectError(gatewayErrorText(error)); });
-    return () => { disposed = true; };
-  // project page only reads the fixed local Gateway when explicitly opened.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gatewayAttached, activePage]);
-
-  useEffect(() => {
-    if (!gatewayAttached || !selectedProjectId || activePage !== 'projects') return;
-    let disposed = false;
-    void localProjectClient.listTasks(selectedProjectId).then((items) => { if (!disposed) setProjectTasks(items); }).catch((error: unknown) => { if (!disposed) setProjectError(gatewayErrorText(error)); });
-    return () => { disposed = true; };
-  // project task refs are metadata-only and load only for the selected project page.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gatewayAttached, activePage, selectedProjectId]);
 
   useEffect(() => {
     if (!gatewayAttached || activePage !== 'capabilities') return;
@@ -210,13 +173,6 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gatewayAttached, activePage]);
 
-  const gatewayErrorText = (error: unknown): string => {
-    const message = error instanceof Error ? error.message : String(error ?? '');
-    if (/Failed to fetch|DOCTYPE|Unexpected token|JSON/i.test(message)) return '未收到可用的 Gateway 响应。请点击“启动并附着 Gateway”，等待本机服务就绪后重试。';
-    if (/aborted|timeout/i.test(message)) return '本机 Gateway 暂未就绪或供应商响应超时。请稍候重试，并检查模型名称和 API key。';
-    return message && !/[<{]/.test(message) ? message : '连接请求未完成。请检查 Gateway 状态后重试。';
-  };
-
   const startAndAttachGateway = (): void => {
     if (attachingGateway || gatewayAttached) return;
     const awaitGatewayReadiness = (remainingAttempts: number): Promise<readonly WorkbenchProviderConnection[]> => localGatewayClient.providerConnections()
@@ -227,7 +183,7 @@ export function App() {
     setGatewayAttachmentError(undefined);
     void invoke<'started' | 'already-running'>('start_local_gateway')
       .then(() => awaitGatewayReadiness(8))
-      .then((connections) => { setProviderConnections(connections); setGatewayAttached(true); })
+      .then((connections) => { providerControl.hydrateConnections(connections); setGatewayAttached(true); })
       .catch((error: unknown) => {
         setActivePage('models');
         const message = error instanceof Error ? error.message : String(error);
@@ -248,9 +204,7 @@ export function App() {
   const detachGateway = (): void => {
     setGatewayAttached(false);
     setGatewayAttachmentError(undefined);
-    setProviderConnections(undefined);
-    setProviderConnectionProbes({});
-    setProviderInferences({});
+    providerControl.reset();
     setLocalModels(undefined);
     setControlPlaneDiagnostics(undefined);
     setSecurityPostureAudit(undefined);
@@ -258,213 +212,23 @@ export function App() {
     setComponentManagementReport(undefined);
     setNativeHostAuthenticationReport(undefined);
     setWindowsNativeReleaseReport(undefined);
-    setWorkspaceArtifacts([]);
-    setCheckpoints([]);
-    setTaskFiles([]);
-    setDeliveries([]);
-    setDeliveryPending(false);
-  };
-
-  const createProject = (input: { title: string; description?: string }): void => {
-    if (!gatewayAttached || projectPending) return;
-    setProjectPending(true); setProjectError(undefined);
-    void localProjectClient.create(input).then((created) => { setProjects((items) => [created, ...items]); setSelectedProjectId(created.projectId); setProjectTasks([]); }).catch((error: unknown) => setProjectError(gatewayErrorText(error))).finally(() => setProjectPending(false));
-  };
-
-  const selectProject = (projectId: string): void => { setSelectedProjectId(projectId); setProjectTasks([]); setProjectError(undefined); };
-
-  const attachCurrentTaskToProject = (): void => {
-    if (!gatewayAttached || !snapshot || !selectedProjectId || projectPending) return;
-    setProjectPending(true); setProjectError(undefined);
-    void localProjectClient.attachTask({ projectId: selectedProjectId, taskId: snapshot.taskId, runId: snapshot.runId }).then((reference) => { setProjectTasks((items) => items.some((item) => item.taskId === reference.taskId && item.runId === reference.runId) ? items : [...items, reference]); setProjects((items) => items.map((project) => project.projectId === selectedProjectId ? { ...project, taskCount: project.taskCount + 1, lastTaskAt: reference.attachedAt } : project)); }).catch((error: unknown) => setProjectError(gatewayErrorText(error))).finally(() => setProjectPending(false));
-  };
-
-  const refreshProviderConnections = (): void => {
-    if (!gatewayAttached) {
-      setProviderConnectionError('请先显式附着本机 Gateway。');
-      return;
-    }
-    setProviderConnectionError(undefined);
-    void localGatewayClient.providerConnections()
-      .then((connections) => setProviderConnections(connections))
-      .catch((error: unknown) => setProviderConnectionError(gatewayErrorText(error)));
-  };
-
-  const configureProviderSession = (providerId: string, input: { displayName?: string; model?: string; apiKey: string }): void => {
-    if (!gatewayAttached) {
-      setProviderConnectionError('请先附着本机 Gateway，再保存模型连接。');
-      return;
-    }
-    setPendingProviderId(providerId);
-    setProviderConnectionError(undefined);
-    void localGatewayClient.configureProviderSession(providerId, input)
-      .then((connection) => setProviderConnections((current) => {
-        const rest = (current ?? []).filter((item) => item.providerId !== providerId);
-        return [...rest, connection].sort((left, right) => left.displayName.localeCompare(right.displayName));
-      }))
-      .catch((error: unknown) => setProviderConnectionError(gatewayErrorText(error)))
-      .finally(() => setPendingProviderId(undefined));
-  };
-
-  const configureCustomProviderSession = (input: { displayName: string; protocol: 'openai-compatible' | 'anthropic-compatible'; baseUrl: string; model: string; apiKey: string }): void => {
-    if (!gatewayAttached) {
-      setProviderConnectionError('请先附着本机 Gateway，再保存自定义模型连接。');
-      return;
-    }
-    setPendingProviderId('custom');
-    setProviderConnectionError(undefined);
-    void localGatewayClient.configureCustomProviderSession(input)
-      .then((connection) => setProviderConnections((current) => [...(current ?? []), connection].sort((left, right) => left.displayName.localeCompare(right.displayName))))
-      .catch((error: unknown) => setProviderConnectionError(gatewayErrorText(error)))
-      .finally(() => setPendingProviderId(undefined));
-  };
-
-  const registerProviderConnection = (providerId: string): void => {
-    if (!gatewayAttached) {
-      setProviderConnectionError('请先显式附着本机 Gateway。');
-      return;
-    }
-    setPendingProviderId(providerId);
-    setProviderConnectionError(undefined);
-    void localGatewayClient.registerProviderConnection(providerId, 'desktop-owner', 'Workbench explicit registration.')
-      .then((connection) => { setProviderConnections((current) => (current ?? []).map((item) => item.providerId === providerId ? connection : item)); })
-      .catch((error: unknown) => setProviderConnectionError(gatewayErrorText(error)))
-      .finally(() => setPendingProviderId(undefined));
-  };
-
-  const activateProviderConnection = (providerId: string): void => {
-    if (!gatewayAttached) {
-      setProviderConnectionError('请先显式附着本机 Gateway。');
-      return;
-    }
-    setPendingProviderId(providerId);
-    setProviderConnectionError(undefined);
-    void localGatewayClient.activateProviderConnection(providerId, 'desktop-owner', 'Workbench explicit activation; no automatic model call.')
-      .then((connection) => { setProviderConnections((current) => (current ?? []).map((item) => item.providerId === providerId ? connection : item)); })
-      .catch((error: unknown) => setProviderConnectionError(gatewayErrorText(error)))
-      .finally(() => setPendingProviderId(undefined));
-  };
-
-  const probeProviderConnection = (providerId: string): void => {
-    if (!gatewayAttached) {
-      setProviderConnectionError('请先显式附着本机 Gateway。');
-      return;
-    }
-    setPendingProviderId(providerId);
-    setProviderConnectionError(undefined);
-    void localGatewayClient.probeProviderConnection(providerId)
-      .then((probe) => setProviderConnectionProbes((current) => ({ ...current, [providerId]: probe })))
-      .catch((error: unknown) => setProviderConnectionError(gatewayErrorText(error)))
-      .finally(() => setPendingProviderId(undefined));
-  };
-
-  const inferProviderConnection = (providerId: string, prompt: string, model?: string): void => {
-    if (!gatewayAttached) {
-      setProviderConnectionError('请先显式附着本机 Gateway。');
-      return;
-    }
-    setPendingProviderId(providerId);
-    setProviderConnectionError(undefined);
-    void localGatewayClient.inferProviderConnection(providerId, prompt, model)
-      .then((result) => setProviderInferences((current) => ({ ...current, [providerId]: result })))
-      .catch((error: unknown) => setProviderConnectionError(gatewayErrorText(error)))
-      .finally(() => setPendingProviderId(undefined));
-  };
-
-  const hydrate = async (nextSnapshot: WorkbenchTaskSnapshot): Promise<void> => {
-    const [nextEvents, nextTrajectory, nextArtifacts, nextCheckpoints, nextTaskFiles, nextDeliveries] = await Promise.all([
-      localGatewayClient.events(nextSnapshot.taskId, nextSnapshot.runId),
-      localGatewayClient.trajectory(nextSnapshot.taskId, nextSnapshot.runId),
-      localGatewayClient.workspaceArtifacts(nextSnapshot.taskId, nextSnapshot.runId),
-      localGatewayClient.checkpoints(nextSnapshot.taskId, nextSnapshot.runId),
-      localGatewayClient.files(nextSnapshot.taskId, nextSnapshot.runId),
-      localGatewayClient.deliveries(nextSnapshot.taskId, nextSnapshot.runId),
-    ]);
-    setSnapshot(nextSnapshot);
-    setEvents(nextEvents);
-    setTrajectory(nextTrajectory);
-    setWorkspaceArtifacts(nextArtifacts);
-    setCheckpoints(nextCheckpoints);
-    setTaskFiles(nextTaskFiles);
-    setDeliveries(nextDeliveries);
+    taskExecution.reset();
+    projectWorkspace.reset();
   };
 
   const submitIntent = async (): Promise<void> => {
     const goal = draft.trim();
-    if (!goal || pending) return;
-    if (!gatewayAttached) {
-      setServiceError('请先显式附着本机 Gateway；桌面应用不会自动启动或连接服务。');
-      return;
-    }
-    setPending(true);
-    setServiceError(undefined);
-    try {
-      const nextSnapshot = await localGatewayClient.submit({ goal, profileId: activeProfile, authorityMode });
-      await hydrate(nextSnapshot);
+    if (!goal) return;
+    if (await taskExecution.submit(goal, activeProfile, authorityMode)) {
       setActiveGoal(goal);
       setDraft('');
       setActivePage('task');
-    } catch (error) {
-      setServiceError(error instanceof Error ? error.message : messages.task.error.connect);
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const resume = async (): Promise<void> => {
-    if (!snapshot || pending) return;
-    setPending(true);
-    setServiceError(undefined);
-    try {
-      await hydrate(await localGatewayClient.resume(snapshot.taskId, snapshot.runId));
-    } catch (error) {
-      setServiceError(error instanceof Error ? error.message : messages.task.error.resume);
-    } finally {
-      setPending(false);
     }
   };
 
   const approveAndResume = async (): Promise<void> => {
-    if (!snapshot || !blockedNodeId || pending) return;
-    setPending(true);
-    setServiceError(undefined);
-    try {
-      await hydrate(await localGatewayClient.approve(snapshot.taskId, snapshot.runId, blockedNodeId));
-    } catch (error) {
-      setServiceError(error instanceof Error ? error.message : messages.task.error.approve);
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const loadTaskFilePreview = (taskFileId: string) => {
-    if (!snapshot) return Promise.reject(new Error('当前没有可预览的任务文件。'));
-    return localGatewayClient.filePreview(snapshot.taskId, snapshot.runId, taskFileId);
-  };
-
-  const loadTaskFileDiff = (taskFileId: string) => {
-    if (!snapshot) return Promise.reject(new Error('当前没有可比较的任务文件。'));
-    return localGatewayClient.fileDiff(snapshot.taskId, snapshot.runId, taskFileId);
-  };
-
-  const createTaskDelivery = async (): Promise<void> => {
-    if (!snapshot) throw new Error('当前没有可打包的任务文件。');
-    const receipt = await localGatewayClient.createDelivery(snapshot.taskId, snapshot.runId);
-    setDeliveries((current) => [receipt, ...current.filter((item) => item.deliveryId !== receipt.deliveryId)]);
-  };
-
-  const taskDeliveryDownloadUrl = (deliveryId: string): string => {
-    if (!snapshot) throw new Error('当前没有可下载的交付包。');
-    return localGatewayClient.deliveryDownloadUrl(snapshot.taskId, snapshot.runId, deliveryId);
-  };
-
-  const requestTaskDelivery = (): void => {
-    if (!snapshot || taskFiles.length === 0 || deliveryPending) return;
-    setDeliveryPending(true);
-    setServiceError(undefined);
-    void createTaskDelivery()
-      .catch((error: unknown) => setServiceError(error instanceof Error ? error.message : '创建 ZIP 交付包失败。'))
-      .finally(() => setDeliveryPending(false));
+    if (!blockedNodeId) return;
+    await taskExecution.approveAndResume(blockedNodeId);
   };
 
   const focusTaskInspector = (): void => {
@@ -537,8 +301,8 @@ export function App() {
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
-            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerConnections?.length ?? 0} gatewayAttached={gatewayAttached} messages={messages} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} onTemplate={(template) => { setDraft(template.goal); setActiveProfile(template.profileId); setAuthorityMode(template.authorityMode); focusTaskComposer(); }} profiles={profiles} />}
-            {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} error={projectError} gatewayAttached={gatewayAttached} onAttachCurrentTask={attachCurrentTaskToProject} onBackToChat={() => setActivePage('workspace')} onCreate={createProject} onSelect={selectProject} pending={projectPending} projectTasks={projectTasks} projects={projects} selectedProjectId={selectedProjectId} />}
+            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={gatewayAttached} messages={messages} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} onTemplate={(template) => { setDraft(template.goal); setActiveProfile(template.profileId); setAuthorityMode(template.authorityMode); focusTaskComposer(); }} profiles={profiles} />}
+            {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} error={projectWorkspace.error} gatewayAttached={gatewayAttached} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={projectWorkspace.create} onSelect={projectWorkspace.select} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
             {isTaskPage && snapshot && <TaskPage
               activeGoal={activeGoal}
               authorityLabel={messages.authority.mode[snapshot.authorityMode ?? authorityMode].label}
@@ -546,12 +310,12 @@ export function App() {
               deliveryCount={deliveries.length}
               citationCount={workspaceArtifacts.length}
               evidenceCount={workspaceArtifacts.length}
-              providerConnections={providerConnections ?? []}
+              providerConnections={providerControl.connections ?? []}
               eventCount={events.length}
               onApproveAndResume={approveAndResume}
               onBackToChat={() => setActivePage('workspace')}
               onOpenInspector={focusTaskInspector}
-              onResume={resume}
+              onResume={() => void taskExecution.resume()}
               pending={pending}
               profileLabel={profiles[snapshot.profileId].label}
               snapshot={snapshot}
@@ -573,13 +337,13 @@ export function App() {
               <div><span>MODEL READYNESS</span><strong>{gatewayAttached ? '选择一个已连接模型，开始你的第一个任务' : '先连接第三方模型，再开始工作'}</strong><p>{gatewayAttached ? '模型连接、测试和高级诊断已移动到设置；这里保留任务对话。' : '无需安装本地模型：OpenAI-compatible 和 Anthropic-compatible 均可用。'}</p></div>
               <button type="button" onClick={() => setActivePage('models')}>{gatewayAttached ? '管理模型' : '连接第三方 API'}</button>
             </section>
-            <LocalDataFlowBoard connectedProviderCount={providerConnections?.length ?? 0} gatewayAttached={gatewayAttached} onOpenModels={() => setActivePage('models')} taskFileCount={taskFiles.length} />
+            <LocalDataFlowBoard connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={gatewayAttached} onOpenModels={() => setActivePage('models')} taskFileCount={taskFiles.length} />
             <TaskStoryboard deliveryCount={deliveries.length} eventCount={events.length} onOpenInspector={focusTaskInspector} snapshot={snapshot} taskFileCount={taskFiles.length} />
-            <TaskOutcomeBoard deliveries={deliveries} deliveryPending={deliveryPending} files={taskFiles} onCreateDelivery={requestTaskDelivery} onOpenInspector={focusTaskInspector} />
+            <TaskOutcomeBoard deliveries={deliveries} deliveryPending={deliveryPending} files={taskFiles} onCreateDelivery={taskExecution.requestDelivery} onOpenInspector={focusTaskInspector} />
             {serviceError && <div className="runtime-error" role="alert">{messages.common.local}: {serviceError}</div>}
             <section className="runtime-snapshot runtime-snapshot--workspace" aria-label={messages.task.snapshotAria}>
               <div><div className="snapshot-eyebrow">{messages.task.runtimeSnapshot}</div><strong>{snapshot ? statusLabel(snapshot.status, messages) : messages.task.noTask}</strong><span>{snapshot ? `${messages.task.attempt(snapshot.attempt, Object.keys(snapshot.nodeOutcomes).length)} · ${messages.authority.mode[snapshot.authorityMode ?? 'review'].label}` : messages.task.noTaskDescription}</span>{snapshot && <span className={`provenance-status${untrustedInputCount > 0 ? ' tainted' : ''}`}>{messages.task.provenance(provenance.length, untrustedInputCount)}</span>}{snapshot && untrustedInputCount > 0 && <span className="provenance-note">{messages.task.provenanceNote}</span>}</div>
-              {snapshot && <div className="snapshot-actions">{snapshot.status === 'blocked' && blockedNodeId && <button className="snapshot-primary" disabled={pending} onClick={approveAndResume} type="button">{pending ? messages.common.processing : messages.task.approveAndResume(blockedNodeId)}</button>}{(snapshot.status === 'blocked' || snapshot.status === 'failed') && <button className="snapshot-secondary" disabled={pending} onClick={resume} type="button">{messages.task.resume}</button>}</div>}
+              {snapshot && <div className="snapshot-actions">{snapshot.status === 'blocked' && blockedNodeId && <button className="snapshot-primary" disabled={pending} onClick={approveAndResume} type="button">{pending ? messages.common.processing : messages.task.approveAndResume(blockedNodeId)}</button>}{(snapshot.status === 'blocked' || snapshot.status === 'failed') && <button className="snapshot-secondary" disabled={pending} onClick={() => void taskExecution.resume()} type="button">{messages.task.resume}</button>}</div>}
             </section>
             <section className="event-section">
               <div className="section-heading">
@@ -603,10 +367,10 @@ export function App() {
               </div>
             </section>
             </TaskPage>}
-            {activePage === 'models' && <ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerConnections : []} error={providerConnectionError} pendingProviderId={pendingProviderId} onAttach={startAndAttachGateway} onDetach={detachGateway} onConfigure={configureProviderSession} onConfigureCustom={configureCustomProviderSession} onManageConnections={() => setActivePage('connections')} />}
-            {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查看状态、手动测试模型目录或发送一次受限文本请求；不会自动调用第三方 API。</p></div><ProviderConnectionCenter connections={gatewayAttached ? providerConnections : []} probes={providerConnectionProbes} inferences={providerInferences} error={providerConnectionError} pendingProviderId={pendingProviderId} onRefresh={refreshProviderConnections} onRegister={registerProviderConnection} onActivate={activateProviderConnection} onProbe={probeProviderConnection} onInfer={inferProviderConnection} /></section>}
+            {activePage === 'models' && <ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerControl.connections : []} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onAttach={startAndAttachGateway} onDetach={detachGateway} onConfigure={providerControl.configure} onConfigureCustom={providerControl.configureCustom} onManageConnections={() => setActivePage('connections')} />}
+            {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查看状态、手动测试模型目录或发送一次受限文本请求；不会自动调用第三方 API。</p></div><ProviderConnectionCenter connections={gatewayAttached ? providerControl.connections : []} probes={providerControl.probes} inferences={providerControl.inferences} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onRefresh={providerControl.refresh} onRegister={providerControl.register} onActivate={providerControl.activate} onProbe={providerControl.probe} onInfer={providerControl.infer} /></section>}
             {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /></section>}
-            {activePage === 'capabilities' && <section className="page-stack"><div className="page-heading"><span>EXTENSIONS & CAPABILITIES</span><h1>扩展与能力</h1><p>按需读取扩展、本地模型与控制面摘要；此页不会启动模型、修改 Provider 或读取密钥。</p></div><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /></section>}
+            {activePage === 'capabilities' && <section className="page-stack"><div className="page-heading"><span>EXTENSIONS & CAPABILITIES</span><h1>扩展与能力</h1><p>按需读取扩展、本地模型与控制面摘要；此页不会启动模型、修改 Provider 或读取密钥。</p></div><KnowledgeImportPanel gatewayAttached={gatewayAttached} /><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /></section>}
             {activePage === 'security' && <section className="page-stack"><div className="page-heading"><span>SECURITY & SYSTEM</span><h1>安全与系统</h1><p>所有项目均为只读证据与审计摘要；此页不能自动修复、信任或执行。</p></div><SecurityPostureAuditBoard error={securityPostureAuditError} messages={messages} report={securityPostureAudit} /><ComponentLockBoard error={componentLockReportError} messages={messages} report={componentLockReport} /><ComponentManagementReceiptBoard error={componentManagementReportError} messages={messages} report={componentManagementReport} /><NativeHostAuthenticationBoard error={nativeHostAuthenticationReportError} messages={messages} report={nativeHostAuthenticationReport} /><WindowsNativeReleaseBoard error={windowsNativeReleaseReportError} messages={messages} report={windowsNativeReleaseReport} /></section>}
           </div>
         </section>
@@ -637,7 +401,7 @@ export function App() {
           </div>
         </div>}
       </main>
-      {isTaskPage && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={loadTaskFilePreview} onFileDiff={loadTaskFileDiff} onCreateDelivery={createTaskDelivery} deliveryDownloadUrl={taskDeliveryDownloadUrl} />}
+      {isTaskPage && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} />}
     </div>
   );
 }
