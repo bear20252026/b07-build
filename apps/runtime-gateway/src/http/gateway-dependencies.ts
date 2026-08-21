@@ -12,6 +12,7 @@ import type {
   SqliteExtensionPlanStore,
   SqliteTaskCommandReceiptStore,
   LocalTaskRuntimeService,
+  LocalProjectWorkspaceService,
   TaskRuntimeRequest,
   TaskFileWorkspace,
   TrustedDesktopIssuerRegistry,
@@ -53,6 +54,8 @@ export interface GatewayDependencies {
   readonly runWorkspace: RunWorkspaceLedger;
   /** task/run 专属的受控文件、文本预览和显式 ZIP 交付服务；路由永远不获得裸文件系统。 */
   readonly taskFiles: TaskFileWorkspace;
+  /** 项目只管理本地 metadata 与 task/run 归属，不能读取文件、密钥或执行任务。 */
+  readonly projects: LocalProjectWorkspaceService;
   readonly administratorLeases: AdministratorAuthorityLedger;
   readonly trustedDesktopIssuers: TrustedDesktopIssuerRegistry;
   readonly controlPlaneDiagnostics: () => ControlPlaneDiagnosticReportV1;

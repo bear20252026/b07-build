@@ -62,7 +62,7 @@ import { createGatewayComponentLockReport, createGatewayExtensionProvenanceLockG
 import { createGatewayComponentManagementReport } from './component-management-report.js';
 import { createNativeHostAuthenticationComposition } from './native-host-authentication-composition.js';
 import { createWindowsNativeReleaseComposition } from './windows-native-release-composition.js';
-import { createTaskFileWorkspaceComposition } from './task-file-workspace-composition.js';
+import { createTaskFileWorkspaceComposition } from './task-file-workspace-composition.js'; import { createProjectWorkspaceComposition } from './project-workspace-composition.js';
 import { createTaskNodes } from './task-node-factory.js';
 import { handleGatewayRequest } from './http/router.js';
 const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318);
@@ -140,6 +140,8 @@ export function createGatewayComposition(): GatewayComposition {
   const runTrajectoryStore = new SqliteRunTrajectoryStore(runTrajectoryPath); const runTrajectory = new RunTrajectoryLedger(runTrajectoryStore);
   const taskFileWorkspace = createTaskFileWorkspaceComposition(runWorkspaceLedgerPath, taskFileWorkspacePath, taskFileRoot);
   const { runWorkspace, taskFiles } = taskFileWorkspace;
+  const projectWorkspace = createProjectWorkspaceComposition(resolve(process.env.AWO_PROJECT_WORKSPACE_DB ?? '.awo/local-projects.sqlite'));
+  const { projects } = projectWorkspace;
   const administratorLeaseStore = new SqliteAdministratorLeaseStore(administratorLeasePath);
   const administratorLeases = new AdministratorAuthorityLedger(administratorLeaseStore);
   const trustedDesktopIssuerStore = new SqliteTrustedDesktopIssuerStore(trustedDesktopIssuerPath);
@@ -260,7 +262,7 @@ export function createGatewayComposition(): GatewayComposition {
       () => agentAdapterMailboxStore.close(),
       () => scheduleManifestStore.close(),
       () => scheduledRunStore.close(),
-      () => { runTrajectoryStore.close(); taskFileWorkspace.close(); },
+      () => { runTrajectoryStore.close(); taskFileWorkspace.close(); projectWorkspace.close(); },
       () => administratorLeaseStore.close(),
       () => trustedDesktopIssuerStore.close(),
       () => componentProvenanceStore.close(),
@@ -283,7 +285,7 @@ export function createGatewayComposition(): GatewayComposition {
     dependencies: {
       runtime, commandReceipts, readOnlySubtasks, mcpRegistry, extensionRegistry, extensionPlanStore,
       extensionActivationPlanner, extensionDoctor, providerProfiles, providerConnections, providerInference, customProviders, localModelHealth, knowledgeWorkspaces, skillPacks,
-      agentAdapters, schedules, runTrajectory, runWorkspace, taskFiles, administratorLeases, trustedDesktopIssuers,
+      agentAdapters, schedules, runTrajectory, runWorkspace, taskFiles, projects, administratorLeases, trustedDesktopIssuers,
       controlPlaneDiagnostics: () => createControlPlaneDiagnosticReport({
         extensions: extensionRegistry,
         extensionDoctor,

@@ -8,6 +8,7 @@ import { handleComponentLockReportRoutes } from './routes/component-lock-report.
 import { handleComponentManagementReportRoutes } from './routes/component-management-report.js';
 import { handleNativeHostAuthenticationReportRoutes } from './routes/native-host-authentication-report.js';
 import { handleProviderConnectionRoutes } from './routes/provider-connections.js';
+import { handleProjectRoutes } from './routes/projects.js';
 import { handleWindowsNativeReleaseReportRoutes } from './routes/windows-native-release-report.js';
 import { handleExtensionRoutes } from './routes/extensions.js';
 import { handleKnowledgeRoutes } from './routes/knowledge.js';
@@ -35,6 +36,7 @@ const ROUTE_PIPELINE: readonly GatewayRoute[] = [
   handleSkillAndProviderRoutes,
   handleExtensionRoutes,
   handleKnowledgeRoutes,
+  handleProjectRoutes,
   handleTaskRoutes,
 ];
 
