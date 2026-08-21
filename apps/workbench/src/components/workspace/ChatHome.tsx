@@ -1,9 +1,11 @@
 import type { AgentProfileId } from '@awo/protocol';
 import type { Translation } from '../../i18n/catalog';
 import { WORKBENCH_PROFILE_IDS } from './agent-profiles';
+import { createWorkModeAuditProjection } from './work-mode-projection';
 
 export interface ChatHomeProps {
   activeProfile: AgentProfileId;
+  authorityMode: 'plan' | 'review' | 'automate';
   connectedProviderCount: number;
   gatewayAttached: boolean;
   messages: Translation;
@@ -21,6 +23,7 @@ export interface ChatHomeProps {
  */
 export function ChatHome({
   activeProfile,
+  authorityMode,
   connectedProviderCount,
   gatewayAttached,
   messages,
@@ -33,6 +36,7 @@ export function ChatHome({
   const modelTitle = gatewayAttached && connectedProviderCount > 0
     ? home.providerReady(connectedProviderCount)
     : home.providerWaiting;
+  const workMode = createWorkModeAuditProjection({ profileId: activeProfile, authorityMode, connectedProviderCount });
 
   return (
     <section className="chat-home" aria-label={messages.task.title}>
@@ -70,6 +74,7 @@ export function ChatHome({
         </div>
         <button onClick={onOpenModels} type="button">{home.openModels}</button>
       </section>
+      <section className="chat-home-work-mode" aria-label="工作方式审计摘要"><span>WORK MODE · EXPLICIT</span><strong>{profiles[workMode.profileId].label} · {authorityMode}</strong><p>{workMode.connectionSummary}</p><small>{workMode.boundarySummary}</small></section>
       <section className="chat-home-suggestions" aria-label={home.suggestionLabel}>
         <span>{home.suggestionLabel}</span>
         <div>
