@@ -9,6 +9,7 @@ const rootPackageManifest = JSON.parse(readFileSync(resolve(root, 'package.json'
 const cargoManifest = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/Cargo.toml'), 'utf8');
 const desktopConfig = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/tauri.conf.json'), 'utf8')) as Record<string, unknown>;
 const capability = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/capabilities/main-window.json'), 'utf8')) as Record<string, unknown>;
+const companionCapability = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/capabilities/desktop-companion-window.json'), 'utf8')) as Record<string, unknown>;
 const desktopCore = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/lib.rs'), 'utf8');
 const desktopMain = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/main.rs'), 'utf8');
 const gatewayMain = readFileSync(resolve(root, 'apps/runtime-gateway/src/main.ts'), 'utf8');
@@ -59,14 +60,18 @@ test('桌面 Workbench 使用静态 AW 标记而不引入要求 `unsafe-eval` �
   assert.equal(workbenchSider.includes('@lobehub/icons'), false, '桌面 Workbench 不得重新引入导致严格 CSP 白屏的图标运行时');
 });
 
-test('桌面 Rust 核心仅暴露固定 Gateway sidecar 的显式 serve 启动，不授予通用 shell、文件、自动启动或 helper 生命周期能力', () => {
+test('桌面 Rust 核心仅暴露固定 Gateway sidecar 与固定标签 Companion 生命周期，不授予通用 shell、文件、自动启动或 helper 生命周期能力', () => {
   assert.deepEqual(capability.windows, ['main']);
   assert.deepEqual(capability.permissions, ['core:default', { identifier: 'shell:allow-spawn', allow: [{ name: 'binaries/awo-runtime-gateway', sidecar: true, args: ['serve'] }] }]);
+  assert.deepEqual(companionCapability.windows, ['desktop-companion']);
+  assert.deepEqual(companionCapability.permissions, ['core:default']);
   for (const expected of [
-    '#[tauri::command]', 'start_local_gateway', 'invoke_handler', 'tauri_plugin_shell::init()', 'sidecar(GATEWAY_SIDECAR)', 'args(["serve"])',
+    '#[tauri::command]', 'start_local_gateway', 'show_desktop_companion', 'close_desktop_companion', 'exit_ai_work_os', 'invoke_handler', 'tauri_plugin_shell::init()', 'sidecar(GATEWAY_SIDECAR)', 'args(["serve"])',
     'const GATEWAY_ADDRESS: &str = "127.0.0.1:4318"', 'const GATEWAY_SIDECAR: &str = "awo-runtime-gateway"',
+    'const DESKTOP_COMPANION_WINDOW_LABEL: &str = "desktop-companion"', 'WebviewWindowBuilder::new', 'WebviewUrl::App("index.html".into())',
+    '.always_on_top(true)', '.skip_taskbar(true)', 'WindowEvent::CloseRequested', 'api.prevent_close()', 'window.hide()', 'app.exit(0)',
     'app_local_data_dir()', 'create_dir_all(directory.join(".awo"))', '.current_dir(data_directory)',
-  ]) assert.ok(desktopCore.includes(expected), `桌面核心缺少受限 Gateway 启动约束：${expected}`);
+  ]) assert.ok(desktopCore.includes(expected), `桌面核心缺少受限 Gateway 或 Companion 约束：${expected}`);
   for (const forbidden of [
     'std::fs::', 'tokio::fs', 'std::env::', 'tauri_plugin_autostart', 'tauri_plugin_deep_link', 'tauri_plugin_updater',
     'awo-native-host-helper', 'Command::new(', 'args(["serve",',

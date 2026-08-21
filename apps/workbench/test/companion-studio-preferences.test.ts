@@ -10,7 +10,7 @@ test('Companion Studio 默认登记 AIRI 风格服务来源、机体模块和 Li
   assert.equal(JSON.stringify(DEFAULT_COMPANION_STUDIO_PREFERENCES).includes('endpoint'), false);
 });
 
-test('Companion Studio 允许在三级页关闭单个服务、机体模块、模型插槽和 Windows 常驻规划状态', () => {
+test('Companion Studio 允许在三级页关闭单个服务、机体模块、模型插槽和 Windows 原生桌面角色模式', () => {
   const updated = updateCompanionStudioPreferences(DEFAULT_COMPANION_STUDIO_PREFERENCES, {
     services: { ...DEFAULT_COMPANION_STUDIO_PREFERENCES.services, speech: false },
     modules: { ...DEFAULT_COMPANION_STUDIO_PREFERENCES.modules, discord: false, minecraft: false },
@@ -30,7 +30,7 @@ test('Companion Studio 丢弃未知字段和非法角色卡，且不将外部模
   assert.equal(parsed.services.chat, false);
   assert.equal(parsed.modules.discord, false);
   assert.equal(parsed.activeCharacterCardId, 'orbit');
-  assert.equal(parsed.desktopResidencyMode, 'planned-windows-only');
+  assert.equal(parsed.desktopResidencyMode, 'windows-native');
   assert.equal(JSON.stringify(parsed).includes('must-not-persist'), false);
   assert.equal('gameControl' in parsed.modules, false);
 });

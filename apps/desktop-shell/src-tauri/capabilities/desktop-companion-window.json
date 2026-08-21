@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-companion-window",
+  "description": "Fixed local Windows Companion surface may use only Tauri core window lifecycle. It receives no shell, filesystem, autostart, capture, updater, deep-link, or native-helper permissions.",
+  "windows": [
+    "desktop-companion"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}
