@@ -111,7 +111,7 @@ export function PreviewPanel({
   };
 
   return (
-    <aside className="preview-panel" aria-label={messages.preview.aria}>
+    <aside aria-label={messages.preview.aria} className="preview-panel" id="task-inspector" tabIndex={-1}>
       <header className="preview-header">
         <div>
           <div className="preview-title">{messages.preview.title}</div>

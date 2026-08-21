@@ -3,7 +3,6 @@ import './components/observability/GatewayAttachment.css';
 import { invoke } from '@tauri-apps/api/core';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider, type WorkbenchPage } from './components/layout/Sider';
-import { ControlPlaneInsights } from './components/observability/ControlPlaneInsights';
 import { ControlPlaneDiagnosticsBoard } from './components/observability/ControlPlaneDiagnosticsBoard';
 import { ComponentLockBoard } from './components/observability/ComponentLockBoard';
 import { ComponentManagementReceiptBoard } from './components/observability/ComponentManagementReceiptBoard';
@@ -18,6 +17,7 @@ import { TrajectoryBoard } from './components/observability/TrajectoryBoard';
 import { RunWorkspaceBoard } from './components/observability/RunWorkspaceBoard';
 import { PreviewPanel } from './components/preview/PreviewPanel';
 import { LocalDataFlowBoard } from './components/workspace/LocalDataFlowBoard';
+import { TaskStoryboard } from './components/workspace/TaskStoryboard';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
 import {
@@ -404,6 +404,10 @@ export function App() {
     return localGatewayClient.deliveryDownloadUrl(snapshot.taskId, snapshot.runId, deliveryId);
   };
 
+  const focusTaskInspector = (): void => {
+    document.getElementById('task-inspector')?.focus();
+  };
+
   return (
     <div className={`workbench-shell ${activePage === 'workspace' ? 'with-preview' : 'focus-page'} theme-${theme}`}>
       <Sider
@@ -460,6 +464,7 @@ export function App() {
               <button type="button" onClick={() => setActivePage('models')}>{gatewayAttached ? '管理模型' : '连接第三方 API'}</button>
             </section>
             <LocalDataFlowBoard connectedProviderCount={providerConnections?.length ?? 0} gatewayAttached={gatewayAttached} onOpenModels={() => setActivePage('models')} taskFileCount={taskFiles.length} />
+            <TaskStoryboard deliveryCount={deliveries.length} eventCount={events.length} onOpenInspector={focusTaskInspector} snapshot={snapshot} taskFileCount={taskFiles.length} />
             {serviceError && <div className="runtime-error" role="alert">{messages.common.local}: {serviceError}</div>}
             <section className="runtime-snapshot runtime-snapshot--workspace" aria-label={messages.task.snapshotAria}>
               <div><div className="snapshot-eyebrow">{messages.task.runtimeSnapshot}</div><strong>{snapshot ? statusLabel(snapshot.status, messages) : messages.task.noTask}</strong><span>{snapshot ? `${messages.task.attempt(snapshot.attempt, Object.keys(snapshot.nodeOutcomes).length)} · ${messages.authority.mode[snapshot.authorityMode ?? 'review'].label}` : messages.task.noTaskDescription}</span>{snapshot && <span className={`provenance-status${untrustedInputCount > 0 ? ' tainted' : ''}`}>{messages.task.provenance(provenance.length, untrustedInputCount)}</span>}{snapshot && untrustedInputCount > 0 && <span className="provenance-note">{messages.task.provenanceNote}</span>}</div>
