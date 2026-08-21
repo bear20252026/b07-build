@@ -24,6 +24,7 @@ export * from './audited-scheduler.js';
 export * from './task-runtime-service.js';
 export * from './run-trajectory.js';
 export * from './api-usage-ledger.js';
+export * from './browser-session-control.js';
 export * from './run-workspace-ledger.js';
 export * from './task-file-workspace.js';
 export * from './project-workspace.js';

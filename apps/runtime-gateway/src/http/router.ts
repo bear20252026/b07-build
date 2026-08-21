@@ -5,6 +5,7 @@ import type { GatewayRoute } from './route-contract.js';
 import { handleAgentAdapterRoutes } from './routes/agent-adapters.js';
 import { handleAgencyRoleRoutes } from './routes/agency-roles.js';
 import { handleApiUsageRoutes } from './routes/api-usage.js';
+import { handleBrowserSessionRoutes } from './routes/browser-sessions.js';
 import { handleControlPlaneDiagnosticRoutes } from './routes/control-plane-diagnostics.js';
 import { handleComponentLockReportRoutes } from './routes/component-lock-report.js';
 import { handleComponentManagementReportRoutes } from './routes/component-management-report.js';
@@ -36,6 +37,7 @@ const ROUTE_PIPELINE: readonly GatewayRoute[] = [
   handleLocalModelRoutes,
   handleProviderConnectionRoutes,
   handleApiUsageRoutes,
+  handleBrowserSessionRoutes,
   handleAgencyRoleRoutes,
   handleSkillAndProviderRoutes,
   handleExtensionRoutes,

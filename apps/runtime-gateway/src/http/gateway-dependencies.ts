@@ -2,6 +2,7 @@ import type {
   AdministratorAuthorityLedger,
   AgentAdapterControlPlane,
   ApiUsageLedger,
+  BrowserSessionControlPlane,
   AuditedScheduleControlPlane,
   ExtensionActivationPlanner,
   ExtensionDoctor,
@@ -45,6 +46,8 @@ export interface GatewayDependencies {
   readonly providerInference: ProviderInferenceService;
   /** 已完成 Provider 推理的本机、脱敏用量账本；不记录输入、输出、key 或端点。 */
   readonly apiUsage: ApiUsageLedger;
+  /** 浏览会话只记录授权、暂停、结束与脱敏范围摘要；它不创建浏览器或执行网页/桌面动作。 */
+  readonly browserSessions: BrowserSessionControlPlane;
   /** custom 连接只存在当前 Gateway 进程；route 无法读取其 endpoint、header 或密钥。 */
   readonly customProviders: SessionCustomProviderService;
   readonly localModelHealth: LocalModelHealthRegistry;
