@@ -44,6 +44,7 @@ function createBuiltInDriver(entry: ProviderCatalogEntry): ModelDriver {
     id: entry.driverId,
     capabilities: entry.capabilities,
     ...((entry.id === 'google-gemini' || entry.id === 'deepseek' || entry.id === 'zhipu') ? { chatCompletionsPath: '/chat/completions' as const } : {}),
+    ...((entry.id === 'mimo' || entry.id.startsWith('mimo-token-plan-')) ? { authentication: 'api-key' as const } : {}),
   });
 }
 

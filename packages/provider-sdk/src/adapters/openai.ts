@@ -10,6 +10,8 @@ export interface OpenAICompatibleOptions {
   capabilities?: ModelCapabilities;
   /** 默认兼容 OpenAI、DeepSeek、Mistral 与 OpenRouter；Gemini 兼容层使用 /chat/completions。 */
   chatCompletionsPath?: '/v1/chat/completions' | '/chat/completions';
+  /** 仅供经过代码审查的官方兼容端点使用；浏览器和自定义 Profile 不可提交任意 header。 */
+  authentication?: 'bearer' | 'api-key';
 }
 
 const REMOTE_DEFAULT_CAPABILITIES: ModelCapabilities = {
@@ -24,6 +26,7 @@ export class OpenAICompatible implements ModelDriver {
   private readonly driverId: string;
   private readonly modelCapabilities: ModelCapabilities;
   private readonly chatCompletionsPath: '/v1/chat/completions' | '/chat/completions';
+  private readonly authentication: 'bearer' | 'api-key';
 
   constructor(
     private readonly baseUrl: string,
@@ -32,6 +35,7 @@ export class OpenAICompatible implements ModelDriver {
     this.driverId = options.id ?? 'openai';
     this.modelCapabilities = options.capabilities ?? REMOTE_DEFAULT_CAPABILITIES;
     this.chatCompletionsPath = options.chatCompletionsPath ?? '/v1/chat/completions';
+    this.authentication = options.authentication ?? 'bearer';
   }
 
   id(): string {
@@ -47,7 +51,7 @@ export class OpenAICompatible implements ModelDriver {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
+        ...(this.authentication === 'api-key' ? { 'api-key': apiKey } : { authorization: `Bearer ${apiKey}` }),
       },
       body: JSON.stringify({ ...req, stream: true }),
     });

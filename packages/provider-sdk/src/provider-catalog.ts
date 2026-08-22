@@ -62,9 +62,24 @@ const BUILT_IN_ENTRIES: readonly ProviderCatalogEntry[] = Object.freeze([
     documentationUrl: 'https://api-docs.deepseek.com/zh-cn/', capabilities: { supportsTools: true, contextWindow: 1_000_000, costTier: 'medium' },
   }),
   entry({
-    id: 'mimo', displayName: 'Xiaomi MiMo', transport: 'openai-chat-completions', driverId: 'remote.mimo',
+    id: 'mimo', displayName: 'Xiaomi MiMo（按量 API）', transport: 'openai-chat-completions', driverId: 'remote.mimo',
     baseUrl: 'https://api.xiaomimimo.com', defaultModel: 'mimo-v2.5-pro', credentialReference: 'env.mimo',
     documentationUrl: 'https://mimo.mi.com/docs/zh-CN/quick-start/summary/first-api-call', capabilities: { supportsTools: true, contextWindow: 128_000, costTier: 'medium' },
+  }),
+  entry({
+    id: 'mimo-token-plan-cn', displayName: 'Xiaomi MiMo Token Plan（中国）', transport: 'openai-chat-completions', driverId: 'remote.mimo-token-plan-cn',
+    baseUrl: 'https://token-plan-cn.xiaomimimo.com', defaultModel: 'mimo-v2.5-pro', credentialReference: 'env.mimo-token-plan-cn',
+    documentationUrl: 'https://mimo.mi.com/docs/en-US/tokenplan/Token%20Plan/quick-access', capabilities: { supportsTools: true, contextWindow: 128_000, costTier: 'medium' },
+  }),
+  entry({
+    id: 'mimo-token-plan-sgp', displayName: 'Xiaomi MiMo Token Plan（新加坡）', transport: 'openai-chat-completions', driverId: 'remote.mimo-token-plan-sgp',
+    baseUrl: 'https://token-plan-sgp.xiaomimimo.com', defaultModel: 'mimo-v2.5-pro', credentialReference: 'env.mimo-token-plan-sgp',
+    documentationUrl: 'https://mimo.mi.com/docs/en-US/tokenplan/Token%20Plan/quick-access', capabilities: { supportsTools: true, contextWindow: 128_000, costTier: 'medium' },
+  }),
+  entry({
+    id: 'mimo-token-plan-ams', displayName: 'Xiaomi MiMo Token Plan（欧洲）', transport: 'openai-chat-completions', driverId: 'remote.mimo-token-plan-ams',
+    baseUrl: 'https://token-plan-ams.xiaomimimo.com', defaultModel: 'mimo-v2.5-pro', credentialReference: 'env.mimo-token-plan-ams',
+    documentationUrl: 'https://mimo.mi.com/docs/en-US/tokenplan/Token%20Plan/quick-access', capabilities: { supportsTools: true, contextWindow: 128_000, costTier: 'medium' },
   }),
   entry({
     id: 'longcat', displayName: 'LongCat', transport: 'openai-chat-completions', driverId: 'remote.longcat',

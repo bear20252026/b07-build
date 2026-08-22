@@ -13,7 +13,10 @@ type ProviderPreset = {
 
 const PRESETS: readonly ProviderPreset[] = [
   { id: 'deepseek', title: 'DeepSeek', description: '默认推荐', defaultModel: 'deepseek-v4-pro' },
-  { id: 'mimo', title: 'Xiaomi MiMo', description: '小米模型', defaultModel: 'mimo-v2.5-pro' },
+  { id: 'mimo', title: 'Xiaomi MiMo（按量）', description: 'sk- 密钥', defaultModel: 'mimo-v2.5-pro' },
+  { id: 'mimo-token-plan-cn', title: 'MiMo Token Plan（中国）', description: 'tp- 订阅密钥', defaultModel: 'mimo-v2.5-pro' },
+  { id: 'mimo-token-plan-sgp', title: 'MiMo Token Plan（新加坡）', description: 'tp- 订阅密钥', defaultModel: 'mimo-v2.5-pro' },
+  { id: 'mimo-token-plan-ams', title: 'MiMo Token Plan（欧洲）', description: 'tp- 订阅密钥', defaultModel: 'mimo-v2.5-pro' },
   { id: 'longcat', title: 'LongCat', description: '美团龙猫', defaultModel: 'LongCat-2.0' },
   { id: 'kimi', title: 'Kimi', description: 'Moonshot AI', defaultModel: 'kimi-k3' },
   { id: 'zhipu', title: '智谱 GLM', description: 'GLM 系列', defaultModel: 'glm-5.3' },
@@ -105,12 +108,13 @@ export function ProviderSetupPage({ gatewayAttached, attachingGateway, gatewayEr
             <label><span>模型名称</span><input value={model} maxLength={128} onChange={(event) => setModel(event.target.value)} placeholder="my-compatible-model" /></label>
             <label><span>显示名称</span><input value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} placeholder="我的兼容模型" /></label>
           </>}
+          {!customMode && providerId.startsWith('mimo') && <p className="provider-compatibility-note">`sk-` 使用“MiMo（按量）”；`tp-` 请按 Token Plan 控制台显示的区域选择中国、新加坡或欧洲。当前 `tp-` 密钥已在中国集群验证可访问。</p>}
           {!customMode && <button className="provider-model-adjust" title="可选地修改默认模型标识或本地显示名称；不会改变 API key、端点或权限。" type="button" onClick={() => setAdvancedOpen((open) => !open)}>{advancedOpen ? '收起模型调整' : `调整模型或名称（可选）`}</button>}
           {!customMode && advancedOpen && <div className="provider-advanced-fields"><label><span>模型名称</span><input value={model} maxLength={128} onChange={(event) => setModel(event.target.value)} placeholder={selected.defaultModel} /></label><label><span>显示名称</span><input value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} placeholder={`我的 ${selected.title}`} /></label></div>}
           <label className="provider-key-field"><span>API key</span><input value={apiKey} type="password" autoComplete="off" onChange={(event) => setApiKey(event.target.value)} placeholder="粘贴 API key" /><small>仅在当前 Gateway 进程内存中保存；关闭 Gateway 后自动失效。</small></label>
         </div>
-        <div className="onboarding-step onboarding-step--final"><span>3</span><div><strong>保存连接</strong><p>保存不会自动探测或调用模型；需要时再到“已连接模型”手动测试。</p></div></div>
-        <div className="provider-submit-row"><button className="provider-onboarding-submit" title="仅将连接登记到当前 Gateway 会话内存；不会自动调用模型、测试网络或保存 API key。" type="button" disabled={!gatewayAttached || !apiKey.trim() || (customMode && (!baseUrl.trim() || !model.trim() || !displayName.trim())) || isSubmitting} onClick={submit}>{isSubmitting ? '正在保存…' : '保存连接'}</button><button type="button" title="前往二级控制页，按状态显式登记、启用、测试或发送一次受限文本请求。" className="provider-next-link" onClick={onManageConnections}>查看已连接模型 →</button></div>
+        <div className="onboarding-step onboarding-step--final"><span>3</span><div><strong>连接并测试</strong><p>本次点击会把密钥仅写入当前 Gateway 内存并发起一次模型列表探测；不会自动发送聊天内容、调用工具或保存密钥。</p></div></div>
+        <div className="provider-submit-row"><button className="provider-onboarding-submit" title="将连接仅保存到当前 Gateway 内存，并按本次明确操作发起一次模型列表测试；不会自动发送聊天内容或执行工具。" type="button" disabled={!gatewayAttached || !apiKey.trim() || (customMode && (!baseUrl.trim() || !model.trim() || !displayName.trim())) || isSubmitting} onClick={submit}>{isSubmitting ? '正在连接并测试…' : '连接并测试'}</button><button type="button" title="前往二级控制页，按状态显式登记、启用、测试或发送一次受限文本请求。" className="provider-next-link" onClick={onManageConnections}>查看已连接模型 →</button></div>
       </section>
       <p className="provider-compatibility-note">自定义连接会拒绝 HTTP、本机、私网、IP 地址、完整操作路径和任意 header。自托管本地模型请使用本地模型端点管理。</p>
     </div>

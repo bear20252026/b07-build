@@ -423,7 +423,7 @@ function assertProviderInference(value: unknown): asserts value is WorkbenchProv
   if (
     Object.keys(item).some((key) => !['schemaVersion', 'providerId', 'profileId', 'profileRevision', 'model', 'dataBoundary', 'output', 'outputDigest', 'outputCharacters', 'latencyMs', 'canReadSecret', 'canAutoExecuteTools', 'canAutoConnect'].includes(key))
     || item.schemaVersion !== 1 || typeof item.providerId !== 'string' || !/^[a-z][a-z0-9-]{1,63}$/.test(item.providerId)
-    || typeof item.profileId !== 'string' || !/^provider\.[a-z][a-z0-9-]{1,63}$/.test(item.profileId)
+    || typeof item.profileId !== 'string' || !/^(?:provider\.[a-z][a-z0-9-]{1,63}|session\.custom-[a-z0-9-]{8,96})$/.test(item.profileId)
     || !Number.isSafeInteger(item.profileRevision) || (item.profileRevision as number) < 1
     || typeof item.model !== 'string' || item.dataBoundary !== 'remote-allowed'
     || typeof item.output !== 'string' || item.output.length > 32_000

@@ -90,6 +90,7 @@ function authHeaders(provider: ProviderCatalogEntry, apiKey: string): HeadersIni
   if (provider.transport === 'anthropic-messages') {
     return { accept: 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': apiKey };
   }
+  if (provider.id === 'mimo' || provider.id.startsWith('mimo-token-plan-')) return { accept: 'application/json', 'api-key': apiKey };
   return { accept: 'application/json', authorization: `Bearer ${apiKey}` };
 }
 

@@ -230,3 +230,60 @@ test('Custom compatible Provider 只接受显式 HTTPS session 配置，并通�
     }
   });
 });
+
+
+test('MiMo Token Plan 中国预置使用官方端点与 api-key 鉴权，TP 密钥可在同一会话探测并推理', async () => {
+  const originalFetch = globalThis.fetch;
+  let modelsTarget = '';
+  let inferenceTarget = '';
+  let receivedApiKey = '';
+  let remoteBody = '';
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const requestedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const rawHeaders = init?.headers;
+    const headers = rawHeaders instanceof Headers ? rawHeaders : new Headers(rawHeaders);
+    if (requestedUrl === 'https://token-plan-cn.xiaomimimo.com/v1/models') {
+      modelsTarget = requestedUrl;
+      receivedApiKey = headers.get('api-key') ?? '';
+      return new Response('{"data":[{"id":"mimo-v2.5-pro"}]}', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (requestedUrl === 'https://token-plan-cn.xiaomimimo.com/v1/chat/completions') {
+      inferenceTarget = requestedUrl;
+      receivedApiKey = headers.get('api-key') ?? '';
+      remoteBody = String(init?.body ?? '');
+      return new Response('data: {"choices":[{"delta":{"content":"MiMo Token Plan 已连接"}}]}\n\ndata: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  try {
+    await withGateway(async (baseUrl) => {
+      const headers = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };
+      const configured = await fetch(`${baseUrl}/api/providers/connections/mimo-token-plan-cn/configure-session`, {
+        method: 'POST', headers, body: JSON.stringify({ apiKey: 'tp-session-only-never-returned' }),
+      });
+      assert.equal(configured.status, 200);
+      const configuration = await configured.text();
+      assert.equal(configuration.includes('tp-session-only-never-returned'), false);
+      assert.equal(configuration.includes('token-plan-cn.xiaomimimo.com'), false);
+
+      const probe = await fetch(`${baseUrl}/api/providers/connections/mimo-token-plan-cn/probe`, { method: 'POST', headers: { 'x-awo-operator-intent': 'provider-connection-v1' } });
+      assert.equal(probe.status, 200);
+      assert.equal((await probe.json() as { outcome: string }).outcome, 'reachable');
+      assert.equal(modelsTarget, 'https://token-plan-cn.xiaomimimo.com/v1/models');
+      assert.equal(receivedApiKey, 'tp-session-only-never-returned');
+
+      const inferred = await fetch(`${baseUrl}/api/providers/connections/mimo-token-plan-cn/infer`, { method: 'POST', headers, body: JSON.stringify({ prompt: '请只回复连接成功' }) });
+      assert.equal(inferred.status, 200);
+      const result = await inferred.json() as Record<string, unknown>;
+      assert.equal(inferenceTarget, 'https://token-plan-cn.xiaomimimo.com/v1/chat/completions');
+      assert.equal(receivedApiKey, 'tp-session-only-never-returned');
+      assert.equal(result.output, 'MiMo Token Plan 已连接');
+      assert.equal(remoteBody.includes('请只回复连接成功'), true);
+      assert.equal(remoteBody.includes('tp-session-only-never-returned'), false);
+      assert.equal(JSON.stringify(result).includes('tp-session-only-never-returned'), false);
+      assert.equal(JSON.stringify(result).includes('token-plan-cn.xiaomimimo.com'), false);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

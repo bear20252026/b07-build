@@ -76,7 +76,16 @@ export function useProviderControlPlane(
     setPendingProviderId(providerId);
     setError(undefined);
     void client.configureProviderSession(providerId, input)
-      .then((connection) => setConnections((current) => replaceConnection(current, connection)))
+      .then(async (connection) => {
+        setConnections((current) => replaceConnection(current, connection));
+        try {
+          const probe = await client.probeProviderConnection(connection.providerId);
+          setProbes((current) => ({ ...current, [connection.providerId]: probe }));
+          if (probe.outcome !== 'reachable') setError(`连接已保存，但测试未通过：${probe.outcome}`);
+        } catch (nextError) {
+          setError(`连接已保存，但测试未完成：${errorText(nextError)}`);
+        }
+      })
       .catch((nextError: unknown) => setError(errorText(nextError)))
       .finally(() => setPendingProviderId(undefined));
   }, [client, errorText, requireGateway]);
@@ -86,7 +95,16 @@ export function useProviderControlPlane(
     setPendingProviderId('custom');
     setError(undefined);
     void client.configureCustomProviderSession(input)
-      .then((connection) => setConnections((current) => replaceConnection(current, connection)))
+      .then(async (connection) => {
+        setConnections((current) => replaceConnection(current, connection));
+        try {
+          const probe = await client.probeProviderConnection(connection.providerId);
+          setProbes((current) => ({ ...current, [connection.providerId]: probe }));
+          if (probe.outcome !== 'reachable') setError(`连接已保存，但测试未通过：${probe.outcome}`);
+        } catch (nextError) {
+          setError(`连接已保存，但测试未完成：${errorText(nextError)}`);
+        }
+      })
       .catch((nextError: unknown) => setError(errorText(nextError)))
       .finally(() => setPendingProviderId(undefined));
   }, [client, errorText, requireGateway]);
