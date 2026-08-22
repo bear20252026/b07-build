@@ -95,7 +95,7 @@ jobs:
               'product': 'AI Work OS',
               'platform': 'android',
               'artifactKind': 'android-apk-candidate',
-              'signingStatus': 'debug-or-unsigned-candidate',
+              'signingStatus': 'debug-signed-candidate',
               'publicTrust': False,
               'includesWindowsGatewaySidecar': False,
               'includesDesktopCompanionCommands': False,

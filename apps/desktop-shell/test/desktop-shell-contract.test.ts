@@ -42,11 +42,11 @@ test('Android 只通过远程 runner 初始化与构建，且不继承 Windows G
   const android = bundle.android as Record<string, unknown>;
   assert.deepEqual(bundle.externalBin, []);
   assert.equal(android.minSdkVersion, 24);
-  assert.equal(rootPackageManifest.scripts?.['android:build:apk'], 'npm exec --workspace=@awo/desktop-shell -- tauri android build --apk --target aarch64 --target armv7');
+  assert.equal(rootPackageManifest.scripts?.['android:build:apk'], 'npm exec --workspace=@awo/desktop-shell -- tauri android build --debug --apk --target aarch64 --target armv7');
   for (const expected of [
     'runs-on: ubuntu-latest', 'actions/setup-java@v5', 'android-actions/setup-android@v3',
     "'ndk;27.2.12479018'", 'npm run android:init', 'npm run android:build:apk',
-    'includesWindowsGatewaySidecar', 'includesDesktopCompanionCommands', 'actions/upload-artifact@v7',
+    "'signingStatus': 'debug-signed-candidate'", 'includesWindowsGatewaySidecar', 'includesDesktopCompanionCommands', 'actions/upload-artifact@v7',
   ]) assert.ok(androidWorkflow.includes(expected), `Android 远程构建工作流缺少：${expected}`);
   for (const forbidden of ['gateway:sidecar', 'Start-Process', 'git push', 'contents: write']) {
     assert.equal(androidWorkflow.includes(forbidden), false, `Android 工作流不得启动 Windows sidecar 或修改仓库：${forbidden}`);
