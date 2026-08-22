@@ -145,7 +145,7 @@ export function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
   const [composerCollapsed, setComposerCollapsed] = useState(false);
-  const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion'>();
+  const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding'>();
   const [activeGoal, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
   const [authorityMode, setAuthorityMode] = useState<WorkbenchAuthorityMode>('review');
@@ -173,7 +173,7 @@ export function App() {
   const updateCompanionStudio = (change: Parameters<typeof updateCompanionStudioPreferences>[1]): void => setCompanionStudioPreferences((current) => { const next = updateCompanionStudioPreferences(current, change); saveCompanionStudioPreferences(next); return next; });
   const updateFloatingCompanion = (next: FloatingCompanionPreferencesV1): void => { saveFloatingCompanionPreferences(next); setFloatingCompanionPreferences(next); };
   const updateWorkspaceFiles = (next: WorkspaceFilePreferencesV1): void => { saveWorkspaceFilePreferences(next); setWorkspaceFilePreferences(next); };
-  const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, projects: '项目', task: '当前任务', models: '模型连接', connections: '已连接模型', operations: '运行记录', 'api-usage': 'API 使用审计', 'workspace-files': '工作区与文件', 'terminal-coding': '终端与编码', capabilities: '扩展与能力', 'agency-roles': '预置专业角色', 'browser-sessions': '浏览会话控制', companion: 'Companion Agent', 'companion-service-sources': '服务来源', 'companion-body-modules': '机体模块', 'companion-character-models': '角色模型', 'companion-character-cards': 'AIRI 角色卡', 'companion-system': 'Companion 系统', security: '安全与系统' };
+  const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, projects: '项目', task: '当前任务', models: 'API 连接', connections: '已连接模型', operations: '运行记录', 'api-usage': 'API 使用审计', 'workspace-files': '工作区与文件', 'terminal-coding': '终端与编码', capabilities: '扩展与能力', 'agency-roles': '预置专业角色', 'browser-sessions': '浏览会话控制', companion: 'Companion Agent', 'companion-service-sources': '服务来源', 'companion-body-modules': '机体模块', 'companion-character-models': '角色模型', 'companion-character-cards': 'AIRI 角色卡', 'companion-system': 'Companion 系统', security: '安全与系统' };
   const blockedNodeId = snapshot && Object.entries(snapshot.nodeOutcomes).find(([, outcome]) => outcome === 'blocked')?.[0];
   const provenance = snapshot?.inputProvenance ?? [];
   const untrustedInputCount = provenance.filter((input) => input.trust === 'external-untrusted' || input.trust === 'derived-untrusted').length;
@@ -335,6 +335,8 @@ export function App() {
             <CommandPalette commands={commandCatalog} onExecute={executeCommand} />
             <div aria-label="独立工作面" className="titlebar-surface-actions">
               <button aria-label="打开独立 API 连接窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('api')} title="打开独立 API 连接浮层。首页保持简洁，连接详情不进入对话。" type="button">⌁</button>
+              <button aria-label="打开工作区文件窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('workspace-files')} title="打开受控工作区文件窗口；目录、导入与预览不进入对话。" type="button">▤</button>
+              <button aria-label="打开终端与编码窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('terminal-coding')} title="打开审批式终端与编码窗口；不会直接执行自由命令。" type="button">›_</button>
               <button aria-label="打开项目产物检查器" className="titlebar-icon-button" onClick={() => setInspectorSurface('artifacts')} title="打开当前任务的项目产物检查器；只显示受控文件投影。" type="button">▧</button>
               <button aria-label="打开 Companion 独立窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('companion')} title="打开独立 Companion 角色窗口；不会切换模型或授予权限。" type="button">◉</button>
             </div>
@@ -459,8 +461,10 @@ export function App() {
         </div>}
       </main>
       {activePage === 'workspace' && <HomeFloatingCompanion desktopCompanionAvailable={companionStudioPreferences.desktopResidencyMode === 'windows-native' && typeof window !== 'undefined' && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)} preferences={companionPreferences} presentation={floatingCompanionPreferences} onOpenDesktopCompanion={openDesktopCompanion} onOpenSettings={() => setActivePage('companion')} onPresentationChange={updateFloatingCompanion} />}
-      {isSettings && <SettingsOverlay activePage={activePage} onClose={() => setActivePage('workspace')} onNavigate={setActivePage} title={pageTitle[activePage]}>{settingsContent}</SettingsOverlay>}
+      {isSettings && <SettingsOverlay onClose={() => setActivePage('workspace')} title={pageTitle[activePage]}>{settingsContent}</SettingsOverlay>}
       {inspectorSurface === 'api' && <WorkbenchOverlay description="独立连接窗口：只在你明确提交时登记当前 Gateway 进程内存会话，不会自动调用第三方服务。" onClose={() => setInspectorSurface(undefined)} title="API 连接" tone="api"><ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerControl.connections : []} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onAttach={startAndAttachGateway} onDetach={detachGateway} onConfigure={providerControl.configure} onConfigureCustom={providerControl.configureCustom} onManageConnections={() => { setInspectorSurface(undefined); setActivePage('connections'); }} /></WorkbenchOverlay>}
+      {inspectorSurface === 'workspace-files' && <WorkbenchOverlay description="独立工作区文件窗口。目录、导入和预览只在你明确操作时发生；不会扫描、上传或执行文件。" onClose={() => setInspectorSurface(undefined)} title="工作区与文件" tone="api"><WorkspaceFilesPage preferences={workspaceFilePreferences} onChange={updateWorkspaceFiles} /></WorkbenchOverlay>}
+      {inspectorSurface === 'terminal-coding' && <WorkbenchOverlay description="独立终端与编码窗口。只创建固定模板的待审批计划，不直接执行系统命令。" onClose={() => setInspectorSurface(undefined)} title="终端与编码" tone="api"><TerminalCodingPage workspace={workspaceFilePreferences} /></WorkbenchOverlay>}
       {inspectorSurface === 'artifacts' && <WorkbenchOverlay description="当前 task/run 的受控文件检查器。可查看 Markdown、代码、JSON、差异和用户发起的交付包，不读取任意本机目录。" onClose={() => setInspectorSurface(undefined)} title="项目产物" tone="artifacts"><PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} /></WorkbenchOverlay>}
       {inspectorSurface === 'companion' && <WorkbenchOverlay description="独立角色窗口。角色、对话与 API 连接保持分离；高影响能力仍需未来的单独权限设计。" onClose={() => setInspectorSurface(undefined)} title="Companion" tone="companion"><CompanionWindow gatewayAttached={gatewayAttached} preferences={companionPreferences} onOpenApi={() => setInspectorSurface('api')} onOpenControls={() => { setInspectorSurface(undefined); setActivePage('companion'); }} /></WorkbenchOverlay>}
       {isTaskPage && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} />}
