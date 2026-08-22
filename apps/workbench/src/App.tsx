@@ -309,7 +309,7 @@ export function App() {
         <header className="workbench-titlebar">
           <div>
             <div className="titlebar-kicker">AI WORK OS · THIRD-PARTY API</div>
-            <div className="titlebar-title">{pageTitle[activePage]}</div>
+            <div className="titlebar-title">{workbenchSurface === 'chat-home' && taskModelLabel ? taskModelLabel : pageTitle[activePage]}</div>
           </div>
           <div className="titlebar-actions">
             <CommandPalette commands={commandCatalog} onExecute={executeCommand} />

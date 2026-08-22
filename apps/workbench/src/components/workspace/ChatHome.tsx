@@ -47,8 +47,9 @@ export function ChatHome({
 }: ChatHomeProps) {
   const home = messages.home;
   const modelTitle = gatewayAttached && connectedProviderCount > 0
-    ? home.providerReady(connectedProviderCount)
+    ? taskModelLabel ?? home.providerReady(connectedProviderCount)
     : home.providerWaiting;
+  const hasTaskModel = Boolean(taskModelLabel);
   const workMode = createWorkModeAuditProjection({ profileId: activeProfile, authorityMode, connectedProviderCount });
 
   return (
@@ -60,8 +61,8 @@ export function ChatHome({
               <svg viewBox="0 0 40 40" focusable="false"><rect x="4.5" y="4.5" width="31" height="31" rx="10" fill="currentColor" opacity=".12" /><path d="M12 13.5h16v13H12zM16 18h8M16 22h5M12 27.5h16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </span>
             <span>{home.eyebrow}</span>
-            <h1>{home.title}</h1>
-            <p>{home.description}</p>
+            <h1>{hasTaskModel ? 'What’s on your mind today?' : home.title}</h1>
+            <p>{hasTaskModel ? taskModelLabel : home.description}</p>
           </div>
           {conversations.length > 0 && <section className="chat-home-conversations" aria-label="可恢复对话历史"><div className="chat-home-section-heading"><span>CONVERSATIONS</span><button type="button" onClick={onNewConversation}>新对话</button></div><div className="chat-home-conversation-list">{conversations.map((conversation) => <button key={conversation.id} type="button" className={conversation.id === activeConversationId ? 'active' : ''} onClick={() => onSelectConversation(conversation.id)}><strong>{conversation.title}</strong><small>{conversation.selection.model ?? conversation.selection.providerId} · {conversation.messages.length} 条消息</small></button>)}</div></section>}
           {directResponse && <section className="chat-home-direct-response" aria-live="polite"><div><span>DIRECT MODEL RESPONSE</span><strong>{directResponse.model ?? taskModelLabel ?? '已选模型'}</strong><small>{directResponse.complete ? '流式回答完成' : '正在接收第三方文本分块…'}</small></div><pre>{directResponse.output || '正在等待模型返回首个文本分块…'}</pre></section>}
@@ -87,7 +88,7 @@ export function ChatHome({
             </div>
           </section>
         </div>
-        <aside className="chat-home-context" aria-label="当前任务上下文">
+        <aside className={`chat-home-context${hasTaskModel ? ' chat-home-context--connected' : ''}`} aria-label="当前任务上下文">
           <section className={`chat-home-provider${gatewayAttached && connectedProviderCount > 0 ? ' ready' : ''}`} aria-label="第三方模型连接状态">
             <div>
               <span>MODEL CONNECTION</span>
