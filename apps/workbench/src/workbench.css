@@ -1161,3 +1161,18 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 @keyframes workbench-overlay-panel-in { from { opacity: 0; transform: translateY(8px) scale(.992); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes companion-window-float { 0%, 100% { transform: translateY(3px); } 50% { transform: translateY(-6px); } }
 @media (max-width: 760px) { .titlebar-surface-actions { display: none; } .workbench-overlay-backdrop { padding: 8px; } .workbench-overlay { max-height: calc(100dvh - 16px); border-radius: 18px; } .workbench-overlay-titlebar { min-height: 64px; padding: 13px 15px; } .workbench-overlay-titlebar p { display: none; } .workbench-overlay-content { padding: 12px; } .companion-window { grid-template-columns: 1fr; } .companion-window-stage, .procedural-companion-stage { min-height: 214px; } .companion-window-actions { justify-content: stretch; } .companion-window-actions button { flex: 1; } }
+
+/* High-frequency chat attachments: metadata-only staging, never implicit upload. */
+.composer-attachments { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 2px 7px; border-bottom: 1px solid var(--border); transition: background 140ms ease, box-shadow 140ms ease; }
+.composer-attachments.is-drag-active { border-radius: 10px; background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.composer-attachment-picker { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.composer-attach-button { min-height: 25px; padding: 0 8px; color: var(--text-strong); border: 1px solid var(--border); border-radius: 8px; background: var(--panel-subtle); font: 650 10px var(--font-ui); cursor: pointer; }
+.composer-attach-button:hover { border-color: color-mix(in srgb, var(--accent) 42%, var(--border)); background: var(--accent-soft); }
+.composer-attachment-hint { color: var(--muted); font-size: 10px; }
+.composer-attachment-list { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: 5px; }
+.composer-attachment-chip { display: inline-flex; align-items: center; max-width: 220px; gap: 4px; min-height: 23px; padding: 0 5px 0 7px; color: var(--muted-strong); border: 1px solid var(--border); border-radius: 7px; background: var(--panel-muted); font-size: 10px; }
+.composer-attachment-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-attachment-chip button { display: grid; place-items: center; width: 17px; height: 17px; padding: 0; color: var(--muted); border: 0; border-radius: 5px; background: transparent; cursor: pointer; font: 400 15px/1 var(--font-ui); }
+.composer-attachment-chip button:hover { color: var(--danger); background: var(--danger-soft); }
+.composer-drop-hint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--accent-strong); border-radius: 9px; background: color-mix(in srgb, var(--panel) 84%, transparent); font: 700 11px var(--font-ui); pointer-events: none; }
+@media (max-width: 620px) { .composer-attachment-hint { flex-basis: 100%; }.composer-attachment-chip { max-width: min(100%, 260px); } }
