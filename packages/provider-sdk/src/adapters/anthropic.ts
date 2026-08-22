@@ -10,6 +10,8 @@ export interface AnthropicOptions {
   id?: string;
   baseUrl?: string;
   capabilities?: Partial<ModelCapabilities>;
+  /** 部分 Anthropic-compatible 服务（如 MiMo）要求 api-key 而非 x-api-key。 */
+  authentication?: 'x-api-key' | 'api-key';
 }
 
 const DEFAULT_CAPABILITIES: ModelCapabilities = {
@@ -35,11 +37,13 @@ export class AnthropicMessages implements ModelDriver {
   private readonly driverId: string;
   private readonly baseUrl: string;
   private readonly modelCapabilities: ModelCapabilities;
+  private readonly authentication: 'x-api-key' | 'api-key';
 
   constructor(options: AnthropicOptions = {}) {
     this.driverId = options.id ?? 'anthropic';
     this.baseUrl = (options.baseUrl ?? 'https://api.anthropic.com').replace(/\/$/, '');
     this.modelCapabilities = { ...DEFAULT_CAPABILITIES, ...options.capabilities, isLocal: false };
+    this.authentication = options.authentication ?? 'x-api-key';
   }
 
   id(): string {
@@ -56,7 +60,7 @@ export class AnthropicMessages implements ModelDriver {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-api-key': apiKey,
+        [this.authentication]: apiKey,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({

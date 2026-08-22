@@ -163,3 +163,43 @@ AI Work OS 关闭 Gateway 后就忘记 endpoint 与 API key，下一次运行用
 [11] [AI Work OS 任务模型推理端口](https://github.com/bear20252026/b07-build/blob/main/apps/runtime-gateway/src/task-model-inference.ts)
 
 [12] [AI Work OS 任务运行时组合](https://github.com/bear20252026/b07-build/blob/main/apps/runtime-gateway/src/task-runtime-composition.ts)
+
+## 八、协议选择补充：小米 MiMo 官方证据
+
+小米官方明确说明 MiMo 同时兼容 **OpenAI API** 与 **Anthropic API**。对于中国区 Token Plan，官方给出的 Base URL 分别为：OpenAI-compatible `https://token-plan-cn.xiaomimimo.com/v1`，Anthropic-compatible `https://token-plan-cn.xiaomimimo.com/anthropic`。按量 API 也分别使用 `https://api.xiaomimimo.com/v1` 与 `https://api.xiaomimimo.com/anthropic`。Anthropic Messages 实际请求路径为 Base URL 后的 `/v1/messages`，官方示例支持 `api-key` 认证头。[13] [14]
+
+因此，AI Work OS 当前把 MiMo 内置预置固定为 `openai-chat-completions` 是功能缺口：用户应能在预置服务内明确选择 OpenAI-compatible 或 Anthropic-compatible，并让选择同时影响 Base URL、探测路径、请求序列化与认证头，而不是只改变界面标签。
+
+AtomCode 的预置模型提供了可借鉴的分层：它的 `ProviderType` 显式区分 OpenAI、Anthropic、Ollama；通用 `openai-compatible` 和 `anthropic-compatible` 预置均存在；厂商预置只提供可覆盖默认值，账户层可以覆盖协议对应的 Base URL。[15]
+
+[13] [Xiaomi MiMo：首次调用 API（官方）](https://mimo.mi.com/docs/zh-CN/quick-start/summary/first-api-call)
+
+[14] [Xiaomi MiMo：Anthropic Messages API 兼容（官方）](https://mimo.mi.com/docs/zh-CN/api/chat/anthropic-api)
+
+[15] [AtomCode Provider Preset 源码](https://atomgit.com/atomgit_atomcode/atomcode/blob/master/crates/atomcode-config/src/config/provider_preset.rs)
+
+
+## 九、流式直连实现边界（本轮校正）
+
+用户明确指出，第三方模型交互必须保持标准的双向 HTTPS/SSE 流程：桌面端提交消息，供应商验证 API key 后连续返回流式内容，返回内容须进入实际桌面聊天/任务呈现，而不能被自定义本地层额外拦截、改写或截断。该要求与 AtomCode 的 `ResolvedModelConfig → Provider Factory → 实际 Agent session → 流式 UI` 设计相符。[8] [10]
+
+后续实现以这一成熟链路为唯一基线。本地桌面运行时仅保留 Tauri 桌面程序必要的会话凭据保管和 OpenAI/Anthropic 协议适配职责；它不设置响应内容审查、额外的请求策略门或私有交互协议。具体实施为：选定模型后，由同一解析配置建立标准 Provider Adapter；上游 SSE 文本分块在收到时立即转发到 Workbench 会话视图，同时在完成后写入 task/run 专属成果文件。模型的完整返回不写入 Provider 配置、密钥目录或运行轨迹，但应在用户当前聊天/任务窗口可见。
+
+> 这不等于在浏览器 WebView 中暴露 API key。密钥继续只停留于本机受控会话；响应数据的流式转发与密钥保管是两件独立的事。实现目标是**不缓冲、不截断、不改写正常模型输出**，而不是让本机代码成为第二个模型网关。
+
+
+## 十、本轮实现状态（待本机安装验证）
+
+本轮已按 AtomCode 的“明确选择 → 统一解析 → Provider Adapter → 实际运行时消费 → UI 呈现”方向补齐关键链路，而未复制其代码或引入第二套私有通讯协议。[8] [10]
+
+| 链路能力 | 本轮状态 | 实现边界 |
+| --- | --- | --- |
+| 内置 Provider 协议 | **已实现** | 所有预置服务均在原 API 设置表单中显式选择 OpenAI-compatible 或 Anthropic-compatible；Base URL 始终可编辑，且用户手动修改后切换协议不会被静默覆盖。 |
+| MiMo 中国 Token Plan | **已测试** | OpenAI 使用 `/v1/chat/completions` 与 `api-key`；Anthropic 使用 `/anthropic/v1/messages`、`api-key` 与 `anthropic-version`。 |
+| 模型发现 | **已实现** | `/models` 返回最多 100 个安全 model id；设置页与已连接模型页可查询、选择或手填，不能发现时不阻塞使用。 |
+| 明确任务模型 | **已实现** | 用户在已连接模型页点击“用作任务模型”；每次任务提交携带 `providerId` 与可选 `model`，任务执行不再根据“活动连接数量”猜测目标。 |
+| 内置与自定义任务推理 | **已实现** | 任务 DAG 可消费本次明确选择的内置或自定义会话 Provider，结果写入当前 task/run 的 `model-output/response.md`。 |
+| 桌面实时响应 | **已实现** | 已连接模型页的“流式发送”经标准 OpenAI/Anthropic Adapter 接收上游 SSE 文本分块，并立即更新 Workbench 卡片；不回显 API key、endpoint 或请求头。 |
+| 会话凭据生命周期 | **仍为会话级** | API key 不写入数据库或 UI 状态；关闭桌面运行时后须重新填写。Windows Credential Manager 持久账户档案仍是后续 P1。 |
+
+本轮的测试覆盖同时验证了 MiMo Token Plan 中国区两种协议、自定义兼容 Provider、模型列表发现、流式文本顺序、无密钥/地址回显、任务运行时真实调用和 task/run 专属输出文件。全仓验证结果为 **308/308 测试通过**，架构检查、性能预算、生产依赖审计与差异空白检查均通过。该结果验证的是受控模拟的协议与代码链路；由于此前在对话中公开过的密钥不得再次使用，不能将其表述为用户轮换后账号的线上验证成功。

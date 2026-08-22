@@ -8,6 +8,7 @@ export interface ChatHomeProps {
   authorityMode: 'plan' | 'review' | 'automate';
   connectedProviderCount: number;
   gatewayAttached: boolean;
+  taskModelLabel?: string;
   messages: Translation;
   profiles: Readonly<Record<AgentProfileId, { label: string; description: string }>>;
   onOpenModels(): void;
@@ -26,6 +27,7 @@ export function ChatHome({
   authorityMode,
   connectedProviderCount,
   gatewayAttached,
+  taskModelLabel,
   messages,
   profiles,
   onOpenModels,
@@ -74,7 +76,7 @@ export function ChatHome({
             <div>
               <span>MODEL CONNECTION</span>
               <strong>{modelTitle}</strong>
-              <p>{home.providerDescription}</p>
+              <p>{taskModelLabel ? `当前任务模型：${taskModelLabel}。发送任务将只调用此选择。` : `${home.providerDescription} 请在 API 连接中明确选择一个任务模型。`}</p>
             </div>
             <button onClick={onOpenModels} type="button">{home.openModels}</button>
           </section>

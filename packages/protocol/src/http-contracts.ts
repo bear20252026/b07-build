@@ -25,6 +25,12 @@ export interface TaskUploadIntentV1 {
   contentBase64: string;
 }
 
+/** 仅绑定已由本机 Gateway 建立的会话 Provider；不允许 HTTP 提交地址、密钥、header 或 driver。 */
+export interface TaskModelSelectionIntentV1 {
+  providerId: string;
+  model?: string;
+}
+
 export interface TaskSubmitIntentV1 {
   schemaVersion: typeof GATEWAY_HTTP_CONTRACT_VERSION;
   goal: string;
@@ -34,6 +40,7 @@ export interface TaskSubmitIntentV1 {
   /** 浏览器只能声明外部/派生的不可信摘要；可信来源由 Gateway 内部构造。 */
   inputProvenance: readonly InputProvenanceV1[];
   uploads?: readonly TaskUploadIntentV1[];
+  modelSelection?: TaskModelSelectionIntentV1;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -81,6 +88,13 @@ function decodeTaskUpload(value: unknown): TaskUploadIntentV1 {
   return { id: value.id, name: value.name.trim(), contentBase64: value.contentBase64 };
 }
 
+function decodeTaskModelSelection(value: unknown): TaskModelSelectionIntentV1 {
+  if (!isRecord(value) || Object.keys(value).some((key) => key !== 'providerId' && key !== 'model')) throw new Error('modelSelection 只接受 providerId 与可选 model');
+  if (typeof value.providerId !== 'string' || !IDENTIFIER.test(value.providerId)) throw new Error('modelSelection.providerId 无效');
+  if (value.model !== undefined && (typeof value.model !== 'string' || !IDENTIFIER.test(value.model))) throw new Error('modelSelection.model 无效');
+  return { providerId: value.providerId, ...(value.model === undefined ? {} : { model: value.model }) };
+}
+
 function decodeAdministratorLease(value: unknown): AdministratorLeaseIntentV1 {
   if (!isRecord(value) || Object.keys(value).some((key) => !['operatorId', 'allowedCapabilities', 'reason'].includes(key))) {
     throw new Error('administratorLease 必须是受限的 operatorId、allowedCapabilities、reason object');
@@ -100,7 +114,7 @@ function decodeAdministratorLease(value: unknown): AdministratorLeaseIntentV1 {
 export function decodeTaskSubmitIntentV1(value: unknown): TaskSubmitIntentV1 {
   if (!isRecord(value)) throw new Error('任务提交 body 必须是 JSON object');
   const keys = Object.keys(value);
-  if (keys.some((key) => !['schemaVersion', 'goal', 'profileId', 'authorityMode', 'administratorLease', 'inputProvenance', 'uploads'].includes(key))) {
+  if (keys.some((key) => !['schemaVersion', 'goal', 'profileId', 'authorityMode', 'administratorLease', 'inputProvenance', 'uploads', 'modelSelection'].includes(key))) {
     throw new Error('任务提交包含未声明字段');
   }
   if (value.schemaVersion !== GATEWAY_HTTP_CONTRACT_VERSION) {
@@ -118,6 +132,7 @@ export function decodeTaskSubmitIntentV1(value: unknown): TaskSubmitIntentV1 {
   if (new Set(inputProvenance.map((input) => input.inputId)).size !== inputProvenance.length) throw new Error('inputProvenance.inputId 不可重复');
   if (value.uploads !== undefined && (!Array.isArray(value.uploads) || value.uploads.length > 8)) throw new Error('uploads 必须是至多 8 项的数组');
   const uploads = (value.uploads ?? []).map(decodeTaskUpload);
+  const modelSelection = value.modelSelection === undefined ? undefined : decodeTaskModelSelection(value.modelSelection);
   if (new Set(uploads.map((upload) => upload.id)).size !== uploads.length) throw new Error('upload.id 不可重复');
   if (authorityMode === 'admin' && !administratorLease) throw new Error('Admin Authority 必须显式提交受限管理员租约申请');
   if (authorityMode !== 'admin' && administratorLease) throw new Error('只有 Admin Authority 可以提交管理员租约申请');
@@ -130,5 +145,6 @@ export function decodeTaskSubmitIntentV1(value: unknown): TaskSubmitIntentV1 {
     administratorLease,
     inputProvenance: inputProvenance.sort((left, right) => left.inputId.localeCompare(right.inputId)),
     ...(value.uploads === undefined ? {} : { uploads: uploads.sort((left, right) => left.id.localeCompare(right.id)) }),
+    ...(modelSelection === undefined ? {} : { modelSelection }),
   };
 }

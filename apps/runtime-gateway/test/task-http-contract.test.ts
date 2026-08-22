@@ -388,3 +388,55 @@ test('Gateway 将显式聊天上传写入本机 task/run 文件区，生成不�
     assert.equal(credentialLike.status, 400);
   });
 });
+
+
+test('任务只调用本次提交明确选择的模型，并将输出写入当前 task/run 专属文件', async () => {
+  const originalFetch = globalThis.fetch;
+  let target = '';
+  let body = '';
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const requestedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (requestedUrl === 'https://token-plan-cn.xiaomimimo.com/v1/chat/completions') {
+      target = requestedUrl;
+      body = String(init?.body ?? '');
+      return new Response('data: {"choices":[{"delta":{"content":"任务模型已真实响应"}}]}\n\ndata: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  try {
+    await withGateway(async (baseUrl) => {
+      const providerHeaders = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };
+      const configured = await fetch(`${baseUrl}/api/providers/connections/mimo-token-plan-cn/configure-session`, {
+        method: 'POST', headers: providerHeaders,
+        body: JSON.stringify({ baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1', model: 'mimo-v2.5-pro', apiKey: 'tp-task-session-only' }),
+      });
+      assert.equal(configured.status, 200);
+
+      const submitted = await fetch(`${baseUrl}/api/tasks`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'selected-provider-task' },
+        body: JSON.stringify({ schemaVersion: 1, goal: '请确认任务模型调用', profileId: 'reader', modelSelection: { providerId: 'mimo-token-plan-cn', model: 'mimo-v2.5-pro' } }),
+      });
+      const submittedBody = await submitted.text();
+      assert.equal(submitted.status, 201, submittedBody);
+      const snapshot = JSON.parse(submittedBody) as { taskId: string; runId: string; status: string };
+      assert.equal(snapshot.status, 'completed');
+      assert.equal(target, 'https://token-plan-cn.xiaomimimo.com/v1/chat/completions');
+      assert.equal(body.includes('请确认任务模型调用'), true);
+      assert.equal(body.includes('tp-task-session-only'), false);
+
+      const filesResponse = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/files`);
+      assert.equal(filesResponse.status, 200);
+      const files = await filesResponse.json() as readonly { taskFileId: string; logicalPath: string }[];
+      const output = files.find((file) => file.logicalPath === 'model-output/response.md');
+      assert.ok(output);
+      const preview = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/files/${output?.taskFileId}/preview`);
+      assert.equal(preview.status, 200);
+      const content = (await preview.json() as { content: string }).content;
+      assert.equal(content.includes('任务模型已真实响应'), true);
+      assert.equal(content.includes('tp-task-session-only'), false);
+      assert.equal(content.includes('token-plan-cn.xiaomimimo.com'), false);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

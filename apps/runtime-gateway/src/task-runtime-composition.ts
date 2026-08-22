@@ -24,7 +24,7 @@ export interface TaskModelInferenceResult {
 
 /** 仅 Gateway composition root 注入的模型端口；任务 runner 不读取密钥、端点或环境变量。 */
 export interface TaskModelInferencePort {
-  infer(input: { goal: string; profileId: AgentProfileId }): Promise<TaskModelInferenceResult | undefined>;
+  infer(input: { goal: string; profileId: AgentProfileId; modelSelection?: Readonly<{ providerId: string; model?: string }> }): Promise<TaskModelInferenceResult | undefined>;
 }
 
 export interface TaskRuntimeComposition {
@@ -38,6 +38,7 @@ export interface TaskRuntimeComposition {
     authorityMode: import('@awo/protocol').ExecutionAuthorityMode,
     identity: { taskId: string; runId: string },
     externalInputProvenance?: readonly InputProvenanceV1[],
+    modelSelection?: Readonly<{ providerId: string; model?: string }>,
   ) => TaskRuntimeRequest;
   readonly createEvent: (type: TaskEvent['type'], taskId: string, runId: string, payload: Record<string, unknown>) => TaskEvent;
 }
@@ -84,6 +85,7 @@ export function createTaskRuntimeComposition({
     authorityMode,
     identity,
     externalInputProvenance = [],
+    modelSelection,
   ) => {
     const { taskId, runId } = identity;
     const inputProvenance: readonly InputProvenanceV1[] = [
@@ -122,7 +124,7 @@ export function createTaskRuntimeComposition({
       runner: {
         async run(node) {
           if (node.tool.capability === 'model.chat') {
-            const result = await modelInference?.infer({ goal, profileId });
+            const result = await modelInference?.infer({ goal, profileId, modelSelection });
             if (result) {
               generatedFilesByCall.set(node.id, [{
                 logicalPath: 'model-output/response.md',

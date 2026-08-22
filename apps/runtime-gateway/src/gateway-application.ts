@@ -181,7 +181,7 @@ export function createGatewayComposition(): GatewayComposition {
     runTrajectory,
     runWorkspace,
     taskFiles,
-    modelInference: createTaskModelInferencePort(providerConnections, providerInference),
+    modelInference: createTaskModelInferencePort(providerConnections, providerInference, customProviders),
   });
   const extensionActivationPlanner = new ExtensionActivationPlanner(
     extensionRegistry,

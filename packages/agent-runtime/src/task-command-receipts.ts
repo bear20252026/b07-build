@@ -53,7 +53,7 @@ function validate(receipt: TaskCommandReceipt): void {
   assertSafeKey(receipt.taskId, 'taskId');
   assertSafeKey(receipt.runId, 'runId');
   if (!receipt.goal.trim()) throw new Error('receipt goal 不能为空');
-  if (!['build', 'plan', 'explore'].includes(receipt.profileId)) throw new Error('receipt profileId 无效');
+  if (!['build', 'plan', 'explore', 'reader'].includes(receipt.profileId)) throw new Error('receipt profileId 无效');
   if (receipt.authorityMode !== undefined && !['plan', 'review', 'automate', 'admin'].includes(receipt.authorityMode)) throw new Error('receipt authorityMode 无效');
   if (!receipt.fingerprint || receipt.fingerprint.length > 128) throw new Error('receipt fingerprint 无效');
   if (!Number.isSafeInteger(receipt.acceptedAt) || receipt.acceptedAt < 0) throw new Error('receipt acceptedAt 无效');

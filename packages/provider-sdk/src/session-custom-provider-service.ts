@@ -4,8 +4,8 @@ import { AnthropicMessages } from './adapters/anthropic.js';
 import { OpenAICompatible } from './adapters/openai.js';
 import type { CredentialResolver, SessionCredentialStore } from './credential-resolver.js';
 import type { ModelCapabilities, ModelDriver } from './driver.js';
-import type { ProviderConnectionProbeResult, ProviderConnectionStatus } from './provider-connection-service.js';
-import type { ProviderInferenceResult } from './provider-inference-service.js';
+import type { ProviderConnectionProbeResult, ProviderConnectionStatus, ProviderModelDiscoveryResult } from './provider-connection-service.js';
+import type { ProviderInferenceResult, ProviderInferenceStreamChunk } from './provider-inference-service.js';
 
 export type CustomProviderProtocol = 'openai-compatible' | 'anthropic-compatible';
 
@@ -135,17 +135,16 @@ export class SessionCustomProviderService {
     return statusFor(provider, this.credentials);
   }
 
-  async probe(providerId: string): Promise<ProviderConnectionProbeResult> {
+  async discoverModels(providerId: string): Promise<ProviderModelDiscoveryResult> {
     const provider = this.requireProvider(providerId);
     const checkedAt = this.now();
     const apiKey = this.credentials.resolve(provider.credentialReference);
-    if (!apiKey) return { schemaVersion: 1, providerId, outcome: 'missing-credential', checkedAt, canReadSecret: false, canAutoConnect: false };
+    if (!apiKey) return { schemaVersion: 1, providerId, outcome: 'missing-credential', checkedAt, models: [], canReadSecret: false, canAutoConnect: false };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8_000);
     const startedAt = this.now();
-    const modelsPath = '/v1/models';
     try {
-      const response = await this.fetcher(`${provider.baseUrl.replace(/\/$/, '')}${modelsPath}`, {
+      const response = await this.fetcher(`${provider.baseUrl.replace(/\/$/, '')}/v1/models`, {
         method: 'GET',
         headers: provider.protocol === 'openai-compatible'
           ? { accept: 'application/json', authorization: `Bearer ${apiKey}` }
@@ -153,11 +152,41 @@ export class SessionCustomProviderService {
         signal: controller.signal,
       });
       const latencyMs = Math.max(0, this.now() - startedAt);
-      return { schemaVersion: 1, providerId, outcome: response.ok ? 'reachable' : 'rejected', checkedAt, latencyMs, canReadSecret: false, canAutoConnect: false };
+      if (!response.ok) return { schemaVersion: 1, providerId, outcome: 'rejected', checkedAt, latencyMs, models: [], canReadSecret: false, canAutoConnect: false };
+      const payload: unknown = await response.json();
+      const data = payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown }).data) ? (payload as { data: unknown[] }).data : [];
+      const models = [...new Set(data.map((item) => item && typeof item === 'object' ? (item as { id?: unknown }).id : undefined).filter((id): id is string => typeof id === 'string' && MODEL_ID.test(id)))].sort().slice(0, 100);
+      return { schemaVersion: 1, providerId, outcome: 'reachable', checkedAt, latencyMs, models, canReadSecret: false, canAutoConnect: false };
     } catch {
-      return { schemaVersion: 1, providerId, outcome: 'unreachable', checkedAt, latencyMs: Math.max(0, this.now() - startedAt), canReadSecret: false, canAutoConnect: false };
+      return { schemaVersion: 1, providerId, outcome: 'unreachable', checkedAt, latencyMs: Math.max(0, this.now() - startedAt), models: [], canReadSecret: false, canAutoConnect: false };
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  async probe(providerId: string): Promise<ProviderConnectionProbeResult> {
+    const result = await this.discoverModels(providerId);
+    const { models: _models, ...probe } = result;
+    return probe;
+  }
+
+  /** 以标准 Adapter 的文本分块实时驱动桌面 UI；不包含 endpoint、header 或 API key。 */
+  async *stream(request: CustomProviderInferenceRequest): AsyncIterable<ProviderInferenceStreamChunk> {
+    const provider = this.requireProvider(request.providerId);
+    const apiKey = this.credentials.resolve(provider.credentialReference);
+    if (!apiKey) throw new Error('桌面会话缺少该自定义 Provider 的凭据；不会发出网络请求');
+    const prompt = request.prompt.trim();
+    if (!prompt || prompt.length > MAX_PROMPT_CHARACTERS) throw new Error(`prompt 必须是 1-${MAX_PROMPT_CHARACTERS} 个字符`);
+    const model = safeModel(request.model ?? provider.model);
+    const driver = this.createDriver(provider);
+    try {
+      for await (const text of driver.chat({ model, stream: true, temperature: 0.2, messages: [{ role: 'user', content: prompt }] }, apiKey)) {
+        if (typeof text !== 'string') throw new Error('模型返回了无效文本分块');
+        if (text) yield { providerId: provider.providerId, model, text };
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('安全')) throw error;
+      throw new Error('自定义远程模型流式请求未完成；请检查 Base URL、协议、凭据、模型标识和服务端网络策略');
     }
   }
 

@@ -151,6 +151,7 @@ export function App() {
   const [activeGoal, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
   const [authorityMode, setAuthorityMode] = useState<WorkbenchAuthorityMode>('review');
+  const [taskModelSelection, setTaskModelSelection] = useState<Readonly<{ providerId: string; model?: string }>>();
   const [companionPreferences, setCompanionPreferences] = useState(() => loadCompanionPreferences());
   const [floatingCompanionPreferences, setFloatingCompanionPreferences] = useState(() => loadFloatingCompanionPreferences());
   const [companionStudioPreferences, setCompanionStudioPreferences] = useState(() => loadCompanionStudioPreferences());
@@ -167,6 +168,8 @@ export function App() {
   const providerControl = useProviderControlPlane(gatewayAttached, gatewayErrorText, localGatewayClient);
   const profiles = profileUi(messages);
   const profile = profiles[activeProfile];
+  const selectedTaskConnection = providerControl.connections?.find((connection) => connection.providerId === taskModelSelection?.providerId);
+  const taskModelLabel = selectedTaskConnection ? `${selectedTaskConnection.displayName} · ${taskModelSelection?.model ?? selectedTaskConnection.defaultModel}` : undefined;
   const updateCompanion = (change: Parameters<typeof updateCompanionPreferences>[1]): void => setCompanionPreferences((current) => {
     const next = updateCompanionPreferences(current, change);
     saveCompanionPreferences(next);
@@ -261,7 +264,7 @@ export function App() {
   const submitIntent = async (): Promise<void> => {
     const goal = draft.trim();
     if (!goal) return;
-    if (await taskExecution.submit(goal, activeProfile, authorityMode, composerAttachments.map((attachment) => ({ id: attachment.descriptor.id, name: attachment.descriptor.name, file: attachment.file })))) {
+    if (await taskExecution.submit(goal, activeProfile, authorityMode, composerAttachments.map((attachment) => ({ id: attachment.descriptor.id, name: attachment.descriptor.name, file: attachment.file })), taskModelSelection)) {
       setActiveGoal(goal);
       setComposerAttachments([]);
       setDraft('');
@@ -309,8 +312,8 @@ export function App() {
   if (isDesktopCompanionWindow) return <DesktopCompanionSurface />;
 
   const settingsContent = <>
-    {activePage === 'models' && <ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerControl.connections : []} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onAttach={startAndAttachGateway} onConfigure={providerControl.configure} onConfigureCustom={providerControl.configureCustom} onManageConnections={() => setActivePage('connections')} />}
-    {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查看状态、手动测试模型目录或发送一次受限文本请求；不会自动调用第三方 API。</p></div><ProviderConnectionCenter connections={gatewayAttached ? providerControl.connections : []} probes={providerControl.probes} inferences={providerControl.inferences} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onRefresh={providerControl.refresh} onRegister={providerControl.register} onActivate={providerControl.activate} onProbe={providerControl.probe} onInfer={providerControl.infer} /></section>}
+    {activePage === 'models' && <ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerControl.connections : []} discoveredModels={providerControl.discoveredModels} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onAttach={startAndAttachGateway} onConfigure={providerControl.configure} onConfigureCustom={providerControl.configureCustom} onDiscoverModels={providerControl.discoverModels} onManageConnections={() => setActivePage('connections')} />}
+    {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查询模型目录、选择模型、检查连接状态，或发送一次受限文本请求。</p></div><ProviderConnectionCenter connections={gatewayAttached ? providerControl.connections : []} probes={providerControl.probes} discoveredModels={providerControl.discoveredModels} inferences={providerControl.inferences} streaming={providerControl.streaming} taskModelSelection={taskModelSelection} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onRefresh={providerControl.refresh} onRegister={providerControl.register} onActivate={providerControl.activate} onProbe={providerControl.probe} onDiscoverModels={providerControl.discoverModels} onSelectTaskModel={setTaskModelSelection} onInfer={providerControl.infer} onStream={providerControl.stream} /></section>}
     {activePage === 'workspace-files' && <WorkspaceFilesPage preferences={workspaceFilePreferences} onChange={updateWorkspaceFiles} />}
     {activePage === 'terminal-coding' && <TerminalCodingPage workspace={workspaceFilePreferences} />}
     {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><ApiUsageSummaryCard gatewayAttached={gatewayAttached} onOpen={() => setActivePage('api-usage')} /><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /></section>}
@@ -374,7 +377,7 @@ export function App() {
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
-            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={gatewayAttached} messages={messages} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} profiles={profiles} />}
+            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={gatewayAttached} taskModelLabel={taskModelLabel} messages={messages} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} profiles={profiles} />}
             {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} error={projectWorkspace.error} gatewayAttached={gatewayAttached} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={projectWorkspace.create} onSelect={projectWorkspace.select} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
             {isTaskPage && snapshot && <TaskPage
               activeGoal={activeGoal}

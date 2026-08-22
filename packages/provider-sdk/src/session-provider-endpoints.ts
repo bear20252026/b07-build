@@ -30,12 +30,21 @@ export function normalizePublicHttpsProviderBaseUrl(value: string, transport: Pr
   return `${parsed.origin}${normalizedPath}`;
 }
 
-/** 会话覆盖层：仅将已验证的地址投影给连接探测和实际推理，进程退出后自动清空。 */
-export class SessionProviderEndpointRegistry {
-  private readonly overrides = new Map<string, string>();
+export type SessionProviderProtocol = 'openai-compatible' | 'anthropic-compatible';
 
-  configure(provider: ProviderCatalogEntry, baseUrl: string): void {
-    this.overrides.set(provider.id, normalizePublicHttpsProviderBaseUrl(baseUrl, provider.transport));
+export function transportForProtocol(protocol: SessionProviderProtocol): ProviderTransportKind {
+  return protocol === 'anthropic-compatible' ? 'anthropic-messages' : 'openai-chat-completions';
+}
+
+type SessionEndpointOverride = Readonly<{ baseUrl: string; transport: ProviderTransportKind }>;
+
+/** 会话覆盖层：只将经用户确认的协议与地址投影给连接探测和实际推理，进程退出后自动清空。 */
+export class SessionProviderEndpointRegistry {
+  private readonly overrides = new Map<string, SessionEndpointOverride>();
+
+  configure(provider: ProviderCatalogEntry, input: { baseUrl: string; protocol?: SessionProviderProtocol }): void {
+    const transport = input.protocol ? transportForProtocol(input.protocol) : provider.transport;
+    this.overrides.set(provider.id, { baseUrl: normalizePublicHttpsProviderBaseUrl(input.baseUrl, transport), transport });
   }
 
   clear(providerId: string): void {
@@ -43,7 +52,7 @@ export class SessionProviderEndpointRegistry {
   }
 
   resolve(provider: ProviderCatalogEntry): ProviderCatalogEntry {
-    const baseUrl = this.overrides.get(provider.id);
-    return baseUrl ? { ...provider, baseUrl, capabilities: { ...provider.capabilities } } : provider;
+    const override = this.overrides.get(provider.id);
+    return override ? { ...provider, ...override, capabilities: { ...provider.capabilities } } : provider;
   }
 }

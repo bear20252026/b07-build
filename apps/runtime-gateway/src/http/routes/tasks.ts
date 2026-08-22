@@ -71,7 +71,8 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
       : 'none';
     const inputProvenanceDigest = createHash('sha256').update(JSON.stringify(allInputProvenance)).digest('hex');
     const uploadDigest = createHash('sha256').update(JSON.stringify(uploads.map((upload) => ({ id: upload.id, name: upload.name, contentDigest: upload.contentDigest })))).digest('hex');
-    const fingerprint = commandFingerprint('submit', { goal, profileId: intent.profileId, authorityMode: intent.authorityMode, administratorLeaseDigest, inputProvenanceDigest, uploadDigest });
+    const modelSelectionDigest = createHash('sha256').update(JSON.stringify(intent.modelSelection ?? null)).digest('hex');
+    const fingerprint = commandFingerprint('submit', { goal, profileId: intent.profileId, authorityMode: intent.authorityMode, administratorLeaseDigest, inputProvenanceDigest, uploadDigest, modelSelectionDigest });
     const existing = commandReceipts.get('submit', key);
     const claimed = commandReceipts.claim(existing ?? {
       schemaVersion: 1,
@@ -105,6 +106,7 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
       claimed.receipt.authorityMode ?? 'review',
       { taskId: claimed.receipt.taskId, runId: claimed.receipt.runId },
       allInputProvenance,
+      intent.modelSelection,
     );
     requests.set(runKey(runtimeRequest.taskId, runtimeRequest.runId), runtimeRequest);
     const taskEvents = eventsByRun.get(runKey(runtimeRequest.taskId, runtimeRequest.runId));

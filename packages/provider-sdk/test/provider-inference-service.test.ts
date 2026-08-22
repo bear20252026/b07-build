@@ -63,3 +63,17 @@ test('ProviderInferenceService 在 Gateway credential 缺失时不调用 Driver�
   await assert.rejects(() => withCredential.service.infer({ providerId: 'example-provider', prompt: 'hello', model: 'model with spaces' }), /model 标识无效/);
   assert.deepEqual(withCredential.received, {});
 });
+
+
+test('ProviderInferenceService.stream 按上游 Adapter 的到达顺序立即产出文本分块，不聚合或改写桌面对话响应', async () => {
+  const { service, profiles, received } = setup('sk-local-only');
+  profiles.register({ id: 'provider.example-provider', displayName: 'Example Provider', driverIds: ['remote.example'], maximumDataBoundary: 'remote-allowed', credentialReference: 'env.openai', reviewedBy: 'desktop-owner', at: 1 });
+  profiles.activate('provider.example-provider', 'desktop-owner', 2);
+  const chunks = [] as Array<{ providerId: string; model: string; text: string }>;
+  for await (const chunk of service.stream({ providerId: 'example-provider', prompt: '  stream this  ' })) chunks.push(chunk);
+  assert.deepEqual(chunks, [
+    { providerId: 'example-provider', model: 'example-model', text: 'safe ' },
+    { providerId: 'example-provider', model: 'example-model', text: 'output' },
+  ]);
+  assert.deepEqual(received, { key: 'sk-local-only', prompt: 'stream this', model: 'example-model' });
+});

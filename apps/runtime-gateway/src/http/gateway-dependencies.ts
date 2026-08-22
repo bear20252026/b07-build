@@ -88,6 +88,7 @@ export interface GatewayDependencies {
     authorityMode: import('@awo/protocol').ExecutionAuthorityMode,
     identity: { taskId: string; runId: string },
     externalInputProvenance?: readonly InputProvenanceV1[],
+    modelSelection?: Readonly<{ providerId: string; model?: string }>,
   ) => TaskRuntimeRequest;
   readonly createEvent: (type: TaskEvent['type'], taskId: string, runId: string, payload: Record<string, unknown>) => TaskEvent;
 }

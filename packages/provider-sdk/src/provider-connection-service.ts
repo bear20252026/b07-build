@@ -1,7 +1,7 @@
 import type { CredentialResolver, SessionCredentialStore } from './credential-resolver.js';
 import type { ProviderCatalog, ProviderCatalogEntry } from './provider-catalog.js';
 import type { ProviderProfile, ProviderProfileRegistry, ProviderProfileStatus } from './provider-profile.js';
-import { SessionProviderEndpointRegistry } from './session-provider-endpoints.js';
+import { SessionProviderEndpointRegistry, type SessionProviderProtocol } from './session-provider-endpoints.js';
 
 export type ProviderConnectionProfileStatus = ProviderProfileStatus | 'not-registered';
 export type ProviderConnectionProbeOutcome = 'reachable' | 'missing-credential' | 'not-registered' | 'not-active' | 'rejected' | 'unreachable';
@@ -30,6 +30,11 @@ export interface ProviderConnectionProbeResult {
   canAutoConnect: false;
 }
 
+/** 模型列表只返回供应商公开 model id；不返回地址、请求头、密钥或原始响应。 */
+export interface ProviderModelDiscoveryResult extends ProviderConnectionProbeResult {
+  readonly models: readonly string[];
+}
+
 export interface RegisterCatalogProviderRequest {
   providerId: string;
   reviewedBy: string;
@@ -52,6 +57,8 @@ export interface ConfigureSessionProviderRequest {
   model?: string;
   /** 可选的用户显式 HTTPS Base URL；只在当前 Gateway 会话内存中有效。 */
   baseUrl?: string;
+  /** 显式协议选择会同时影响 adapter、探测路径和认证头；不写入 Profile。 */
+  protocol?: SessionProviderProtocol;
   apiKey: string;
   at: number;
 }
@@ -90,10 +97,14 @@ function probePath(provider: ProviderCatalogEntry): string {
 }
 
 function authHeaders(provider: ProviderCatalogEntry, apiKey: string): HeadersInit {
+  if (provider.id === 'mimo' || provider.id.startsWith('mimo-token-plan-')) {
+    return provider.transport === 'anthropic-messages'
+      ? { accept: 'application/json', 'anthropic-version': '2023-06-01', 'api-key': apiKey }
+      : { accept: 'application/json', 'api-key': apiKey };
+  }
   if (provider.transport === 'anthropic-messages') {
     return { accept: 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': apiKey };
   }
-  if (provider.id === 'mimo' || provider.id.startsWith('mimo-token-plan-')) return { accept: 'application/json', 'api-key': apiKey };
   return { accept: 'application/json', authorization: `Bearer ${apiKey}` };
 }
 
@@ -146,7 +157,7 @@ export class ProviderConnectionService {
     const model = request.model?.trim();
     if (displayName !== undefined && (!displayName || displayName.length > 80)) throw new Error('显示名称必须为 1-80 字符');
     if (model !== undefined && !IDENTIFIER.test(model)) throw new Error('模型标识无效');
-    if (request.baseUrl !== undefined) this.sessionEndpoints.configure(provider, request.baseUrl);
+    if (request.baseUrl !== undefined) this.sessionEndpoints.configure(provider, { baseUrl: request.baseUrl, protocol: request.protocol });
     store.call(this.credentials, provider.credentialReference, request.apiKey);
     this.sessionPresentation.set(provider.id, { ...(displayName ? { displayName } : {}), ...(model ? { model } : {}) });
     const existing = this.profiles.get(profileId(provider));
@@ -163,6 +174,32 @@ export class ProviderConnectionService {
     if (!current) throw new Error(`${provider.displayName} 尚未登记；必须先由操作者显式登记`);
     if (current.status !== 'active') this.profiles.activate(profileId(provider), requireReview(request.reviewedBy), request.at, request.note);
     return statusFor(provider, this.profiles.get(profileId(provider)), this.credentials);
+  }
+
+  async discoverModels(providerId: string): Promise<ProviderModelDiscoveryResult> {
+    const provider = this.resolveSessionProvider(providerId);
+    const checkedAt = this.now();
+    const profile = this.profiles.get(profileId(provider));
+    if (!profile) return { schemaVersion: 1, providerId, outcome: 'not-registered', checkedAt, models: [], canReadSecret: false, canAutoConnect: false };
+    if (profile.status !== 'active') return { schemaVersion: 1, providerId, outcome: 'not-active', checkedAt, models: [], canReadSecret: false, canAutoConnect: false };
+    const apiKey = this.credentials.resolve(provider.credentialReference);
+    if (!apiKey) return { schemaVersion: 1, providerId, outcome: 'missing-credential', checkedAt, models: [], canReadSecret: false, canAutoConnect: false };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8_000);
+    const startedAt = this.now();
+    try {
+      const response = await this.fetcher(`${provider.baseUrl.replace(/\/$/, '')}${probePath(provider)}`, { method: 'GET', headers: authHeaders(provider, apiKey), signal: controller.signal });
+      const latencyMs = Math.max(0, this.now() - startedAt);
+      if (!response.ok) return { schemaVersion: 1, providerId, outcome: 'rejected', checkedAt, latencyMs, models: [], canReadSecret: false, canAutoConnect: false };
+      const payload: unknown = await response.json();
+      const rows = payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown }).data) ? (payload as { data: unknown[] }).data : [];
+      const models = [...new Set(rows.map((row) => row && typeof row === 'object' ? (row as { id?: unknown }).id : undefined).filter((id): id is string => typeof id === 'string' && IDENTIFIER.test(id)))].sort().slice(0, 100);
+      return { schemaVersion: 1, providerId, outcome: 'reachable', checkedAt, latencyMs, models, canReadSecret: false, canAutoConnect: false };
+    } catch {
+      return { schemaVersion: 1, providerId, outcome: 'unreachable', checkedAt, latencyMs: Math.max(0, this.now() - startedAt), models: [], canReadSecret: false, canAutoConnect: false };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async probe(providerId: string): Promise<ProviderConnectionProbeResult> {

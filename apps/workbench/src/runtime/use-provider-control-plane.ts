@@ -4,25 +4,38 @@ import {
   type WorkbenchProviderConnection,
   type WorkbenchProviderConnectionProbe,
   type WorkbenchProviderInference,
+  type WorkbenchProviderModelDiscovery,
+  type WorkbenchProviderStreamCompletion,
 } from './task-client';
 
 export type ProviderErrorText = (error: unknown) => string;
 
+export interface WorkbenchProviderStreamingOutput {
+  readonly output: string;
+  readonly model?: string;
+  readonly outputCharacters?: number;
+  readonly complete: boolean;
+}
+
 export interface ProviderControlPlane {
   readonly connections: readonly WorkbenchProviderConnection[] | undefined;
   readonly probes: Readonly<Record<string, WorkbenchProviderConnectionProbe | undefined>>;
+  readonly discoveredModels: Readonly<Record<string, WorkbenchProviderModelDiscovery | undefined>>;
   readonly inferences: Readonly<Record<string, WorkbenchProviderInference | undefined>>;
+  readonly streaming: Readonly<Record<string, WorkbenchProviderStreamingOutput | undefined>>;
   readonly error: string | undefined;
   readonly pendingProviderId: string | undefined;
   hydrateConnections(connections: readonly WorkbenchProviderConnection[]): void;
   reset(): void;
   refresh(): void;
-  configure(providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; apiKey: string }): void;
+  configure(providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; protocol?: 'openai-compatible' | 'anthropic-compatible'; apiKey: string }): void;
   configureCustom(input: { displayName: string; protocol: 'openai-compatible' | 'anthropic-compatible'; baseUrl: string; model: string; apiKey: string }): void;
   register(providerId: string): void;
   activate(providerId: string): void;
   probe(providerId: string): void;
+  discoverModels(providerId: string): void;
   infer(providerId: string, prompt: string, model?: string): void;
+  stream(providerId: string, prompt: string, model?: string): void;
 }
 
 function replaceConnection(
@@ -55,7 +68,9 @@ export function useProviderControlPlane(
 ): ProviderControlPlane {
   const [connections, setConnections] = useState<readonly WorkbenchProviderConnection[]>();
   const [probes, setProbes] = useState<Readonly<Record<string, WorkbenchProviderConnectionProbe | undefined>>>({});
+  const [discoveredModels, setDiscoveredModels] = useState<Readonly<Record<string, WorkbenchProviderModelDiscovery | undefined>>>({});
   const [inferences, setInferences] = useState<Readonly<Record<string, WorkbenchProviderInference | undefined>>>({});
+  const [streaming, setStreaming] = useState<Readonly<Record<string, WorkbenchProviderStreamingOutput | undefined>>>({});
   const [error, setError] = useState<string>();
   const [pendingProviderId, setPendingProviderId] = useState<string>();
 
@@ -82,7 +97,7 @@ export function useProviderControlPlane(
     return () => { disposed = true; };
   }, [client, errorText, gatewayAttached]);
 
-  const configure = useCallback((providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; apiKey: string }): void => {
+  const configure = useCallback((providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; protocol?: 'openai-compatible' | 'anthropic-compatible'; apiKey: string }): void => {
     if (!requireGateway()) return;
     setPendingProviderId(providerId);
     setError(undefined);
@@ -93,6 +108,10 @@ export function useProviderControlPlane(
           const probe = await client.probeProviderConnection(connection.providerId);
           setProbes((current) => ({ ...current, [connection.providerId]: probe }));
           if (probe.outcome !== 'reachable') setError(probeFailureMessage(probe));
+          else {
+            const discovery = await client.discoverProviderModels(connection.providerId);
+            setDiscoveredModels((current) => ({ ...current, [connection.providerId]: discovery }));
+          }
         } catch (nextError) {
           setError(`连接已保存，但测试未完成：${errorText(nextError)}`);
         }
@@ -112,9 +131,26 @@ export function useProviderControlPlane(
           const probe = await client.probeProviderConnection(connection.providerId);
           setProbes((current) => ({ ...current, [connection.providerId]: probe }));
           if (probe.outcome !== 'reachable') setError(probeFailureMessage(probe));
+          else {
+            const discovery = await client.discoverProviderModels(connection.providerId);
+            setDiscoveredModels((current) => ({ ...current, [connection.providerId]: discovery }));
+          }
         } catch (nextError) {
           setError(`连接已保存，但测试未完成：${errorText(nextError)}`);
         }
+      })
+      .catch((nextError: unknown) => setError(errorText(nextError)))
+      .finally(() => setPendingProviderId(undefined));
+  }, [client, errorText, requireGateway]);
+
+  const discoverModels = useCallback((providerId: string): void => {
+    if (!requireGateway()) return;
+    setPendingProviderId(providerId);
+    setError(undefined);
+    void client.discoverProviderModels(providerId)
+      .then((result) => {
+        setDiscoveredModels((current) => ({ ...current, [providerId]: result }));
+        if (result.outcome !== 'reachable') setError(probeFailureMessage(result));
       })
       .catch((nextError: unknown) => setError(errorText(nextError)))
       .finally(() => setPendingProviderId(undefined));
@@ -163,6 +199,27 @@ export function useProviderControlPlane(
       .finally(() => setPendingProviderId(undefined));
   }, [client, errorText, requireGateway]);
 
+  const stream = useCallback((providerId: string, prompt: string, model?: string): void => {
+    if (!requireGateway()) return;
+    setPendingProviderId(providerId);
+    setError(undefined);
+    setStreaming((current) => ({ ...current, [providerId]: { output: '', ...(model ? { model } : {}), complete: false } }));
+    void client.streamProviderConnection(providerId, prompt, model, (text) => {
+      setStreaming((current) => {
+        const existing = current[providerId] ?? { output: '', complete: false };
+        return { ...current, [providerId]: { ...existing, output: existing.output + text } };
+      });
+    })
+      .then((completion: WorkbenchProviderStreamCompletion) => {
+        setStreaming((current) => {
+          const existing = current[providerId] ?? { output: '', complete: false };
+          return { ...current, [providerId]: { ...existing, ...(completion.model ? { model: completion.model } : {}), outputCharacters: completion.outputCharacters, complete: true } };
+        });
+      })
+      .catch((nextError: unknown) => setError(errorText(nextError)))
+      .finally(() => setPendingProviderId(undefined));
+  }, [client, errorText, requireGateway]);
+
   const hydrateConnections = useCallback((items: readonly WorkbenchProviderConnection[]): void => {
     setConnections(items);
     setError(undefined);
@@ -171,10 +228,12 @@ export function useProviderControlPlane(
   const reset = useCallback((): void => {
     setConnections(undefined);
     setProbes({});
+    setDiscoveredModels({});
     setInferences({});
+    setStreaming({});
     setError(undefined);
     setPendingProviderId(undefined);
   }, []);
 
-  return { connections, probes, inferences, error, pendingProviderId, hydrateConnections, reset, refresh, configure, configureCustom, register, activate, probe, infer };
+  return { connections, probes, discoveredModels, inferences, streaming, error, pendingProviderId, hydrateConnections, reset, refresh, configure, configureCustom, register, activate, probe, discoverModels, infer, stream };
 }

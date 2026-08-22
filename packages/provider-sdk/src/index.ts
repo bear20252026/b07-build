@@ -45,12 +45,13 @@ export type {
   ConfigureSessionProviderRequest,
   ProviderConnectionProbeOutcome,
   ProviderConnectionProbeResult,
+  ProviderModelDiscoveryResult,
   ProviderConnectionProfileStatus,
   ProviderConnectionStatus,
   RegisterCatalogProviderRequest,
 } from './provider-connection-service';
 export { ProviderInferenceService } from './provider-inference-service';
-export type { ProviderDriverFactory, ProviderInferenceRequest, ProviderInferenceResult } from './provider-inference-service';
+export type { ProviderDriverFactory, ProviderInferenceRequest, ProviderInferenceResult, ProviderInferenceStreamChunk } from './provider-inference-service';
 export { MimoTtsService } from './mimo-tts-service';
 export type { MimoTtsPreviewRequest, MimoTtsPreviewResult } from './mimo-tts-service';
 export { SessionCustomProviderService } from './session-custom-provider-service';

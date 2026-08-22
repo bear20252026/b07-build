@@ -194,6 +194,25 @@ test('Gateway 桌面附着仅接受已审核 Tauri 或本地开发来源的 CORS
 
 
 test('Custom compatible Provider 只接受显式 HTTPS session 配置，并通过固定会话端点推理且绝不回显 URL 或 API key', async () => {
+  const originalFetch = globalThis.fetch;
+  let target = '';
+  let modelsTarget = '';
+  let authorization = '';
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const requestedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (requestedUrl.startsWith('https://models.example.test/') && requestedUrl.endsWith('/models')) {
+      modelsTarget = requestedUrl;
+      authorization = String((init?.headers as Record<string, string> | undefined)?.authorization ?? '');
+      return new Response('{"data":[{"id":"owner-model-v1"}]}', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (requestedUrl === 'https://models.example.test/v1/chat/completions') {
+      target = requestedUrl;
+      authorization = String((init?.headers as Record<string, string> | undefined)?.authorization ?? '');
+      return new Response('data: {"choices":[{"delta":{"content":"custom gateway"}}]}\n\ndata: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  try {
   await withGateway(async (baseUrl) => {
     const headers = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };
     const malformed = await fetch(`${baseUrl}/api/providers/connections/custom/configure-session`, { method: 'POST', headers, body: JSON.stringify({ displayName: '我的自有模型', protocol: 'openai-compatible', baseUrl: 'http://localhost:3000/v1', model: 'owner-model-v1', apiKey: 'sk-custom-never-returned' }) });
@@ -210,17 +229,15 @@ test('Custom compatible Provider 只接受显式 HTTPS session 配置，并通�
     assert.equal(listed.includes('models.example.test'), false);
     assert.equal(listed.includes('sk-custom-never-returned'), false);
 
-    const originalFetch = globalThis.fetch;
-    let target = '';
-    let authorization = '';
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const requestedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      if (requestedUrl !== 'https://models.example.test/v1/chat/completions') return originalFetch(input, init);
-      target = requestedUrl;
-      authorization = String((init?.headers as Record<string, string> | undefined)?.authorization ?? '');
-      return new Response('data: {"choices":[{"delta":{"content":"custom gateway"}}]}\n\ndata: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
-    }) as typeof fetch;
     try {
+      const models = await fetch(`${baseUrl}/api/providers/connections/${encodeURIComponent(providerId)}/models`, { method: 'POST', headers: { 'x-awo-operator-intent': 'provider-connection-v1' } });
+      assert.equal(models.status, 200);
+      const discovery = await models.json() as Record<string, unknown>;
+      assert.deepEqual(discovery.models, ['owner-model-v1']);
+      assert.equal(modelsTarget, 'https://models.example.test/v1/models');
+      assert.equal(authorization, 'Bearer sk-custom-never-returned');
+      assert.equal(JSON.stringify(discovery).includes('models.example.test'), false);
+      assert.equal(JSON.stringify(discovery).includes('sk-custom-never-returned'), false);
       const inferred = await fetch(`${baseUrl}/api/providers/connections/${encodeURIComponent(providerId)}/infer`, { method: 'POST', headers, body: JSON.stringify({ prompt: 'hello custom model' }) });
       assert.equal(inferred.status, 200);
       const result = await inferred.json() as Record<string, unknown>;
@@ -230,9 +247,12 @@ test('Custom compatible Provider 只接受显式 HTTPS session 配置，并通�
       assert.equal(JSON.stringify(result).includes('models.example.test'), false);
       assert.equal(JSON.stringify(result).includes('sk-custom-never-returned'), false);
     } finally {
-      globalThis.fetch = originalFetch;
+      // 测试桩在本 Gateway 生命周期内保持有效，供会话服务与推理适配器共同使用。
     }
   });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 
@@ -286,6 +306,154 @@ test('MiMo Token Plan 中国可使用用户填写的官方 Base URL 与 api-key 
       assert.equal(remoteBody.includes('tp-session-only-never-returned'), false);
       assert.equal(JSON.stringify(result).includes('tp-session-only-never-returned'), false);
       assert.equal(JSON.stringify(result).includes('token-plan-cn.xiaomimimo.com'), false);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
+test('MiMo Token Plan 中国 Anthropic-compatible 使用 api-key、Anthropic 版本头并能查询模型', async () => {
+  const originalFetch = globalThis.fetch;
+  let modelsTarget = '';
+  let inferenceTarget = '';
+  let receivedApiKey = '';
+  let receivedVersion = '';
+  let remoteBody = '';
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const requestedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const headers = new Headers(init?.headers);
+    if (requestedUrl === 'https://token-plan-cn.xiaomimimo.com/anthropic/v1/models') {
+      modelsTarget = requestedUrl;
+      receivedApiKey = headers.get('api-key') ?? '';
+      receivedVersion = headers.get('anthropic-version') ?? '';
+      return new Response('{"data":[{"id":"mimo-v2.5-pro"},{"id":"mimo-v2.5-pro"}]}', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (requestedUrl === 'https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages') {
+      inferenceTarget = requestedUrl;
+      receivedApiKey = headers.get('api-key') ?? '';
+      receivedVersion = headers.get('anthropic-version') ?? '';
+      remoteBody = String(init?.body ?? '');
+      return new Response('event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"text":"MiMo Anthropic 已连接"}}\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  try {
+    await withGateway(async (baseUrl) => {
+      const headers = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };
+      const configured = await fetch(`${baseUrl}/api/providers/connections/mimo-token-plan-cn/configure-session`, {
+        method: 'POST', headers, body: JSON.stringify({ protocol: 'anthropic-compatible', baseUrl: 'https://token-plan-cn.xiaomimimo.com/anthropic', apiKey: 'tp-anthropic-session-only' }),
+      });
+      assert.equal(configured.status, 200);
+      assert.equal((await configured.text()).includes('tp-anthropic-session-only'), false);
+
+      const models = await fetch(`${baseUrl}/api/providers/connections/mimo-token-plan-cn/models`, { method: 'POST', headers: { 'x-awo-operator-intent': 'provider-connection-v1' } });
+      assert.equal(models.status, 200);
+      const discovery = await models.json() as Record<string, unknown>;
+      assert.deepEqual(discovery.models, ['mimo-v2.5-pro']);
+      assert.equal(modelsTarget, 'https://token-plan-cn.xiaomimimo.com/anthropic/v1/models');
+      assert.equal(receivedApiKey, 'tp-anthropic-session-only');
+      assert.equal(receivedVersion, '2023-06-01');
+      assert.equal(JSON.stringify(discovery).includes('token-plan-cn.xiaomimimo.com'), false);
+      assert.equal(JSON.stringify(discovery).includes('tp-anthropic-session-only'), false);
+
+      const inferred = await fetch(`${baseUrl}/api/providers/connections/mimo-token-plan-cn/infer`, { method: 'POST', headers, body: JSON.stringify({ prompt: '请返回已连接' }) });
+      assert.equal(inferred.status, 200);
+      const result = await inferred.json() as Record<string, unknown>;
+      assert.equal(inferenceTarget, 'https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages');
+      assert.equal(receivedApiKey, 'tp-anthropic-session-only');
+      assert.equal(receivedVersion, '2023-06-01');
+      assert.equal(result.output, 'MiMo Anthropic 已连接');
+      assert.equal(remoteBody.includes('请返回已连接'), true);
+      assert.equal(remoteBody.includes('tp-anthropic-session-only'), false);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Provider 会话协议只接受 OpenAI-compatible 或 Anthropic-compatible，模型查询拒绝正文', async () => {
+  await withGateway(async (baseUrl) => {
+    const headers = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };
+    const invalid = await fetch(`${baseUrl}/api/providers/connections/mimo-token-plan-cn/configure-session`, { method: 'POST', headers, body: JSON.stringify({ protocol: 'unknown-compatible', apiKey: 'tp-test' }) });
+    assert.equal(invalid.status, 400);
+    const modelsWithBody = await fetch(`${baseUrl}/api/providers/connections/mimo-token-plan-cn/models`, { method: 'POST', headers, body: JSON.stringify({ apiKey: 'must-not-be-read' }) });
+    assert.equal(modelsWithBody.status, 400);
+    assert.equal((await modelsWithBody.text()).includes('must-not-be-read'), false);
+  });
+});
+
+
+test('Provider infer-stream 将上游标准 SSE 文本分块即时送到桌面端，不回显地址或 API key', async () => {
+  const originalFetch = globalThis.fetch;
+  let target = '';
+  let requestBody = '';
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const requestedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (requestedUrl === 'https://token-plan-cn.xiaomimimo.com/v1/chat/completions') {
+      target = requestedUrl;
+      requestBody = String(init?.body ?? '');
+      return new Response('data: {"choices":[{"delta":{"content":"第一段"}}]}\n\ndata: {"choices":[{"delta":{"content":"第二段"}}]}\n\ndata: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  try {
+    await withGateway(async (baseUrl) => {
+      const headers = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };
+      const configured = await fetch(`${baseUrl}/api/providers/connections/mimo-token-plan-cn/configure-session`, {
+        method: 'POST', headers, body: JSON.stringify({ baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1', apiKey: 'tp-stream-session-only' }),
+      });
+      assert.equal(configured.status, 200);
+      const streamed = await fetch(`${baseUrl}/api/providers/connections/mimo-token-plan-cn/infer-stream`, {
+        method: 'POST', headers, body: JSON.stringify({ prompt: '请流式回复' }),
+      });
+      assert.equal(streamed.status, 200);
+      assert.equal(streamed.headers.get('content-type')?.startsWith('text/event-stream'), true);
+      const stream = await streamed.text();
+      assert.equal(target, 'https://token-plan-cn.xiaomimimo.com/v1/chat/completions');
+      assert.equal(requestBody.includes('请流式回复'), true);
+      assert.equal(stream.includes('event: text'), true);
+      assert.equal(stream.includes('第一段'), true);
+      assert.equal(stream.includes('第二段'), true);
+      assert.equal(stream.indexOf('第一段') < stream.indexOf('第二段'), true);
+      assert.equal(stream.includes('event: done'), true);
+      assert.equal(stream.includes('tp-stream-session-only'), false);
+      assert.equal(stream.includes('token-plan-cn.xiaomimimo.com'), false);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
+test('Custom compatible Provider infer-stream 将标准 SSE 文本分块实时送到桌面端', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const requestedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (requestedUrl === 'https://stream-custom.example.test/v1/chat/completions') {
+      return new Response('data: {"choices":[{"delta":{"content":"自定义"}}]}\n\ndata: {"choices":[{"delta":{"content":"流式模型"}}]}\n\ndata: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  try {
+    await withGateway(async (baseUrl) => {
+      const headers = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };
+      const configured = await fetch(`${baseUrl}/api/providers/connections/custom/configure-session`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ displayName: '我的流式模型', protocol: 'openai-compatible', baseUrl: 'https://stream-custom.example.test/v1', model: 'owner-stream-v1', apiKey: 'sk-custom-stream-only' }),
+      });
+      const status = await configured.json() as { providerId: string };
+      assert.equal(configured.status, 200);
+      const response = await fetch(`${baseUrl}/api/providers/connections/${encodeURIComponent(status.providerId)}/infer-stream`, {
+        method: 'POST', headers, body: JSON.stringify({ prompt: '请返回自定义流式文本' }),
+      });
+      assert.equal(response.status, 200);
+      const stream = await response.text();
+      assert.equal(stream.includes('自定义'), true);
+      assert.equal(stream.includes('流式模型'), true);
+      assert.equal(stream.indexOf('自定义') < stream.indexOf('流式模型'), true);
+      assert.equal(stream.includes('sk-custom-stream-only'), false);
+      assert.equal(stream.includes('stream-custom.example.test'), false);
     });
   } finally {
     globalThis.fetch = originalFetch;

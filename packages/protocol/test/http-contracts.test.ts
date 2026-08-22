@@ -41,3 +41,12 @@ test('Task Submit HTTP v1 接受显式自动完成与受限管理员租约申请
   });
   assert.equal(admin.administratorLease?.reason, '本地维护窗口');
 });
+
+
+test('Task Submit HTTP v1 接受显式会话模型选择，但拒绝 endpoint、key 与无效标识', () => {
+  const decoded = decodeTaskSubmitIntentV1({ schemaVersion: 1, goal: '使用已选模型总结任务', profileId: 'reader', modelSelection: { providerId: 'custom-12345678', model: 'owner-model-v2' } });
+  assert.deepEqual(decoded.modelSelection, { providerId: 'custom-12345678', model: 'owner-model-v2' });
+  assert.throws(() => decodeTaskSubmitIntentV1({ schemaVersion: 1, goal: 'bad model', profileId: 'reader', modelSelection: { providerId: 'deepseek', endpoint: 'https://forbidden.invalid' } }), /modelSelection/);
+  assert.throws(() => decodeTaskSubmitIntentV1({ schemaVersion: 1, goal: 'bad model', profileId: 'reader', modelSelection: { providerId: 'deepseek', apiKey: 'forbidden' } }), /modelSelection/);
+  assert.throws(() => decodeTaskSubmitIntentV1({ schemaVersion: 1, goal: 'bad model', profileId: 'reader', modelSelection: { providerId: '../escape' } }), /providerId/);
+});

@@ -22,12 +22,12 @@ function readInference(body: unknown): { prompt: string; model?: string } | unde
 }
 
 /** 唯一会话密钥入口：精确白名单；baseUrl 仅可由显式连接动作提交并在 Gateway 会话内存校验、保存。 */
-function readSessionConfiguration(body: unknown): { displayName?: string; model?: string; baseUrl?: string; apiKey: string } | undefined {
+function readSessionConfiguration(body: unknown): { displayName?: string; model?: string; baseUrl?: string; protocol?: 'openai-compatible' | 'anthropic-compatible'; apiKey: string } | undefined {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
   const candidate = body as Record<string, unknown>;
-  if (Object.keys(candidate).some((key) => key !== 'displayName' && key !== 'model' && key !== 'baseUrl' && key !== 'apiKey')) return undefined;
-  if (typeof candidate.apiKey !== 'string' || (candidate.displayName !== undefined && typeof candidate.displayName !== 'string') || (candidate.model !== undefined && typeof candidate.model !== 'string') || (candidate.baseUrl !== undefined && typeof candidate.baseUrl !== 'string')) return undefined;
-  return { apiKey: candidate.apiKey, displayName: candidate.displayName as string | undefined, model: candidate.model as string | undefined, baseUrl: candidate.baseUrl as string | undefined };
+  if (Object.keys(candidate).some((key) => key !== 'displayName' && key !== 'model' && key !== 'baseUrl' && key !== 'protocol' && key !== 'apiKey')) return undefined;
+  if (typeof candidate.apiKey !== 'string' || (candidate.displayName !== undefined && typeof candidate.displayName !== 'string') || (candidate.model !== undefined && typeof candidate.model !== 'string') || (candidate.baseUrl !== undefined && typeof candidate.baseUrl !== 'string') || (candidate.protocol !== undefined && candidate.protocol !== 'openai-compatible' && candidate.protocol !== 'anthropic-compatible')) return undefined;
+  return { apiKey: candidate.apiKey, displayName: candidate.displayName as string | undefined, model: candidate.model as string | undefined, baseUrl: candidate.baseUrl as string | undefined, protocol: candidate.protocol as 'openai-compatible' | 'anthropic-compatible' | undefined };
 }
 
 /** custom endpoint 只在一次显式登记时接收；后续 probe/infer 只按 session providerId 调用。 */
@@ -79,6 +79,16 @@ export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, re
   const providerId = segments[3];
   const operation = segments[4];
   try {
+    if (operation === 'models') {
+      if (request.headers['content-length'] && request.headers['content-length'] !== '0') {
+        sendJson(response, 400, { error: 'models 不接受请求正文；不会接收密钥或模型输入' });
+        return true;
+      }
+      sendJson(response, 200, isCustomProviderId(providerId)
+        ? await dependencies.customProviders.discoverModels(providerId)
+        : await dependencies.providerConnections.discoverModels(providerId));
+      return true;
+    }
     if (operation === 'probe') {
       if (request.headers['content-length'] && request.headers['content-length'] !== '0') {
         sendJson(response, 400, { error: 'probe 不接受请求正文；不会接收密钥或模型输入' });
@@ -87,6 +97,37 @@ export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, re
       sendJson(response, 200, isCustomProviderId(providerId)
         ? await dependencies.customProviders.probe(providerId)
         : await dependencies.providerConnections.probe(providerId));
+      return true;
+    }
+    if (operation === 'infer-stream') {
+      const inference = readInference(await readJsonBody(request));
+      if (!inference) {
+        sendJson(response, 400, { error: 'infer-stream 只接受 prompt 与可选 model；不得提交 API key、token、endpoint、工具或 agent 配置' });
+        return true;
+      }
+      response.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      });
+      let characters = 0;
+      let model: string | undefined;
+      try {
+        const source = isCustomProviderId(providerId)
+          ? dependencies.customProviders.stream({ providerId, ...inference })
+          : dependencies.providerInference.stream({ providerId, ...inference });
+        for await (const chunk of source) {
+          model ??= chunk.model;
+          characters += chunk.text.length;
+          response.write(`event: text\ndata: ${JSON.stringify({ text: chunk.text })}\n\n`);
+        }
+        response.write(`event: done\ndata: ${JSON.stringify({ providerId, model, outputCharacters: characters })}\n\n`);
+      } catch (error) {
+        response.write(`event: error\ndata: ${JSON.stringify({ message: error instanceof Error ? error.message : '远程模型流式请求未完成' })}\n\n`);
+      } finally {
+        response.end();
+      }
       return true;
     }
     if (operation === 'infer') {
@@ -112,7 +153,7 @@ export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, re
     if (operation === 'configure-session') {
       const configuration = readSessionConfiguration(await readJsonBody(request));
       if (!configuration) {
-        sendJson(response, 400, { error: '快速配置只接受 displayName、model、baseUrl 与 apiKey；不得提交 header、工具或其他字段' });
+        sendJson(response, 400, { error: '快速配置只接受 displayName、model、baseUrl、protocol 与 apiKey；不得提交 header、工具或其他字段' });
         return true;
       }
       const status = dependencies.providerConnections.configureSession({ providerId, reviewedBy: 'desktop-owner', at: Date.now(), ...configuration });
@@ -120,7 +161,8 @@ export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, re
       return true;
     }
     if (operation !== 'register' && operation !== 'activate') {
-      sendJson(response, 404, { error: '供应商连接操作必须是 register、activate、configure-session、probe 或 infer' });
+              sendJson(response, 404, { error: '供应商连接操作必须是 register、activate、configure-session、models、probe、infer 或 infer-stream' });
+
       return true;
     }
     const review = readReview(await readJsonBody(request));

@@ -98,7 +98,7 @@ export function useTaskExecution(
     setDeliveries(nextDeliveries);
   }, [client]);
 
-  const submit = useCallback(async (goal: string, profileId: AgentProfileId, authorityMode: WorkbenchAuthorityMode, uploads: readonly PendingChatUpload[] = []): Promise<boolean> => {
+  const submit = useCallback(async (goal: string, profileId: AgentProfileId, authorityMode: WorkbenchAuthorityMode, uploads: readonly PendingChatUpload[] = [], modelSelection?: Readonly<{ providerId: string; model?: string }>): Promise<boolean> => {
     if (!goal.trim() || pending) return false;
     if (!gatewayAttached) {
       setError(messages.gatewayRequired);
@@ -107,7 +107,7 @@ export function useTaskExecution(
     setPending(true);
     setError(undefined);
     try {
-      await hydrate(await client.submit({ goal: goal.trim(), profileId, authorityMode, uploads: await encodeChatUploads(uploads) }));
+      await hydrate(await client.submit({ goal: goal.trim(), profileId, authorityMode, uploads: await encodeChatUploads(uploads), ...(modelSelection === undefined ? {} : { modelSelection }) }));
       return true;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : messages.submitFailed);

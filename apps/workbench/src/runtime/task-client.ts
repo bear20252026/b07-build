@@ -46,6 +46,8 @@ export interface WorkbenchTaskIntent {
   goal: string;
   profileId: AgentProfileId;
   authorityMode: WorkbenchAuthorityMode;
+  /** 每次提交绑定用户在本机界面明确选择的 Provider 会话；不包含地址、密钥、header 或 driver。 */
+  modelSelection?: Readonly<{ providerId: string; model?: string }>;
   inputProvenance?: readonly WorkbenchExternalInputProvenance[];
   uploads?: readonly WorkbenchTaskUpload[];
 }
@@ -90,7 +92,18 @@ export interface WorkbenchProviderConnectionProbe {
   canAutoConnect: false;
 }
 
+/** 当前会话、协议和地址下公开可用的 model id；不含 endpoint、请求头或凭据。 */
+export interface WorkbenchProviderModelDiscovery extends WorkbenchProviderConnectionProbe {
+  models: readonly string[];
+}
+
 /** 实际模型输出仅留在本次 WebView 状态；结果不含请求、endpoint、header、API key 或工具能力。 */
+export interface WorkbenchProviderStreamCompletion {
+  providerId: string;
+  model?: string;
+  outputCharacters: number;
+}
+
 export interface WorkbenchProviderInference {
   schemaVersion: 1;
   providerId: string;
@@ -360,11 +373,13 @@ export interface WorkbenchTaskClient {
   localModelHealth(): Promise<readonly WorkbenchLocalModelHealth[]>;
   providerConnections(): Promise<readonly WorkbenchProviderConnection[]>;
   registerProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection>;
-  configureProviderSession(providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; apiKey: string }): Promise<WorkbenchProviderConnection>;
+  configureProviderSession(providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; protocol?: 'openai-compatible' | 'anthropic-compatible'; apiKey: string }): Promise<WorkbenchProviderConnection>;
   configureCustomProviderSession(input: { displayName: string; protocol: 'openai-compatible' | 'anthropic-compatible'; baseUrl: string; model: string; apiKey: string }): Promise<WorkbenchProviderConnection>;
   activateProviderConnection(providerId: string, reviewedBy: string, note?: string): Promise<WorkbenchProviderConnection>;
   probeProviderConnection(providerId: string): Promise<WorkbenchProviderConnectionProbe>;
+  discoverProviderModels(providerId: string): Promise<WorkbenchProviderModelDiscovery>;
   inferProviderConnection(providerId: string, prompt: string, model?: string): Promise<WorkbenchProviderInference>;
+  streamProviderConnection(providerId: string, prompt: string, model: string | undefined, onText: (text: string) => void): Promise<WorkbenchProviderStreamCompletion>;
   controlPlaneDiagnostics(): Promise<WorkbenchControlPlaneDiagnostics>;
   securityPostureAudit(): Promise<WorkbenchSecurityPostureReport>;
   componentLockReport(): Promise<WorkbenchComponentLockReport>;
@@ -415,6 +430,20 @@ function assertProviderConnectionProbe(value: unknown): asserts value is Workben
     || (item.latencyMs !== undefined && (!Number.isSafeInteger(item.latencyMs) || (item.latencyMs as number) < 0))
     || item.canReadSecret !== false || item.canAutoConnect !== false
   ) throw new Error('供应商连接探测包含未声明、敏感或可自动连接字段');
+}
+
+function assertProviderModelDiscovery(value: unknown): asserts value is WorkbenchProviderModelDiscovery {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('供应商模型查询摘要无效');
+  const item = value as Record<string, unknown>;
+  if (
+    Object.keys(item).some((key) => !['schemaVersion', 'providerId', 'outcome', 'checkedAt', 'latencyMs', 'models', 'canReadSecret', 'canAutoConnect'].includes(key))
+    || item.schemaVersion !== 1 || typeof item.providerId !== 'string' || !/^[a-z][a-z0-9-]{1,63}$/.test(item.providerId)
+    || !['reachable', 'missing-credential', 'not-registered', 'not-active', 'rejected', 'unreachable'].includes(String(item.outcome))
+    || !Number.isSafeInteger(item.checkedAt) || (item.checkedAt as number) < 0
+    || (item.latencyMs !== undefined && (!Number.isSafeInteger(item.latencyMs) || (item.latencyMs as number) < 0))
+    || !Array.isArray(item.models) || item.models.length > 100 || !item.models.every((model) => typeof model === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(model))
+    || item.canReadSecret !== false || item.canAutoConnect !== false
+  ) throw new Error('供应商模型查询包含未声明、敏感或无效字段');
 }
 
 function assertProviderInference(value: unknown): asserts value is WorkbenchProviderInference {
@@ -787,6 +816,7 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     uploads.forEach((upload) => {
       if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(upload.id) || !upload.name.trim() || upload.name.length > 120 || /[\\/\0\r\n]/.test(upload.name) || upload.contentBase64.length > 350_000) throw new Error('聊天上传文件元数据无效或超过 256KiB 限制');
     });
+    if (intent.modelSelection && (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(intent.modelSelection.providerId) || (intent.modelSelection.model !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(intent.modelSelection.model)))) throw new Error('任务模型选择无效');
     return this.request('', {
       method: 'POST',
       body: JSON.stringify({ schemaVersion: 1, ...intent, inputProvenance, ...(uploads.length > 0 ? { uploads } : {}) }),
@@ -920,10 +950,11 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     return [...payload].sort((left, right) => left.displayName.localeCompare(right.displayName) || left.providerId.localeCompare(right.providerId));
   }
 
-  async configureProviderSession(providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; apiKey: string }): Promise<WorkbenchProviderConnection> {
+  async configureProviderSession(providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; protocol?: 'openai-compatible' | 'anthropic-compatible'; apiKey: string }): Promise<WorkbenchProviderConnection> {
     if (!/^[a-z][a-z0-9-]{1,63}$/.test(providerId) || !input.apiKey.trim() || input.apiKey.length > 4_096 || /[\r\n\0]/.test(input.apiKey)) throw new Error('快速配置的 API key 无效');
     if (input.displayName !== undefined && (!input.displayName.trim() || input.displayName.trim().length > 80)) throw new Error('显示名称无效');
     if (input.model !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(input.model.trim())) throw new Error('模型标识无效');
+    if (input.protocol !== undefined && input.protocol !== 'openai-compatible' && input.protocol !== 'anthropic-compatible') throw new Error('连接协议无效');
     if (input.baseUrl !== undefined) {
       let endpoint: URL;
       try { endpoint = new URL(input.baseUrl.trim()); } catch { throw new Error('连接地址无效'); }
@@ -932,11 +963,22 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     const response = await fetch(`${this.providerConnectionsUrl}/${encodeURIComponent(providerId)}/configure-session`, {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1', 'idempotency-key': createIdempotencyKey('provider-configure') },
-      body: JSON.stringify({ apiKey: input.apiKey.trim(), ...(input.displayName?.trim() ? { displayName: input.displayName.trim() } : {}), ...(input.model?.trim() ? { model: input.model.trim() } : {}), ...(input.baseUrl?.trim() ? { baseUrl: input.baseUrl.trim() } : {}) }),
+      body: JSON.stringify({ apiKey: input.apiKey.trim(), ...(input.displayName?.trim() ? { displayName: input.displayName.trim() } : {}), ...(input.model?.trim() ? { model: input.model.trim() } : {}), ...(input.baseUrl?.trim() ? { baseUrl: input.baseUrl.trim() } : {}), ...(input.protocol ? { protocol: input.protocol } : {}) }),
     });
     if (!response.ok) throw new Error(await response.text() || `快速配置失败 (${response.status})`);
     const payload: unknown = await response.json();
     assertProviderConnection(payload);
+    return payload;
+  }
+
+  async discoverProviderModels(providerId: string): Promise<WorkbenchProviderModelDiscovery> {
+    if (!/^[a-z][a-z0-9-]{1,63}$/.test(providerId)) throw new Error('providerId 无效');
+    const response = await fetch(`${this.providerConnectionsUrl}/${encodeURIComponent(providerId)}/models`, {
+      method: 'POST', headers: { accept: 'application/json', 'x-awo-operator-intent': 'provider-connection-v1', 'idempotency-key': createIdempotencyKey('provider-models') },
+    });
+    if (!response.ok) throw new Error(await response.text() || `模型查询失败 (${response.status})`);
+    const payload: unknown = await response.json();
+    assertProviderModelDiscovery(payload);
     return payload;
   }
 
@@ -972,6 +1014,54 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     const payload: unknown = await response.json();
     assertProviderConnectionProbe(payload);
     return payload;
+  }
+
+  async streamProviderConnection(providerId: string, prompt: string, model: string | undefined, onText: (text: string) => void): Promise<WorkbenchProviderStreamCompletion> {
+    if (!/^[a-z][a-z0-9-]{1,63}$/.test(providerId) || !prompt.trim() || prompt.trim().length > 24_000) throw new Error('供应商或 prompt 无效');
+    if (model !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:/-]{1,127}$/.test(model)) throw new Error('模型标识无效');
+    const response = await fetch(`${this.providerConnectionsUrl}/${encodeURIComponent(providerId)}/infer-stream`, {
+      method: 'POST',
+      headers: { accept: 'text/event-stream', 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1', 'idempotency-key': createIdempotencyKey('provider-infer-stream') },
+      body: JSON.stringify({ prompt: prompt.trim(), ...(model?.trim() ? { model: model.trim() } : {}) }),
+    });
+    if (!response.ok || !response.body) throw new Error(await response.text() || `供应商流式推理失败 (${response.status})`);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let event = '';
+    let completion: WorkbenchProviderStreamCompletion = { providerId, outputCharacters: 0 };
+    const consumeLine = (line: string): void => {
+      if (line.startsWith('event:')) { event = line.slice(6).trim(); return; }
+      if (!line.startsWith('data:')) return;
+      let payload: unknown;
+      try { payload = JSON.parse(line.slice(5).trim()); } catch { throw new Error('本机流式响应包含无效 SSE JSON'); }
+      if (event === 'text') {
+        const text = payload && typeof payload === 'object' ? (payload as { text?: unknown }).text : undefined;
+        if (typeof text !== 'string') throw new Error('本机流式响应缺少文本分块');
+        onText(text);
+        return;
+      }
+      if (event === 'done') {
+        const item = payload && typeof payload === 'object' ? payload as { providerId?: unknown; model?: unknown; outputCharacters?: unknown } : undefined;
+        if (!item || item.providerId !== providerId || (item.model !== undefined && typeof item.model !== 'string') || !Number.isSafeInteger(item.outputCharacters) || (item.outputCharacters as number) < 0) throw new Error('本机流式完成摘要无效');
+        completion = { providerId, ...(typeof item.model === 'string' ? { model: item.model } : {}), outputCharacters: item.outputCharacters as number };
+        return;
+      }
+      if (event === 'error') {
+        const message = payload && typeof payload === 'object' ? (payload as { message?: unknown }).message : undefined;
+        throw new Error(typeof message === 'string' && message.length <= 512 ? message : '远程模型流式请求未完成');
+      }
+    };
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) consumeLine(line);
+    }
+    if (buffer.trim()) consumeLine(buffer);
+    return completion;
   }
 
   async inferProviderConnection(providerId: string, prompt: string, model?: string): Promise<WorkbenchProviderInference> {
