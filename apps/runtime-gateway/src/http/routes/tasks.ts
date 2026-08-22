@@ -25,7 +25,7 @@ function idempotencyKey(request: IncomingMessage): string | undefined {
 export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, segments, dependencies }) => {
   const { runtime, commandReceipts, requests, eventsByRun, approvedActions, readOnlySubtasks, runTrajectory, runWorkspace, taskFiles, createTaskRequest, createEvent } = dependencies;
   if (request.method === 'POST' && url.pathname === '/api/tasks') {
-    const body = await readJsonBody(request);
+    const body = await readJsonBody(request, 3 * 1024 * 1024);
     let intent;
     try {
       intent = decodeTaskSubmitIntentV1(body);
@@ -33,6 +33,29 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
       sendJson(response, 400, { error: error instanceof Error ? error.message : '任务提交 contract 无效' });
       return true;
     }
+    if (intent.inputProvenance.some((input) => input.sourceKind === 'upload')) {
+      sendJson(response, 400, { error: '浏览器不得自行声明 upload provenance；Gateway 必须从实际上传字节计算摘要' });
+      return true;
+    }
+    let uploads: readonly { id: string; name: string; content: Buffer; contentDigest: string; provenance: import('@awo/protocol').InputProvenanceV1 }[];
+    try {
+      uploads = (intent.uploads ?? []).map((upload) => {
+        const content = Buffer.from(upload.contentBase64, 'base64');
+        if (content.length === 0 || content.length > 256 * 1024 || content.toString('base64') !== upload.contentBase64) throw new Error('上传内容无效、为空或超过 256KiB 上限');
+        const contentDigest = createHash('sha256').update(content).digest('hex');
+        return { id: upload.id, name: upload.name, content, contentDigest, provenance: { schemaVersion: 1 as const, inputId: `upload-${createHash('sha256').update(upload.id).digest('hex').slice(0, 40)}`, trust: 'external-untrusted' as const, sourceKind: 'upload' as const, contentDigest } };
+      });
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : '上传内容无效' });
+      return true;
+    }
+    try {
+      uploads.forEach((upload) => taskFiles.validateUploadedFile(`uploads/${upload.name}`, upload.content));
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : '上传文件不符合本机任务输入区策略' });
+      return true;
+    }
+    const allInputProvenance = [...intent.inputProvenance, ...uploads.map((upload) => upload.provenance)];
     const key = idempotencyKey(request);
     if (!key) {
       sendJson(response, 400, { error: '任务提交必须提供 Idempotency-Key' });
@@ -46,8 +69,9 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
         reason: intent.administratorLease.reason,
       })).digest('hex')
       : 'none';
-    const inputProvenanceDigest = createHash('sha256').update(JSON.stringify(intent.inputProvenance)).digest('hex');
-    const fingerprint = commandFingerprint('submit', { goal, profileId: intent.profileId, authorityMode: intent.authorityMode, administratorLeaseDigest, inputProvenanceDigest });
+    const inputProvenanceDigest = createHash('sha256').update(JSON.stringify(allInputProvenance)).digest('hex');
+    const uploadDigest = createHash('sha256').update(JSON.stringify(uploads.map((upload) => ({ id: upload.id, name: upload.name, contentDigest: upload.contentDigest })))).digest('hex');
+    const fingerprint = commandFingerprint('submit', { goal, profileId: intent.profileId, authorityMode: intent.authorityMode, administratorLeaseDigest, inputProvenanceDigest, uploadDigest });
     const existing = commandReceipts.get('submit', key);
     const claimed = commandReceipts.claim(existing ?? {
       schemaVersion: 1,
@@ -80,9 +104,20 @@ export const handleTaskRoutes: GatewayRoute = async ({ request, response, url, s
       claimed.receipt.profileId,
       claimed.receipt.authorityMode ?? 'review',
       { taskId: claimed.receipt.taskId, runId: claimed.receipt.runId },
-      intent.inputProvenance,
+      allInputProvenance,
     );
     requests.set(runKey(runtimeRequest.taskId, runtimeRequest.runId), runtimeRequest);
+    const taskEvents = eventsByRun.get(runKey(runtimeRequest.taskId, runtimeRequest.runId));
+    if (!taskEvents) throw new Error('任务事件账本未初始化；拒绝写入上传文件');
+    for (const upload of uploads) {
+      const artifactId = `upload-${createHash('sha256').update(`${runtimeRequest.taskId}:${runtimeRequest.runId}:${upload.id}:${upload.contentDigest}`).digest('hex').slice(0, 48)}`;
+      const uploadEvent = createEvent('artifact.created', runtimeRequest.taskId, runtimeRequest.runId, { artifactId, mime: 'application/octet-stream', path: `uploads/${upload.name}` });
+      taskEvents.push(uploadEvent);
+      runTrajectory.recordTaskEvent(uploadEvent, 'gateway.intent');
+      const artifact = runWorkspace.recordTaskEvent(uploadEvent);
+      if (!artifact) throw new Error('上传工件账本拒绝记录；未写入任务文件');
+      taskFiles.publishUploadedFile({ taskId: runtimeRequest.taskId, runId: runtimeRequest.runId, artifactLedgerId: artifact.artifactLedgerId, logicalPath: `uploads/${upload.name}`, content: upload.content, createdAt: uploadEvent.at });
+    }
     const snapshot = await runtime.submit(runtimeRequest);
     runWorkspace.recordCheckpoint(snapshot, true);
     commandReceipts.complete('submit', key, snapshot, Date.now());

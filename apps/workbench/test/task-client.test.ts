@@ -41,6 +41,17 @@ test('HTTP 客户端仅发送意图并返回经验证的任务快照', async () 
   }
 });
 
+test('HTTP 客户端仅在显式附件存在时发送受限 uploads payload', async () => {
+  const originalFetch = globalThis.fetch;
+  let body: Record<string, unknown> | undefined;
+  globalThis.fetch = (async (_url, init) => { body = JSON.parse(String(init?.body)); return Response.json(snapshot); }) as typeof fetch;
+  try {
+    await new HttpWorkbenchTaskClient().submit({ goal: '审查上传代码', profileId: 'build', authorityMode: 'review', uploads: [{ id: 'file-1', name: 'brief.md', contentBase64: 'aGVsbG8=' }] });
+    assert.deepEqual(body?.uploads, [{ id: 'file-1', name: 'brief.md', contentBase64: 'aGVsbG8=' }]);
+    await assert.rejects(() => new HttpWorkbenchTaskClient().submit({ goal: '无效上传', profileId: 'build', authorityMode: 'review', uploads: [{ id: 'file-2', name: '../secret.txt', contentBase64: 'aA==' }] }), /元数据无效/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('浏览器只可提交 external/derived provenance 摘要，不能伪造可信输入', async () => {
   const originalFetch = globalThis.fetch;
   let body: unknown;
@@ -370,7 +381,7 @@ test('任务文件与交付包客户端只接受 task/run 专属受控 DTO，并
   const file = {
     schemaVersion: 1, taskFileId: 'task-file-1', taskId: 'task-1', runId: 'run-1', artifactLedgerId: 'artifact-ledger-1',
     logicalPath: 'deliverables/report.md', displayName: 'report.md', mediaType: 'text/markdown', byteSize: 12, sha256: 'd'.repeat(64),
-    version: 1, createdAt: 10, status: 'available', containsSensitiveContent: false, canExecute: false,
+    version: 1, createdAt: 10, status: 'available', origin: 'generated', containsSensitiveContent: false, canExecute: false,
   };
   const preview = { taskFileId: 'task-file-1', logicalPath: 'deliverables/report.md', language: 'markdown', content: '# Report\n', lineCount: 1, truncated: false, byteSize: 9, sha256: 'd'.repeat(64) };
   const diff = { taskFileId: 'task-file-1', logicalPath: 'deliverables/report.md', previousVersion: undefined, currentVersion: 1, content: '--- a/deliverables/report.md\n', truncated: false };

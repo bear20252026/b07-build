@@ -14,7 +14,7 @@ import type { RunWorkspaceLedger } from './run-workspace-ledger.js';
 
 export const TASK_FILE_SCHEMA_VERSION = 1 as const;
 
-export type TaskFileMediaType = 'text/plain' | 'text/markdown' | 'application/json' | 'text/csv' | 'text/x-source';
+export type TaskFileMediaType = 'text/plain' | 'text/markdown' | 'application/json' | 'text/csv' | 'text/x-source' | 'application/octet-stream';
 
 export interface TaskFileRecordV1 {
   schemaVersion: typeof TASK_FILE_SCHEMA_VERSION;
@@ -30,8 +30,21 @@ export interface TaskFileRecordV1 {
   version: number;
   createdAt: number;
   status: 'available';
+  origin: 'generated' | 'user-upload';
   containsSensitiveContent: false;
   canExecute: false;
+}
+
+export interface ControlledTaskInputProjectionV1 {
+  taskId: string;
+  runId: string;
+  textFileCount: number;
+  skippedBinaryFileCount: number;
+  text: string;
+  truncated: boolean;
+  canExecute: false;
+  canAutoExtract: false;
+  canForwardToProvider: false;
 }
 
 export interface TaskFilePreviewV1 {
@@ -87,10 +100,20 @@ export interface PublishTaskTextFileInput {
   createdAt: number;
 }
 
+export interface PublishUploadedTaskFileInput {
+  taskId: string;
+  runId: string;
+  artifactLedgerId: string;
+  logicalPath: string;
+  content: Buffer;
+  createdAt: number;
+}
+
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const LOGICAL_PATH_MAX_LENGTH = 160;
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_PREVIEW_BYTES = 32 * 1024;
+const MAX_TASK_INPUT_PROJECTION_BYTES = 64 * 1024;
 const MAX_FILES_PER_RUN = 64;
 const MAX_DELIVERY_BYTES = 16 * 1024 * 1024;
 const MAX_DIFF_BYTES = 64 * 1024;
@@ -144,13 +167,14 @@ function assertLogicalPath(logicalPath: string): void {
   }
 }
 
-function metadataForPath(logicalPath: string): { mediaType: TaskFileMediaType; language: string } {
+function metadataForPath(logicalPath: string, allowBinary = false): { mediaType: TaskFileMediaType; language: string } {
   assertLogicalPath(logicalPath);
   const extensionStart = logicalPath.lastIndexOf('.');
   const extension = extensionStart >= 0 ? logicalPath.slice(extensionStart).toLowerCase() : '';
   const metadata = ALLOWED_EXTENSIONS.get(extension);
-  if (!metadata) throw new Error(`不允许的任务文件类型：${extension || '(无扩展名)'}`);
-  return metadata;
+  if (metadata) return metadata;
+  if (allowBinary) return { mediaType: 'application/octet-stream', language: 'binary' };
+  throw new Error(`不允许的任务文件类型：${extension || '(无扩展名)'}`);
 }
 
 function taskFileId(taskId: string, runId: string, logicalPath: string, version: number): string {
@@ -307,49 +331,47 @@ export class TaskFileWorkspace {
   }
 
   publishTextFile(input: PublishTaskTextFileInput): TaskFileRecordV1 {
+    assertNoCredentialLikeContent(input.content);
+    return this.publishFile({ ...input, content: Buffer.from(input.content, 'utf8') }, false, 'generated');
+  }
+
+  /** 用户显式上传只可作为静态、不可信、不可执行 task/run 附件写入。 */
+  validateUploadedFile(logicalPath: string, content: Buffer): void {
+    if (!logicalPath.startsWith('uploads/')) throw new Error('用户上传只能写入 task/run 专属 uploads 逻辑目录');
+    metadataForPath(logicalPath, true);
+    if (content.length === 0 || content.length > MAX_FILE_BYTES) throw new Error(`用户上传文件必须为 1-${MAX_FILE_BYTES} 字节`);
+    // 按 UTF-8 尝试扫描，避免文本型 API key、token、私钥被静默写入任务文件区；二进制只保存、不读取。
+    assertNoCredentialLikeContent(content.toString('utf8'));
+  }
+
+  publishUploadedFile(input: PublishUploadedTaskFileInput): TaskFileRecordV1 {
+    this.validateUploadedFile(input.logicalPath, input.content);
+    return this.publishFile(input, true, 'user-upload');
+  }
+
+  private publishFile(input: PublishUploadedTaskFileInput, allowBinary: boolean, origin: TaskFileRecordV1['origin']): TaskFileRecordV1 {
     assertIdentifier(input.taskId, 'taskId');
     assertIdentifier(input.runId, 'runId');
     assertIdentifier(input.artifactLedgerId, 'artifactLedgerId');
     assertEpoch(input.createdAt, 'createdAt');
-    const pathMetadata = metadataForPath(input.logicalPath);
-    assertNoCredentialLikeContent(input.content);
-    const content = Buffer.from(input.content, 'utf8');
+    const pathMetadata = metadataForPath(input.logicalPath, allowBinary);
+    const content = input.content;
     if (content.length > MAX_FILE_BYTES) throw new Error(`任务文件超过 ${MAX_FILE_BYTES} 字节上限`);
     const artifacts = this.runWorkspace.listArtifacts(input.taskId, input.runId);
-    if (!artifacts.some((artifact) => artifact.artifactLedgerId === input.artifactLedgerId)) {
-      throw new Error('任务文件必须关联到同一 task/run 中已登记的受控 artifact');
-    }
+    if (!artifacts.some((artifact) => artifact.artifactLedgerId === input.artifactLedgerId)) throw new Error('任务文件必须关联到同一 task/run 中已登记的受控 artifact');
     const records = this.store.listFiles(input.taskId, input.runId);
     if (records.length >= MAX_FILES_PER_RUN) throw new Error(`每个任务运行最多发布 ${MAX_FILES_PER_RUN} 个文件`);
     const version = Math.max(0, ...records.filter((record) => record.logicalPath === input.logicalPath).map((record) => record.version)) + 1;
     const record: TaskFileRecordV1 = {
-      schemaVersion: TASK_FILE_SCHEMA_VERSION,
-      taskFileId: taskFileId(input.taskId, input.runId, input.logicalPath, version),
-      taskId: input.taskId,
-      runId: input.runId,
-      artifactLedgerId: input.artifactLedgerId,
-      logicalPath: input.logicalPath,
-      displayName: basename(input.logicalPath),
-      mediaType: pathMetadata.mediaType,
-      byteSize: content.length,
-      sha256: sha256(content),
-      version,
-      createdAt: input.createdAt,
-      status: 'available',
-      containsSensitiveContent: false,
-      canExecute: false,
+      schemaVersion: TASK_FILE_SCHEMA_VERSION, taskFileId: taskFileId(input.taskId, input.runId, input.logicalPath, version), taskId: input.taskId, runId: input.runId,
+      artifactLedgerId: input.artifactLedgerId, logicalPath: input.logicalPath, displayName: basename(input.logicalPath), mediaType: pathMetadata.mediaType,
+      byteSize: content.length, sha256: sha256(content), version, createdAt: input.createdAt, status: 'available', origin, containsSensitiveContent: false, canExecute: false,
     };
     const filePath = this.filePath(record.taskId, record.runId, record.taskFileId);
     mkdirSync(dirname(filePath), { recursive: true });
     if (existsSync(filePath)) throw new Error(`任务文件版本已存在：${record.taskFileId}`);
     writeFileSync(filePath, content, { flag: 'wx' });
-    try {
-      this.store.appendFile(record);
-      return copyFileRecord(record);
-    } catch (error) {
-      rmSync(filePath, { force: true });
-      throw error;
-    }
+    try { this.store.appendFile(record); return copyFileRecord(record); } catch (error) { rmSync(filePath, { force: true }); throw error; }
   }
 
   listFiles(taskId: string, runId: string): readonly TaskFileRecordV1[] {
@@ -358,8 +380,34 @@ export class TaskFileWorkspace {
     return this.store.listFiles(taskId, runId).map(copyFileRecord);
   }
 
+  /**
+   * 受控读取步骤专用的瞬时用户输入投影。它只读取本 task/run 的已验证文本上传，
+   * 绝不解压/执行二进制，也不会进入 SQLite、事件或 HTTP DTO。
+   */
+  projectUserUploadedText(taskId: string, runId: string): ControlledTaskInputProjectionV1 {
+    assertIdentifier(taskId, 'taskId');
+    assertIdentifier(runId, 'runId');
+    let remaining = MAX_TASK_INPUT_PROJECTION_BYTES;
+    let textFileCount = 0;
+    let skippedBinaryFileCount = 0;
+    let truncated = false;
+    const sections: string[] = [];
+    for (const record of this.store.listFiles(taskId, runId).filter((item) => item.origin === 'user-upload').sort((left, right) => left.createdAt - right.createdAt || left.taskFileId.localeCompare(right.taskFileId))) {
+      if (record.mediaType === 'application/octet-stream') { skippedBinaryFileCount += 1; continue; }
+      if (remaining <= 0) { truncated = true; break; }
+      const content = this.readVerifiedContent(record);
+      const included = content.subarray(0, remaining);
+      if (included.length < content.length) truncated = true;
+      remaining -= included.length;
+      textFileCount += 1;
+      sections.push(`--- ${record.logicalPath} · sha256:${record.sha256} ---\n${textFromBuffer(included)}`);
+    }
+    return { taskId, runId, textFileCount, skippedBinaryFileCount, text: sections.join('\n\n'), truncated, canExecute: false, canAutoExtract: false, canForwardToProvider: false };
+  }
+
   preview(taskId: string, runId: string, taskFileId: string): TaskFilePreviewV1 {
     const record = this.requireFile(taskId, runId, taskFileId);
+    if (record.mediaType === 'application/octet-stream') throw new Error('未知二进制附件不提供自动预览、解析或内容读取');
     const content = this.readVerifiedContent(record);
     const truncated = content.subarray(0, MAX_PREVIEW_BYTES);
     const metadata = metadataForPath(record.logicalPath);
@@ -378,6 +426,7 @@ export class TaskFileWorkspace {
 
   diff(taskId: string, runId: string, taskFileId: string): TaskFileDiffV1 {
     const record = this.requireFile(taskId, runId, taskFileId);
+    if (record.mediaType === 'application/octet-stream') throw new Error('未知二进制附件不提供自动差异、解析或内容读取');
     const allRecords = this.store.listFiles(taskId, runId);
     const previous = previousVersion(allRecords, record);
     const currentContent = this.readVerifiedContent(record);

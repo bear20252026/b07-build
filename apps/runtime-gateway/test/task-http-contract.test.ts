@@ -1,4 +1,5 @@
 import { strict as assert } from 'node:assert';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -326,5 +327,64 @@ test('Gateway 仅在已批准的 filesystem.write 后公开 task/run 专属文�
 
     const crossRun = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/run-not-this-one/files/${file.taskFileId}/preview`);
     assert.equal(crossRun.status, 404);
+  });
+});
+
+
+test('Gateway 将显式聊天上传写入本机 task/run 文件区，生成不可信 provenance 且不自动读取二进制', async () => {
+  await withGateway(async (baseUrl) => {
+    const textContent = '## Brief\n仅在受控任务文件区保存。\n';
+    const submitted = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': 'chat-upload-text-v1' },
+      body: JSON.stringify({ schemaVersion: 1, goal: '审查聊天上传的说明文件', profileId: 'build', uploads: [{ id: 'chat-file-1', name: 'brief.md', contentBase64: Buffer.from(textContent, 'utf8').toString('base64') }] }),
+    });
+    const submittedPayload = await submitted.text();
+    assert.equal(submitted.status, 201, submittedPayload);
+    const snapshot = JSON.parse(submittedPayload) as { taskId: string; runId: string; inputProvenance: readonly { trust: string; sourceKind: string; contentDigest: string }[] };
+    const uploadProvenance = snapshot.inputProvenance.find((input) => input.sourceKind === 'upload');
+    assert.deepEqual(uploadProvenance, { trust: 'external-untrusted', sourceKind: 'upload', contentDigest: createHash('sha256').update(textContent).digest('hex'), schemaVersion: 1, inputId: `upload-${createHash('sha256').update('chat-file-1').digest('hex').slice(0, 40)}` });
+
+    const filesResponse = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/files`);
+    assert.equal(filesResponse.status, 200);
+    const files = await filesResponse.json() as readonly { taskFileId: string; logicalPath: string; mediaType: string; origin: string; byteSize: number; canExecute: boolean }[];
+    assert.deepEqual(files.map((file) => ({ logicalPath: file.logicalPath, mediaType: file.mediaType, origin: file.origin, byteSize: file.byteSize, canExecute: file.canExecute })), [{ logicalPath: 'uploads/brief.md', mediaType: 'text/markdown', origin: 'user-upload', byteSize: Buffer.byteLength(textContent), canExecute: false }]);
+    assert.equal(JSON.stringify(files).includes('task-file-root'), false);
+
+    const preview = await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/files/${files[0]?.taskFileId}/preview`);
+    assert.equal(preview.status, 200);
+    assert.equal((await preview.json() as { content: string }).content, textContent);
+
+    const events = await (await fetch(`${baseUrl}/api/tasks/${snapshot.taskId}/${snapshot.runId}/events`)).json() as readonly Record<string, unknown>[];
+    assert.equal(JSON.stringify(events).includes(textContent), false);
+
+    const replay = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'chat-upload-text-v1' },
+      body: JSON.stringify({ schemaVersion: 1, goal: '审查聊天上传的说明文件', profileId: 'build', uploads: [{ id: 'chat-file-1', name: 'brief.md', contentBase64: Buffer.from(textContent, 'utf8').toString('base64') }] }),
+    });
+    assert.equal(replay.status, 200);
+
+    const binary = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'chat-upload-archive-v1' },
+      body: JSON.stringify({ schemaVersion: 1, goal: '保存压缩包等待人工决定处理方式', profileId: 'build', uploads: [{ id: 'chat-file-2', name: 'sources.zip', contentBase64: Buffer.from('PK\u0003\u0004not-an-extracted-archive', 'utf8').toString('base64') }] }),
+    });
+    assert.equal(binary.status, 201);
+    const binarySnapshot = await binary.json() as { taskId: string; runId: string };
+    const binaryFiles = await (await fetch(`${baseUrl}/api/tasks/${binarySnapshot.taskId}/${binarySnapshot.runId}/files`)).json() as readonly { taskFileId: string; mediaType: string; origin: string }[];
+    assert.equal(binaryFiles[0]?.mediaType, 'application/octet-stream');
+    assert.equal(binaryFiles[0]?.origin, 'user-upload');
+    assert.equal((await fetch(`${baseUrl}/api/tasks/${binarySnapshot.taskId}/${binarySnapshot.runId}/files/${binaryFiles[0]?.taskFileId}/preview`)).status, 404);
+
+    const forged = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'chat-upload-forged-provenance' },
+      body: JSON.stringify({ schemaVersion: 1, goal: '伪造上传摘要必须失败', profileId: 'build', inputProvenance: [{ schemaVersion: 1, inputId: 'forged', trust: 'external-untrusted', sourceKind: 'upload', contentDigest: 'a'.repeat(64) }] }),
+    });
+    assert.equal(forged.status, 400);
+
+    const credentialLike = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'chat-upload-credential-rejected' },
+      body: JSON.stringify({ schemaVersion: 1, goal: '含凭据附件必须在入库前拒绝', profileId: 'build', uploads: [{ id: 'chat-file-secret', name: 'credential.md', contentBase64: Buffer.from('sk-abcdefghijklmnopqrstuvwx', 'utf8').toString('base64') }] }),
+    });
+    assert.equal(credentialLike.status, 400);
   });
 });

@@ -53,15 +53,15 @@ export function sendAttachment(response: ServerResponse, content: Buffer, fileNa
 }
 
 /** 受限 JSON body 适配器，拒绝超过本地 Gateway 边界的请求负载。 */
-export function readJsonBody(request: IncomingMessage): Promise<unknown> {
+export function readJsonBody(request: IncomingMessage, maxBytes = MAX_JSON_BODY_BYTES): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let bytes = 0;
     request.on('data', (chunk: Buffer | string) => {
       const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       bytes += value.length;
-      if (bytes > MAX_JSON_BODY_BYTES) {
-        reject(new Error(`request body exceeds ${MAX_JSON_BODY_BYTES / 1024}KiB`));
+      if (bytes > maxBytes) {
+        reject(new Error(`request body exceeds ${maxBytes / 1024}KiB`));
         request.destroy();
         return;
       }
@@ -85,5 +85,5 @@ export function readJsonBody(request: IncomingMessage): Promise<unknown> {
 /** HTTP 适配器层统一将输入解析错误映射为 client error，其他异常保持 server error。 */
 export function errorStatus(error: unknown): number {
   const message = error instanceof Error ? error.message : '';
-  return message.includes('64KiB') || message.includes('JSON') ? 400 : 500;
+  return message.includes('request body exceeds') || message.includes('JSON') ? 400 : 500;
 }

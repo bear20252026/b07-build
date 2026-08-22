@@ -29,7 +29,7 @@ import { TrajectoryBoard } from './components/observability/TrajectoryBoard';
 import { RunWorkspaceBoard } from './components/observability/RunWorkspaceBoard';
 import { PreviewPanel } from './components/preview/PreviewPanel';
 import { ChatHome } from './components/workspace/ChatHome';
-import { ComposerAttachments, mergeComposerAttachments } from './components/workspace/ComposerAttachments';
+import { ComposerAttachments, mergeComposerFileAttachments, type ComposerFileAttachment } from './components/workspace/ComposerAttachments';
 import { WORKBENCH_PROFILE_IDS } from './components/workspace/agent-profiles';
 import { LocalDataFlowBoard } from './components/workspace/LocalDataFlowBoard';
 import { TaskStoryboard } from './components/workspace/TaskStoryboard';
@@ -61,7 +61,7 @@ import { useTaskExecution } from './runtime/use-task-execution';
 import { loadCompanionPreferences, saveCompanionPreferences, updateCompanionPreferences } from './runtime/companion-preferences';
 import { loadFloatingCompanionPreferences, saveFloatingCompanionPreferences, type FloatingCompanionPreferencesV1 } from './runtime/floating-companion-preferences';
 import { loadCompanionStudioPreferences, saveCompanionStudioPreferences, updateCompanionStudioPreferences } from './runtime/companion-studio-preferences';
-import { loadWorkspaceFilePreferences, saveWorkspaceFilePreferences, type WorkspaceFileDescriptor, type WorkspaceFilePreferencesV1 } from './runtime/workspace-file-contract';
+import { loadWorkspaceFilePreferences, saveWorkspaceFilePreferences, type WorkspaceFilePreferencesV1 } from './runtime/workspace-file-contract';
 
 const localGatewayClient = HttpWorkbenchTaskClient.forLocalGateway();
 const localProjectClient = createProjectClient('http://127.0.0.1:4318');
@@ -146,7 +146,7 @@ export function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
   const [composerCollapsed, setComposerCollapsed] = useState(false);
-  const [composerAttachments, setComposerAttachments] = useState<readonly WorkspaceFileDescriptor[]>([]);
+  const [composerAttachments, setComposerAttachments] = useState<readonly ComposerFileAttachment[]>([]);
   const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding'>();
   const [activeGoal, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
@@ -175,8 +175,8 @@ export function App() {
   const updateCompanionStudio = (change: Parameters<typeof updateCompanionStudioPreferences>[1]): void => setCompanionStudioPreferences((current) => { const next = updateCompanionStudioPreferences(current, change); saveCompanionStudioPreferences(next); return next; });
   const updateFloatingCompanion = (next: FloatingCompanionPreferencesV1): void => { saveFloatingCompanionPreferences(next); setFloatingCompanionPreferences(next); };
   const updateWorkspaceFiles = (next: WorkspaceFilePreferencesV1): void => { saveWorkspaceFilePreferences(next); setWorkspaceFilePreferences(next); };
-  const addComposerAttachments = (files: FileList | null): void => setComposerAttachments((current) => mergeComposerAttachments(current, files));
-  const removeComposerAttachment = (id: string): void => setComposerAttachments((current) => current.filter((item) => item.id !== id));
+  const addComposerAttachments = (files: FileList | null): void => setComposerAttachments((current) => mergeComposerFileAttachments(current, files));
+  const removeComposerAttachment = (id: string): void => setComposerAttachments((current) => current.filter((item) => item.descriptor.id !== id));
   const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, projects: '项目', task: '当前任务', models: 'API 连接', connections: '已连接模型', operations: '运行记录', 'api-usage': 'API 使用审计', 'workspace-files': '工作区与文件', 'terminal-coding': '终端与编码', capabilities: '扩展与能力', 'agency-roles': '预置专业角色', 'browser-sessions': '浏览会话控制', companion: 'Companion Agent', 'companion-service-sources': '服务来源', 'companion-body-modules': '机体模块', 'companion-character-models': '角色模型', 'companion-character-cards': 'AIRI 角色卡', 'companion-system': 'Companion 系统', security: '安全与系统' };
   const blockedNodeId = snapshot && Object.entries(snapshot.nodeOutcomes).find(([, outcome]) => outcome === 'blocked')?.[0];
   const provenance = snapshot?.inputProvenance ?? [];
@@ -254,8 +254,9 @@ export function App() {
   const submitIntent = async (): Promise<void> => {
     const goal = draft.trim();
     if (!goal) return;
-    if (await taskExecution.submit(goal, activeProfile, authorityMode)) {
+    if (await taskExecution.submit(goal, activeProfile, authorityMode, composerAttachments.map((attachment) => ({ id: attachment.descriptor.id, name: attachment.descriptor.name, file: attachment.file })))) {
       setActiveGoal(goal);
+      setComposerAttachments([]);
       setDraft('');
       setActivePage('task');
     }
@@ -436,7 +437,7 @@ export function App() {
         </section>
         {activePage === 'workspace' && <div className={`task-composer${composerCollapsed ? ' task-composer--collapsed' : ''}`}>
           {composerCollapsed ? <button className="composer-expand" onClick={() => setComposerCollapsed(false)} title="展开对话编辑器以输入任务。" type="button"><span aria-hidden="true">↑</span> 展开对话编辑器</button> : <>
-            <ComposerAttachments attachments={composerAttachments} onAdd={addComposerAttachments} onRemove={removeComposerAttachment} />
+            <ComposerAttachments attachments={composerAttachments.map((attachment) => attachment.descriptor)} onAdd={addComposerAttachments} onRemove={removeComposerAttachment} />
             <textarea
               aria-label={messages.task.goalAria}
               onChange={(event) => setDraft(event.target.value)}

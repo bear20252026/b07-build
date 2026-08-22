@@ -133,3 +133,29 @@ test('SQLite metadata 可重开，文件内容不进入记录 DTO 或数据库�
   reopenedStore.close();
   rmSync(directory, { recursive: true, force: true });
 });
+
+
+test('用户上传仅生成 task/run 范围的受控文本投影，二进制不会被自动读取、解析或执行', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'awo-task-upload-projection-'));
+  const { ledger, files } = workspace(directory);
+  const textArtifact = registerArtifact(ledger, 'task-1', 'run-1', 'event-upload-text');
+  const binaryArtifact = registerArtifact(ledger, 'task-1', 'run-1', 'event-upload-binary');
+  const text = files.publishUploadedFile({ taskId: 'task-1', runId: 'run-1', artifactLedgerId: textArtifact, logicalPath: 'uploads/brief.md', content: Buffer.from('# Brief\n受控文本输入。\n'), createdAt: 101 });
+  const binary = files.publishUploadedFile({ taskId: 'task-1', runId: 'run-1', artifactLedgerId: binaryArtifact, logicalPath: 'uploads/sources.zip', content: Buffer.from('PK\u0003\u0004static-only'), createdAt: 102 });
+
+  assert.equal(text.origin, 'user-upload');
+  assert.equal(binary.mediaType, 'application/octet-stream');
+  const projection = files.projectUserUploadedText('task-1', 'run-1');
+  assert.equal(projection.textFileCount, 1);
+  assert.equal(projection.skippedBinaryFileCount, 1);
+  assert.match(projection.text, /uploads\/brief\.md/);
+  assert.match(projection.text, /受控文本输入/);
+  assert.equal(projection.canExecute, false);
+  assert.equal(projection.canAutoExtract, false);
+  assert.equal(projection.canForwardToProvider, false);
+  assert.equal(projection.text.includes('static-only'), false);
+  assert.throws(() => files.preview('task-1', 'run-1', binary.taskFileId), /不提供自动预览/);
+  assert.throws(() => files.diff('task-1', 'run-1', binary.taskFileId), /不提供自动差异/);
+  assert.throws(() => files.publishUploadedFile({ taskId: 'task-1', runId: 'run-1', artifactLedgerId: textArtifact, logicalPath: 'deliverables/not-user.md', content: Buffer.from('bad path'), createdAt: 103 }), /uploads 逻辑目录/);
+  rmSync(directory, { recursive: true, force: true });
+});

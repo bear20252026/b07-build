@@ -18,6 +18,13 @@ export interface AdministratorLeaseIntentV1 {
   reason: string;
 }
 
+export interface TaskUploadIntentV1 {
+  id: string;
+  name: string;
+  /** 仅限本机 Gateway 任务提交的 base64 文本/代码字节；摘要由 Gateway 对解码字节重新计算。 */
+  contentBase64: string;
+}
+
 export interface TaskSubmitIntentV1 {
   schemaVersion: typeof GATEWAY_HTTP_CONTRACT_VERSION;
   goal: string;
@@ -26,6 +33,7 @@ export interface TaskSubmitIntentV1 {
   administratorLease?: AdministratorLeaseIntentV1;
   /** 浏览器只能声明外部/派生的不可信摘要；可信来源由 Gateway 内部构造。 */
   inputProvenance: readonly InputProvenanceV1[];
+  uploads?: readonly TaskUploadIntentV1[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -65,6 +73,14 @@ function decodeInputProvenance(value: unknown): InputProvenanceV1 {
   return { schemaVersion: INPUT_PROVENANCE_SCHEMA_VERSION, inputId: value.inputId, trust, sourceKind, contentDigest: value.contentDigest };
 }
 
+function decodeTaskUpload(value: unknown): TaskUploadIntentV1 {
+  if (!isRecord(value) || Object.keys(value).some((key) => !['id', 'name', 'contentBase64'].includes(key))) throw new Error('upload 必须是受限文件 metadata 与 base64 object');
+  if (typeof value.id !== 'string' || !IDENTIFIER.test(value.id)) throw new Error('upload.id 无效');
+  if (typeof value.name !== 'string' || !value.name.trim() || value.name.length > 120 || /[\\/\0\r\n]/.test(value.name) || value.name === '.' || value.name === '..') throw new Error('upload.name 必须是安全文件名');
+  if (typeof value.contentBase64 !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.contentBase64) || value.contentBase64.length > 350_000) throw new Error('upload.contentBase64 无效或超过 256KiB 文本上传上限');
+  return { id: value.id, name: value.name.trim(), contentBase64: value.contentBase64 };
+}
+
 function decodeAdministratorLease(value: unknown): AdministratorLeaseIntentV1 {
   if (!isRecord(value) || Object.keys(value).some((key) => !['operatorId', 'allowedCapabilities', 'reason'].includes(key))) {
     throw new Error('administratorLease 必须是受限的 operatorId、allowedCapabilities、reason object');
@@ -84,7 +100,7 @@ function decodeAdministratorLease(value: unknown): AdministratorLeaseIntentV1 {
 export function decodeTaskSubmitIntentV1(value: unknown): TaskSubmitIntentV1 {
   if (!isRecord(value)) throw new Error('任务提交 body 必须是 JSON object');
   const keys = Object.keys(value);
-  if (keys.some((key) => !['schemaVersion', 'goal', 'profileId', 'authorityMode', 'administratorLease', 'inputProvenance'].includes(key))) {
+  if (keys.some((key) => !['schemaVersion', 'goal', 'profileId', 'authorityMode', 'administratorLease', 'inputProvenance', 'uploads'].includes(key))) {
     throw new Error('任务提交包含未声明字段');
   }
   if (value.schemaVersion !== GATEWAY_HTTP_CONTRACT_VERSION) {
@@ -100,6 +116,9 @@ export function decodeTaskSubmitIntentV1(value: unknown): TaskSubmitIntentV1 {
   if (value.inputProvenance !== undefined && (!Array.isArray(value.inputProvenance) || value.inputProvenance.length > 16)) throw new Error('inputProvenance 必须是至多 16 条的数组');
   const inputProvenance = (value.inputProvenance ?? []).map(decodeInputProvenance);
   if (new Set(inputProvenance.map((input) => input.inputId)).size !== inputProvenance.length) throw new Error('inputProvenance.inputId 不可重复');
+  if (value.uploads !== undefined && (!Array.isArray(value.uploads) || value.uploads.length > 8)) throw new Error('uploads 必须是至多 8 项的数组');
+  const uploads = (value.uploads ?? []).map(decodeTaskUpload);
+  if (new Set(uploads.map((upload) => upload.id)).size !== uploads.length) throw new Error('upload.id 不可重复');
   if (authorityMode === 'admin' && !administratorLease) throw new Error('Admin Authority 必须显式提交受限管理员租约申请');
   if (authorityMode !== 'admin' && administratorLease) throw new Error('只有 Admin Authority 可以提交管理员租约申请');
   return {
@@ -110,5 +129,6 @@ export function decodeTaskSubmitIntentV1(value: unknown): TaskSubmitIntentV1 {
     authorityMode,
     administratorLease,
     inputProvenance: inputProvenance.sort((left, right) => left.inputId.localeCompare(right.inputId)),
+    ...(value.uploads === undefined ? {} : { uploads: uploads.sort((left, right) => left.id.localeCompare(right.id)) }),
   };
 }

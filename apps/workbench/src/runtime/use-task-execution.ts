@@ -9,7 +9,27 @@ import {
   type WorkbenchTaskDeliveryReceipt,
   type WorkbenchTaskFile,
   type WorkbenchTaskSnapshot,
+  type WorkbenchTaskUpload,
 } from './task-client';
+
+export interface PendingChatUpload {
+  readonly id: string;
+  readonly name: string;
+  readonly file: File;
+}
+
+async function encodeChatUploads(attachments: readonly PendingChatUpload[]): Promise<readonly WorkbenchTaskUpload[]> {
+  if (attachments.length > 8) throw new Error('聊天每次最多上传 8 个文件');
+  const uploads = await Promise.all(attachments.map(async (attachment) => {
+    if (attachment.file.size === 0 || attachment.file.size > 256 * 1024) throw new Error(`文件 ${attachment.name} 为空或超过 256KiB 任务输入上限`);
+    const bytes = new Uint8Array(await attachment.file.arrayBuffer());
+    let binary = '';
+    for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+    return { id: attachment.id, name: attachment.name, contentBase64: btoa(binary) };
+  }));
+  if (new Set(uploads.map((upload) => upload.id)).size !== uploads.length) throw new Error('聊天上传文件标识重复');
+  return uploads;
+}
 
 export interface TaskExecutionMessages {
   readonly gatewayRequired: string;
@@ -29,7 +49,7 @@ export interface TaskExecutionController {
   readonly pending: boolean;
   readonly deliveryPending: boolean;
   readonly error: string | undefined;
-  submit(goal: string, profileId: AgentProfileId, authorityMode: WorkbenchAuthorityMode): Promise<boolean>;
+  submit(goal: string, profileId: AgentProfileId, authorityMode: WorkbenchAuthorityMode, uploads?: readonly PendingChatUpload[]): Promise<boolean>;
   resume(): Promise<void>;
   approveAndResume(actionId: string): Promise<void>;
   loadFilePreview(taskFileId: string): ReturnType<HttpWorkbenchTaskClient['filePreview']>;
@@ -78,7 +98,7 @@ export function useTaskExecution(
     setDeliveries(nextDeliveries);
   }, [client]);
 
-  const submit = useCallback(async (goal: string, profileId: AgentProfileId, authorityMode: WorkbenchAuthorityMode): Promise<boolean> => {
+  const submit = useCallback(async (goal: string, profileId: AgentProfileId, authorityMode: WorkbenchAuthorityMode, uploads: readonly PendingChatUpload[] = []): Promise<boolean> => {
     if (!goal.trim() || pending) return false;
     if (!gatewayAttached) {
       setError(messages.gatewayRequired);
@@ -87,7 +107,7 @@ export function useTaskExecution(
     setPending(true);
     setError(undefined);
     try {
-      await hydrate(await client.submit({ goal: goal.trim(), profileId, authorityMode }));
+      await hydrate(await client.submit({ goal: goal.trim(), profileId, authorityMode, uploads: await encodeChatUploads(uploads) }));
       return true;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : messages.submitFailed);

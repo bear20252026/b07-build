@@ -57,6 +57,7 @@ function mediaTypeLabel(mediaType: WorkbenchTaskFile['mediaType']): string {
     case 'text/csv': return 'CSV';
     case 'text/x-source': return '代码';
     case 'text/plain': return '文本';
+    case 'application/octet-stream': return '二进制附件（不自动读取）';
   }
 }
 

@@ -35,11 +35,19 @@ export interface WorkbenchTaskSnapshot {
 
 export type WorkbenchAuthorityMode = Exclude<ExecutionAuthorityMode, 'admin'>;
 
+export interface WorkbenchTaskUpload {
+  id: string;
+  name: string;
+  /** 仅在用户发起任务时发送给 loopback Gateway；Gateway 重算 SHA-256，不信任浏览器摘要。 */
+  contentBase64: string;
+}
+
 export interface WorkbenchTaskIntent {
   goal: string;
   profileId: AgentProfileId;
   authorityMode: WorkbenchAuthorityMode;
   inputProvenance?: readonly WorkbenchExternalInputProvenance[];
+  uploads?: readonly WorkbenchTaskUpload[];
 }
 
 export interface WorkbenchLocalModelHealth {
@@ -274,12 +282,13 @@ export interface WorkbenchTaskFile {
   artifactLedgerId: string;
   logicalPath: string;
   displayName: string;
-  mediaType: 'text/plain' | 'text/markdown' | 'application/json' | 'text/csv' | 'text/x-source';
+  mediaType: 'text/plain' | 'text/markdown' | 'application/json' | 'text/csv' | 'text/x-source' | 'application/octet-stream';
   byteSize: number;
   sha256: string;
   version: number;
   createdAt: number;
   status: 'available';
+  origin: 'generated' | 'user-upload';
   containsSensitiveContent: false;
   canExecute: false;
 }
@@ -651,15 +660,15 @@ function assertTaskFile(value: unknown): asserts value is WorkbenchTaskFile {
   const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
   const logicalPath = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
   if (
-    Object.keys(file).some((key) => !['schemaVersion', 'taskFileId', 'taskId', 'runId', 'artifactLedgerId', 'logicalPath', 'displayName', 'mediaType', 'byteSize', 'sha256', 'version', 'createdAt', 'status', 'containsSensitiveContent', 'canExecute'].includes(key))
+    Object.keys(file).some((key) => !['schemaVersion', 'taskFileId', 'taskId', 'runId', 'artifactLedgerId', 'logicalPath', 'displayName', 'mediaType', 'byteSize', 'sha256', 'version', 'createdAt', 'status', 'origin', 'containsSensitiveContent', 'canExecute'].includes(key))
     || file.schemaVersion !== 1 || typeof file.taskFileId !== 'string' || !identifier.test(file.taskFileId)
     || typeof file.taskId !== 'string' || !identifier.test(file.taskId) || typeof file.runId !== 'string' || !identifier.test(file.runId)
     || typeof file.artifactLedgerId !== 'string' || !identifier.test(file.artifactLedgerId)
     || typeof file.logicalPath !== 'string' || !logicalPath.test(file.logicalPath) || typeof file.displayName !== 'string' || file.displayName.length === 0 || file.displayName.length > 160
-    || !['text/plain', 'text/markdown', 'application/json', 'text/csv', 'text/x-source'].includes(String(file.mediaType))
+    || !['text/plain', 'text/markdown', 'application/json', 'text/csv', 'text/x-source', 'application/octet-stream'].includes(String(file.mediaType))
     || !isNonNegativeSafeInteger(file.byteSize) || typeof file.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(file.sha256)
     || typeof file.version !== 'number' || !Number.isSafeInteger(file.version) || file.version < 1 || !isNonNegativeSafeInteger(file.createdAt)
-    || file.status !== 'available' || file.containsSensitiveContent !== false || file.canExecute !== false
+    || file.status !== 'available' || !['generated', 'user-upload'].includes(String(file.origin)) || file.containsSensitiveContent !== false || file.canExecute !== false
   ) throw new Error('任务文件返回了不兼容、敏感或可执行字段');
 }
 
@@ -769,12 +778,18 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
 
   async submit(intent: WorkbenchTaskIntent): Promise<WorkbenchTaskSnapshot> {
     const inputProvenance = intent.inputProvenance ?? [];
+    const uploads = intent.uploads ?? [];
     if (inputProvenance.length > 16) throw new Error('浏览器最多可提交 16 条 external/derived provenance 摘要');
     inputProvenance.forEach(assertBrowserExternalProvenance);
+    if (inputProvenance.some((input) => input.sourceKind === 'upload')) throw new Error('上传 provenance 必须由本机 Gateway 从实际文件字节生成');
     if (new Set(inputProvenance.map((input) => input.inputId)).size !== inputProvenance.length) throw new Error('浏览器 provenance inputId 不可重复');
+    if (uploads.length > 8 || new Set(uploads.map((upload) => upload.id)).size !== uploads.length) throw new Error('聊天最多可提交 8 个不重复文件');
+    uploads.forEach((upload) => {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(upload.id) || !upload.name.trim() || upload.name.length > 120 || /[\\/\0\r\n]/.test(upload.name) || upload.contentBase64.length > 350_000) throw new Error('聊天上传文件元数据无效或超过 256KiB 限制');
+    });
     return this.request('', {
       method: 'POST',
-      body: JSON.stringify({ schemaVersion: 1, ...intent, inputProvenance }),
+      body: JSON.stringify({ schemaVersion: 1, ...intent, inputProvenance, ...(uploads.length > 0 ? { uploads } : {}) }),
       headers: { 'idempotency-key': createIdempotencyKey('submit') },
     });
   }

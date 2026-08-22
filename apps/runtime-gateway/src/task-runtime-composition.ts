@@ -105,6 +105,11 @@ export function createTaskRuntimeComposition({
       approvals: new InMemoryApprovalPort(approvedActions),
       runner: {
         async run(node) {
+          if (node.tool.capability === 'filesystem.read') {
+            // 用户上传只能在这个 task/run 专属、能力受控的读取步骤形成瞬时文本投影。
+            // 不把内容附入事件/DTO，且当前任务 runner 不会由此自动调用远程 Provider。
+            taskFiles.projectUserUploadedText(taskId, runId);
+          }
           if (node.tool.capability === 'filesystem.write') {
             generatedFilesByCall.set(node.id, [{
               logicalPath: 'deliverables/task-delivery.md',
