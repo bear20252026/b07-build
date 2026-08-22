@@ -26,29 +26,6 @@ const COMPANIONS: readonly Companion[] = [
   { id: 'sage', name: 'Sage', role: '隔离阅读', image: sageCompanion },
 ];
 
-const SETTINGS_NAV: readonly { group: string; items: readonly NavItem[] }[] = [
-  {
-    group: 'AI CORE',
-    items: [
-      { key: 'models', icon: '◇', label: '模型连接', description: '第三方 API 的新手连接向导' },
-      { key: 'connections', icon: '✓', label: '已连接模型', description: '状态、显式测试与受限文本试用' },
-    ],
-  },
-  {
-    group: 'WORKSPACE',
-    items: [
-      { key: 'operations', icon: '◷', label: '运行记录', description: '检查点、产出账本与只读轨迹' },
-      { key: 'capabilities', icon: '◇', label: '扩展与能力', description: '扩展中心、本地模型健康与控制面摘要' },
-    ],
-  },
-  {
-    group: 'SYSTEM',
-    items: [
-      { key: 'security', icon: '⚙', label: '安全与系统', description: '只读审计、构件锁定和发布证据' },
-    ],
-  },
-];
-
 export interface SiderProps {
   activePage: WorkbenchPage;
   hasActiveTask: boolean;
@@ -82,7 +59,6 @@ export function Sider({ activePage, hasActiveTask, theme, onThemeToggle, onNewTa
   const [companionId, setCompanionId] = useState<Companion['id']>('orbit');
   const [companionMotion, setCompanionMotion] = useState<'idle' | 'attention' | 'celebrate'>('idle');
   const nextLocale = locale === 'zh-CN' ? 'en' : 'zh-CN';
-  const isSettings = activePage !== 'workspace' && activePage !== 'projects' && activePage !== 'task';
   const workspaceNav = hasActiveTask
     ? [...WORKSPACE_NAV, { key: 'task' as const, icon: '▣', label: '当前任务', description: '类型化任务页面与受控成果' }]
     : WORKSPACE_NAV;
@@ -90,32 +66,16 @@ export function Sider({ activePage, hasActiveTask, theme, onThemeToggle, onNewTa
   const chooseCompanion = (id: Companion['id']): void => { setCompanionId(id); setCompanionMotion('celebrate'); };
 
   return (
-    <nav className={`sider${isSettings ? ' settings-mode' : ''}`} aria-label={messages.navigation.aria}>
+    <nav className="sider" aria-label={messages.navigation.aria}>
       <div className="sider-brand">
         <div className="sider-brand-mark" aria-hidden="true"><span className="sider-brand-initials">AW</span></div>
-        <div className="sider-brand-copy"><div className="sider-brand-name">AI Work OS</div><div className="sider-brand-subtitle">{isSettings ? messages.navigation.settingsSubtitle : messages.navigation.brandSubtitle}</div></div>
+        <div className="sider-brand-copy"><div className="sider-brand-name">AI Work OS</div><div className="sider-brand-subtitle">{messages.navigation.brandSubtitle}</div></div>
       </div>
-      {isSettings ? (
-        <>
-          <button className="sider-back-workspace" onClick={() => onNavigate('workspace')} type="button"><span aria-hidden="true">←</span> {messages.navigation.backToChat}</button>
-          <div className="sider-settings-nav">
-            {SETTINGS_NAV.map((section) => (
-              <section className="sider-settings-group" key={section.group} aria-label={section.group}>
-                <div className="sider-section-label">{section.group}</div>
-                {section.items.map((item) => <NavigationItem activePage={activePage} item={item} key={item.key} onNavigate={onNavigate} />)}
-              </section>
-            ))}
-          </div>
-        </>
-      ) : (
-        <>
-          <button className="sider-new-task" onClick={onNewTask} type="button"><span aria-hidden="true">＋</span> {messages.navigation.newTask}</button>
-          <div className="sider-section-label">{messages.common.workspace}</div>
-          <div className="sider-nav">{workspaceNav.map((item) => <NavigationItem activePage={activePage} item={item} key={item.key} onNavigate={onNavigate} />)}</div>
-        </>
-      )}
+      <button className="sider-new-task" onClick={onNewTask} type="button"><span aria-hidden="true">＋</span> {messages.navigation.newTask}</button>
+      <div className="sider-section-label">{messages.common.workspace}</div>
+      <div className="sider-nav">{workspaceNav.map((item) => <NavigationItem activePage={activePage} item={item} key={item.key} onNavigate={onNavigate} />)}</div>
       <div className="sider-spacer" />
-      {!isSettings && <section className="companion-card" aria-label="当前 Agent 小玩偶">
+      <section className="companion-card" aria-label="当前 Agent 小玩偶">
         <button aria-label={`${companion.name} 动态玩偶：${companion.role}`} className="companion-current" data-motion={companionMotion} title="点击让玩偶回应。它只是本地界面动画，不会创建任务、调用模型或改变权限。" onAnimationEnd={() => setCompanionMotion('idle')} onBlur={() => setCompanionMotion('idle')} onClick={() => setCompanionMotion('celebrate')} onFocus={() => setCompanionMotion('attention')} onPointerEnter={() => setCompanionMotion('attention')} onPointerLeave={() => setCompanionMotion('idle')} type="button">
           <span className="companion-portrait-stage" aria-hidden="true"><img alt="" className="companion-portrait" src={companion.image} /><i /></span>
           <span className="companion-current-copy"><span>当前助手 · 动态状态</span><strong>{companion.name}</strong><small>{companion.role}</small></span>
@@ -123,10 +83,10 @@ export function Sider({ activePage, hasActiveTask, theme, onThemeToggle, onNewTa
         <div aria-label="选择 Agent 小玩偶风格" className="companion-picker" role="group">
           {COMPANIONS.map((item) => <button aria-label={`选择 ${item.name}：${item.role}`} aria-pressed={item.id === companion.id} className={`companion-choice${item.id === companion.id ? ' active' : ''}`} key={item.id} title={`切换为 ${item.name} 视觉风格；不会切换模型、任务 Profile 或权限。`} onClick={() => chooseCompanion(item.id)} type="button"><img alt="" src={item.image} /></button>)}
         </div>
-      </section>}
-      <div className="sider-workspace"><div className="sider-workspace-indicator" aria-hidden="true" /><div><div className="sider-workspace-name">b07-build</div><div className="sider-workspace-meta">{isSettings ? '设置不会中断当前任务' : messages.navigation.workspaceMeta}</div></div></div>
+      </section>
+      <div className="sider-workspace"><div className="sider-workspace-indicator" aria-hidden="true" /><div><div className="sider-workspace-name">b07-build</div><div className="sider-workspace-meta">{messages.navigation.workspaceMeta}</div></div></div>
       <div className="sider-footer">
-        <button className="sider-settings-entry" onClick={() => onNavigate(isSettings ? 'workspace' : 'models')} type="button"><span aria-hidden="true">{isSettings ? '←' : '⚙'}</span>{isSettings ? messages.navigation.backToChat : messages.navigation.openSettings}</button>
+        <button className="sider-settings-entry" onClick={() => onNavigate('models')} type="button"><span aria-hidden="true">⚙</span>{messages.navigation.openSettings}</button>
         <div className="sider-footer-controls">
           <button aria-label={`${messages.common.language}: ${messages.localeName}`} className="locale-toggle" onClick={() => setLocale(nextLocale)} title={`${messages.common.language}: ${catalogLabel(nextLocale)}`} type="button">{locale === 'zh-CN' ? '中' : 'EN'}</button>
           <button aria-label={theme === 'light' ? messages.common.darkTheme : messages.common.lightTheme} aria-pressed={theme === 'dark'} className={`theme-switch${theme === 'dark' ? ' active' : ''}`} onClick={onThemeToggle} type="button"><span /></button>
