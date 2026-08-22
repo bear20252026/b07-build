@@ -187,7 +187,7 @@ fn exit_ai_work_os(app: AppHandle) {
     app.exit(0);
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[cfg(not(mobile))]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -225,4 +225,23 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("AI Work OS desktop shell failed to run");
+}
+
+/// Android/iOS 不继承 Windows sidecar、目录选择或桌面 Companion 命令。
+/// 移动端只承载经过平台配置隔离的 Web 工作台；远程模型接入仍需后续明确的数据出境确认。
+#[cfg(mobile)]
+#[tauri::mobile_entry_point]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![exit_ai_work_os])
+        .setup(|app| {
+            let main_window = app
+                .get_webview_window(MAIN_WINDOW_LABEL)
+                .ok_or("mobile configuration must define the main window")?;
+            main_window.set_focus()?;
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("AI Work OS mobile shell failed to run");
 }

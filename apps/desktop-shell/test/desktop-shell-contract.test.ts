@@ -8,6 +8,7 @@ const packageManifest = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shel
 const rootPackageManifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as { devDependencies?: Record<string, string> };
 const cargoManifest = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/Cargo.toml'), 'utf8');
 const desktopConfig = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/tauri.conf.json'), 'utf8')) as Record<string, unknown>;
+const androidConfig = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/tauri.android.conf.json'), 'utf8')) as Record<string, unknown>;
 const capability = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/capabilities/main-window.json'), 'utf8')) as Record<string, unknown>;
 const companionCapability = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/capabilities/desktop-companion-window.json'), 'utf8')) as Record<string, unknown>;
 const desktopCore = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/lib.rs'), 'utf8');
@@ -16,6 +17,7 @@ const gatewayMain = readFileSync(resolve(root, 'apps/runtime-gateway/src/main.ts
 const workbenchVite = readFileSync(resolve(root, 'apps/workbench/vite.config.ts'), 'utf8');
 const workbenchSider = readFileSync(resolve(root, 'apps/workbench/src/components/layout/Sider.tsx'), 'utf8');
 const provenanceWorkflow = readFileSync(resolve(root, '.github/workflows/windows-desktop-shell-provenance.yml'), 'utf8');
+const androidWorkflow = readFileSync(resolve(root, '.github/workflows/android-apk-candidate.yml'), 'utf8');
 const gatewaySidecarBuild = readFileSync(resolve(root, 'scripts/windows/build-gateway-sidecar.mjs'), 'utf8');
 
 test('桌面壳只加载本地 Workbench 静态产物并生成每用户 Windows NSIS 安装器', () => {
@@ -32,6 +34,24 @@ test('桌面壳只加载本地 Workbench 静态产物并生成每用户 Windows 
   assert.equal((windows.webviewInstallMode as Record<string, unknown>).type, 'downloadBootstrapper');
   assert.deepEqual(bundle.externalBin, ['binaries/awo-runtime-gateway']);
   assert.ok(workbenchVite.includes("base: './'"));
+});
+
+test('Android 只通过远程 runner 初始化与构建，且不继承 Windows Gateway sidecar 或桌面 Companion 命令', () => {
+  const bundle = androidConfig.bundle as Record<string, unknown>;
+  const android = bundle.android as Record<string, unknown>;
+  assert.deepEqual(bundle.externalBin, []);
+  assert.equal(android.minSdkVersion, 24);
+  for (const expected of [
+    'runs-on: ubuntu-latest', 'actions/setup-java@v5', 'android-actions/setup-android@v3',
+    "'ndk;27.2.12479018'", 'npm run android:init', 'npm run android:build:apk',
+    'includesWindowsGatewaySidecar', 'includesDesktopCompanionCommands', 'actions/upload-artifact@v7',
+  ]) assert.ok(androidWorkflow.includes(expected), `Android 远程构建工作流缺少：${expected}`);
+  for (const forbidden of ['gateway:sidecar', 'Start-Process', 'git push', 'contents: write']) {
+    assert.equal(androidWorkflow.includes(forbidden), false, `Android 工作流不得启动 Windows sidecar 或修改仓库：${forbidden}`);
+  }
+  for (const expected of ['#[cfg(not(mobile))]', '#[cfg(mobile)]', '#[tauri::mobile_entry_point]', 'tauri::generate_handler![exit_ai_work_os]']) {
+    assert.ok(desktopCore.includes(expected), `移动端入口缺少平台隔离：${expected}`);
+  }
 });
 
 test('Windows Gateway sidecar 使用 Node 24 兼容的受控 SEA blob 注入流程', () => {

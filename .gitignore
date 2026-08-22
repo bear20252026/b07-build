@@ -36,3 +36,5 @@ artifacts/
 apps/desktop-shell/src-tauri/binaries/awo-runtime-gateway-*
 apps/desktop-shell/src-tauri/binaries/awo-runtime-gateway-bundle.cjs
 apps/desktop-shell/src-tauri/binaries/awo-runtime-gateway-sea.json
+# Tauri CLI 与 Android 初始化可从配置重新生成，绝不提交本机 Gradle/schemas 产物
+apps/desktop-shell/src-tauri/gen/

@@ -1,0 +1,120 @@
+name: Android APK candidate
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'android-v*'
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build-android-apk:
+    name: Build Android arm64 and armv7 APK candidate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Java 17 for Gradle
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up stable Rust and Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Set up Android command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and NDK for the remote build
+        shell: bash
+        run: |
+          sdkmanager --install \
+            'platform-tools' \
+            'platforms;android-35' \
+            'build-tools;35.0.0' \
+            'ndk;27.2.12479018'
+          export ANDROID_HOME="${ANDROID_HOME:-$HOME/.android/sdk}"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Install locked workspace dependencies
+        run: npm ci
+
+      - name: Verify source boundaries before mobile generation
+        run: |
+          npm run architecture:check
+          npm run typecheck
+          node --experimental-sqlite --import tsx --test apps/desktop-shell/test/desktop-shell-contract.test.ts
+
+      - name: Initialize Android Studio project in the remote workspace
+        run: npm run android:init
+
+      - name: Build APK candidates
+        run: npm run android:build:apk
+
+      - name: Collect APKs and write manifest
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/ai-work-os-android-apk-candidate"
+          mkdir -p "$stage"
+          mapfile -t apks < <(find apps/desktop-shell/src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' | sort)
+          test "${#apks[@]}" -gt 0
+          cp "${apks[@]}" "$stage/"
+          python3 - <<'PY' "$stage"
+          import hashlib
+          import json
+          import os
+          import sys
+          stage = sys.argv[1]
+          files = []
+          for name in sorted(os.listdir(stage)):
+              if not name.endswith('.apk'):
+                  continue
+              path = os.path.join(stage, name)
+              with open(path, 'rb') as handle:
+                  digest = hashlib.sha256(handle.read()).hexdigest()
+              files.append({'file': name, 'sha256': digest, 'bytes': os.path.getsize(path)})
+          manifest = {
+              'schemaVersion': 1,
+              'product': 'AI Work OS',
+              'platform': 'android',
+              'artifactKind': 'android-apk-candidate',
+              'signingStatus': 'debug-or-unsigned-candidate',
+              'publicTrust': False,
+              'includesWindowsGatewaySidecar': False,
+              'includesDesktopCompanionCommands': False,
+              'requiresExplicitRemoteProviderConfiguration': True,
+              'files': files,
+          }
+          with open(os.path.join(stage, 'android-apk-manifest.json'), 'w', encoding='utf-8') as handle:
+              json.dump(manifest, handle, ensure_ascii=False, indent=2)
+          PY
+          echo "artifact-directory=$stage" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Android APK candidates
+        uses: actions/upload-artifact@v7
+        with:
+          name: ai-work-os-android-apk-candidate
+          if-no-files-found: error
+          path: ${{ steps.package.outputs.artifact-directory }}
+
+      - name: Generate build provenance for Android APK candidates
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.package.outputs.artifact-directory }}/*.apk
