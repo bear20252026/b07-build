@@ -60,13 +60,13 @@ test('桌面 Workbench 使用静态 AW 标记而不引入要求 `unsafe-eval` �
   assert.equal(workbenchSider.includes('@lobehub/icons'), false, '桌面 Workbench 不得重新引入导致严格 CSP 白屏的图标运行时');
 });
 
-test('桌面 Rust 核心仅暴露固定 Gateway sidecar 与固定标签 Companion 生命周期，不授予通用 shell、文件、自动启动或 helper 生命周期能力', () => {
+test('桌面 Rust 核心仅暴露固定 Gateway sidecar、固定原生工作区选择与固定标签 Companion 生命周期，不授予通用 shell、文件、自动启动或 helper 生命周期能力', () => {
   assert.deepEqual(capability.windows, ['main']);
   assert.deepEqual(capability.permissions, ['core:default', { identifier: 'shell:allow-spawn', allow: [{ name: 'binaries/awo-runtime-gateway', sidecar: true, args: ['serve'] }] }]);
   assert.deepEqual(companionCapability.windows, ['desktop-companion']);
   assert.deepEqual(companionCapability.permissions, ['core:default']);
   for (const expected of [
-    '#[tauri::command]', 'start_local_gateway', 'show_desktop_companion', 'close_desktop_companion', 'exit_ai_work_os', 'invoke_handler', 'tauri_plugin_shell::init()', 'sidecar(GATEWAY_SIDECAR)', 'args(["serve"])',
+    '#[tauri::command]', 'start_local_gateway', 'choose_workspace_directory', 'WorkspaceDirectoryState', 'show_desktop_companion', 'close_desktop_companion', 'exit_ai_work_os', 'invoke_handler', 'tauri_plugin_shell::init()', 'tauri_plugin_dialog::init()', 'blocking_pick_folder()', 'sidecar(GATEWAY_SIDECAR)', 'args(["serve"])',
     'const GATEWAY_ADDRESS: &str = "127.0.0.1:4318"', 'const GATEWAY_SIDECAR: &str = "awo-runtime-gateway"',
     'const DESKTOP_COMPANION_WINDOW_LABEL: &str = "desktop-companion"', 'WebviewWindowBuilder::new', 'WebviewUrl::App("index.html".into())',
     '.always_on_top(true)', '.skip_taskbar(true)', 'WindowEvent::CloseRequested', 'api.prevent_close()', 'window.hide()', 'app.exit(0)',
@@ -79,6 +79,8 @@ test('桌面 Rust 核心仅暴露固定 Gateway sidecar 与固定标签 Companio
     assert.equal(desktopCore.includes(forbidden), false, `桌面核心不得包含越界集成：${forbidden}`);
   }
   assert.ok(cargoManifest.includes('tauri-plugin-shell'), '固定 sidecar 启动需要唯一 shell plugin');
+  assert.ok(cargoManifest.includes('tauri-plugin-dialog'), '显式原生文件/目录选择需要 Dialog plugin');
+  for (const forbiddenPermission of ['fs:', 'dialog:', 'shell:allow-execute', 'shell:allow-stdin-write']) assert.equal(JSON.stringify(capability).includes(forbiddenPermission), false, `主窗口不得获得越界权限：${forbiddenPermission}`);
   assert.ok(desktopMain.includes('windows_subsystem = "windows"'));
 });
 

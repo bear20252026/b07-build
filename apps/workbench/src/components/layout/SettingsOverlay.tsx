@@ -9,6 +9,8 @@ const NAVIGATION: readonly { group: string; items: readonly SettingsItem[] }[] =
     { page: 'connections', icon: '✓', label: '已连接模型', description: '状态、测试与受限文本调用' },
   ] },
   { group: 'WORKSPACE', items: [
+    { page: 'workspace-files', icon: '▧', label: '工作区与文件', description: '默认目录、受控导入与文件预览' },
+    { page: 'terminal-coding', icon: '›_', label: '终端与编码', description: '审批式命令计划与编码工作区' },
     { page: 'operations', icon: '◷', label: '运行记录', description: '检查点、使用审计与只读轨迹' },
     { page: 'capabilities', icon: '◇', label: '扩展与能力', description: '扩展、知识、本地模型和浏览会话控制' },
   ] },

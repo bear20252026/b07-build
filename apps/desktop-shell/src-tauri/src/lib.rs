@@ -7,11 +7,13 @@
 use std::{
     fs::create_dir_all,
     net::{SocketAddr, TcpStream},
+    path::PathBuf,
     sync::Mutex,
     time::Duration,
 };
 
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::{process::CommandChild, ShellExt};
 
 const GATEWAY_ADDRESS: &str = "127.0.0.1:4318";
@@ -22,6 +24,13 @@ const MAIN_WINDOW_LABEL: &str = "main";
 const DESKTOP_COMPANION_WINDOW_LABEL: &str = "desktop-companion";
 
 struct GatewayLaunchState(Mutex<Option<CommandChild>>);
+struct WorkspaceDirectoryState(Mutex<Option<PathBuf>>);
+
+#[derive(serde::Serialize)]
+struct WorkspaceDirectorySelection {
+    selected: bool,
+    label: &'static str,
+}
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -87,6 +96,33 @@ fn start_local_gateway(
 
     child.kill().map_err(|_| "gateway-sidecar-stop-failed")?;
     Err("gateway-sidecar-unavailable")
+}
+
+/// Opens the system folder picker only after an explicit user action. The selected path remains
+/// in native memory; the WebView receives only a non-sensitive label and cannot browse the path.
+#[tauri::command]
+fn choose_workspace_directory(
+    app: AppHandle,
+    state: State<'_, WorkspaceDirectoryState>,
+) -> Result<WorkspaceDirectorySelection, &'static str> {
+    let Some(directory) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(WorkspaceDirectorySelection {
+            selected: false,
+            label: "未选择工作区",
+        });
+    };
+    let path = directory
+        .into_path()
+        .map_err(|_| "workspace-directory-unavailable")?;
+    let mut selected = state
+        .0
+        .lock()
+        .map_err(|_| "workspace-directory-unavailable")?;
+    *selected = Some(path);
+    Ok(WorkspaceDirectorySelection {
+        selected: true,
+        label: "已选择本地工作区",
+    })
 }
 
 /// Creates only the fixed, local Companion surface and hides the main workbench after success.
@@ -155,9 +191,12 @@ fn exit_ai_work_os(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(GatewayLaunchState(Mutex::new(None)))
+        .manage(WorkspaceDirectoryState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             start_local_gateway,
+            choose_workspace_directory,
             show_desktop_companion,
             close_desktop_companion,
             exit_ai_work_os
