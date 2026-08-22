@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+/* Unsloth-inspired UI alignment only: preserve direct Provider and streaming behaviour. */
 import './components/observability/GatewayAttachment.css';
 import { invoke } from '@tauri-apps/api/core';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
@@ -295,7 +296,7 @@ export function App() {
   </>;
 
   return (
-    <div className={`workbench-shell ${isTaskPage ? 'with-preview' : 'focus-page'}${isSettings ? ' settings-open' : ''} theme-${theme}`}>
+    <div className={`workbench-shell ${isTaskPage ? 'with-preview' : 'focus-page'}${workbenchSurface === 'chat-home' ? ' chat-home-surface' : ''}${isSettings ? ' settings-open' : ''} theme-${theme}`}>
       <Sider
         activePage={isSettings ? 'workspace' : activePage}
         hasActiveTask={Boolean(snapshot)}

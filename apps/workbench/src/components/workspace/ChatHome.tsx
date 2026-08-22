@@ -23,10 +23,10 @@ export interface ChatHomeProps {
 }
 
 /**
- * P20 原创聊天首页。
+ * 原创聊天首页视觉层。
  *
- * 参考 AionUi 的「首页优先开始工作、复杂控制迁入 Settings」职责分层；不复用其源码、
- * 品牌、图标或资产。该组件只有本地 UI 意图，不读取 Gateway、Provider、SQLite、文件或凭据。
+ * 本轮参考 Unsloth Studio 的公开桌面 UI 组织（薄荷背景、圆角窗口、轻量侧栏、居中工作区），
+ * 不复用其源码、品牌、图标或资产。该组件只有本地 UI 意图，不读取 Provider、SQLite、文件或凭据。
  */
 export function ChatHome({
   activeProfile,
@@ -52,10 +52,13 @@ export function ChatHome({
   const workMode = createWorkModeAuditProjection({ profileId: activeProfile, authorityMode, connectedProviderCount });
 
   return (
-    <section className="chat-home" aria-label={messages.task.title}>
+    <section className="chat-home chat-home--studio" aria-label={messages.task.title}>
       <div className="chat-home-workbench">
         <div className="chat-home-canvas">
           <div className="chat-home-hero">
+            <span className="chat-home-appmark" aria-hidden="true">
+              <svg viewBox="0 0 40 40" focusable="false"><rect x="4.5" y="4.5" width="31" height="31" rx="10" fill="currentColor" opacity=".12" /><path d="M12 13.5h16v13H12zM16 18h8M16 22h5M12 27.5h16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </span>
             <span>{home.eyebrow}</span>
             <h1>{home.title}</h1>
             <p>{home.description}</p>
