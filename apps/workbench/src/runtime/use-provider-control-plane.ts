@@ -39,6 +39,8 @@ function errorMessage(error: unknown): string {
     'provider-model-list-failed': '第三方服务拒绝模型目录请求；仍可按供应商文档手动填写模型名称。',
     'provider-http-401': '第三方服务拒绝了 API key，请确认密钥、账号或套餐。',
     'provider-http-403': '第三方服务拒绝访问，请确认账号权限、套餐与模型可用性。',
+    'provider-http-429': '第三方服务暂时限流，请稍后重试。',
+    'provider-request-rejected': '第三方服务拒绝了当前协议、地址、模型或请求参数；请按供应商文档核对后重试。',
   };
   return mapping[message] ?? (message && !/[<{]/.test(message) ? message : '第三方模型请求未完成。');
 }
@@ -73,19 +75,25 @@ export function useProviderControlPlane(): ProviderControlPlane {
 
   const configure = useCallback((providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; protocol?: DirectProviderProtocol; apiKey: string }): void => {
     setPendingProviderId(providerId); setError(undefined);
-    void directProviderClient.configure({ providerId, displayName: input.displayName?.trim() || providerId, protocol: input.protocol ?? 'openai-compatible', baseUrl: input.baseUrl ?? '', model: input.model ?? '', apiKey: input.apiKey })
-      .then((result) => setConnections((current) => replaceConnection(current, asConnection(result))))
-      .catch((nextError: unknown) => setError(errorMessage(nextError)))
-      .finally(() => setPendingProviderId(undefined));
+    void (async () => {
+      const result = await directProviderClient.configure({ providerId, displayName: input.displayName?.trim() || providerId, protocol: input.protocol ?? 'openai-compatible', baseUrl: input.baseUrl ?? '', model: input.model ?? '', apiKey: input.apiKey });
+      await directProviderClient.probe(providerId);
+      setConnections((current) => replaceConnection(current, asConnection(result)));
+      const checkedAt = Date.now();
+      setProbes((current) => ({ ...current, [providerId]: { schemaVersion: 1, providerId, outcome: 'reachable', checkedAt, canReadSecret: false, canAutoConnect: false } }));
+    })().catch((nextError: unknown) => setError(errorMessage(nextError))).finally(() => setPendingProviderId(undefined));
   }, []);
 
   const configureCustom = useCallback((input: { displayName: string; protocol: DirectProviderProtocol; baseUrl: string; model: string; apiKey: string }): void => {
     const providerId = customProviderId(input.displayName);
     setPendingProviderId('custom'); setError(undefined);
-    void directProviderClient.configure({ providerId, ...input })
-      .then((result) => setConnections((current) => replaceConnection(current, asConnection(result))))
-      .catch((nextError: unknown) => setError(errorMessage(nextError)))
-      .finally(() => setPendingProviderId(undefined));
+    void (async () => {
+      const result = await directProviderClient.configure({ providerId, ...input });
+      await directProviderClient.probe(result.providerId);
+      setConnections((current) => replaceConnection(current, asConnection(result)));
+      const checkedAt = Date.now();
+      setProbes((current) => ({ ...current, [result.providerId]: { schemaVersion: 1, providerId: result.providerId, outcome: 'reachable', checkedAt, canReadSecret: false, canAutoConnect: false } }));
+    })().catch((nextError: unknown) => setError(errorMessage(nextError))).finally(() => setPendingProviderId(undefined));
   }, []);
 
   const discoverModels = useCallback((providerId: string): void => {
@@ -104,7 +112,17 @@ export function useProviderControlPlane(): ProviderControlPlane {
       .finally(() => setPendingProviderId(undefined));
   }, []);
 
-  const probe = useCallback((providerId: string): void => discoverModels(providerId), [discoverModels]);
+  const probe = useCallback((providerId: string): void => {
+    setPendingProviderId(providerId); setError(undefined);
+    const checkedAt = Date.now();
+    void directProviderClient.probe(providerId)
+      .then(() => setProbes((current) => ({ ...current, [providerId]: { schemaVersion: 1, providerId, outcome: 'reachable', checkedAt, canReadSecret: false, canAutoConnect: false } })))
+      .catch((nextError: unknown) => {
+        setProbes((current) => ({ ...current, [providerId]: { schemaVersion: 1, providerId, outcome: 'unreachable', checkedAt, canReadSecret: false, canAutoConnect: false } }));
+        setError(errorMessage(nextError));
+      })
+      .finally(() => setPendingProviderId(undefined));
+  }, []);
 
   const stream = useCallback((providerId: string, prompt: string, model?: string): void => {
     setPendingProviderId(providerId); setError(undefined);

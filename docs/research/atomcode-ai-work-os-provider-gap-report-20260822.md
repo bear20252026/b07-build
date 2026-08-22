@@ -240,3 +240,14 @@ AtomCode 官方说明为 API key 用户提供简单路径：在 `/provider` 中�
 | 重新打开应用 | 多个对话的标题、模型选择和消息文本从本地 `localStorage` 恢复；不保存 API key、Base URL 或请求头。 |
 
 这一实现参考 OpenWorker 的“桌面壳 + 用户选择的模型直接工作”产品分层，以及 AtomCode 的“Provider Account → Models → Persistent Sessions / Resume / Background”交互模式，而没有复制其代码或把它们的运行时引入本仓。[16] [17] [18]
+
+
+## 十三、MiMo Token Plan（中国）模型发现诊断依据（2026-08-22）
+
+MiMo 官方“首次调用 API”文档明确说明，Token Plan 使用独立的中国区 OpenAI Base URL `https://token-plan-cn.xiaomimimo.com/v1` 和 `tp-xxxxx` 专属 key；同时支持 Anthropic Base URL `https://token-plan-cn.xiaomimimo.com/anthropic`。官方 OpenAI curl 示例将 `api-key` 放入请求头，并直接调用 `/chat/completions`，没有把 `/models` 列举作为完成连接或开始推理的前置条件。[19]
+
+官方模型列表文档将 `mimo-v2.5-pro`、`mimo-v2.5` 等列为可用模型，且提示 2026-06-30 后旧 V2 模型名失效。[20] 因此，对 Token Plan 的成熟回退策略应为：使用用户已填写的官方模型名直接执行一次小型 chat completion 连接测试；即使标准 `GET /models` 未返回 OpenAI `{ data: [...] }` 格式、被套餐网关拒绝或返回不同 JSON，也只能显示“模型目录不可用，可继续使用手填模型”，不能把已经配置的模型或 API key 判为无效，更不能把目录解析失败笼统归类成网络不可达。
+
+[19] [MiMo 官方：首次调用 API（Token Plan 地址、`api-key`、OpenAI / Anthropic 示例）](https://mimo.mi.com/docs/zh-CN/quick-start/summary/first-api-call)
+
+[20] [MiMo 官方：模型列表（V2.5 模型 ID）](https://mimo.mi.com/docs/zh-CN/quick-start/summary/model)

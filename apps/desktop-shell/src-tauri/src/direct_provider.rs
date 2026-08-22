@@ -202,15 +202,39 @@ pub async fn discover_direct_provider(
 ) -> Result<DirectProviderModelDiscovery, &'static str> {
     require_identifier(&request.provider_id, "provider-id-invalid")?;
     let session = state.0.lock().map_err(|_| "provider-state-unavailable")?.get(&request.provider_id).cloned().ok_or("provider-not-connected")?;
-    let response = Client::new().get(model_list_url_for(&session)).headers(headers_for(&session)?).send().await.map_err(|_| "provider-request-failed")?;
-    if !response.status().is_success() { return Err("provider-model-list-failed"); }
-    let payload: serde_json::Value = response.json().await.map_err(|_| "provider-model-list-invalid")?;
+    let mut headers = headers_for(&session)?;
+    headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+    let response = Client::new().get(model_list_url_for(&session)).headers(headers).send().await.map_err(|_| "provider-request-failed")?;
+    // `/models` is optional in OpenAI-compatible services. A subscription gateway may return an
+    // HTML page, a vendor-specific payload, or 404 while normal chat inference remains available.
+    // Return an empty catalog so the UI preserves the user's manually supplied model identifier.
+    if !response.status().is_success() {
+        return Ok(DirectProviderModelDiscovery { schema_version: 1, provider_id: request.provider_id, models: Vec::new() });
+    }
+    let payload: serde_json::Value = match response.json().await { Ok(payload) => payload, Err(_) => return Ok(DirectProviderModelDiscovery { schema_version: 1, provider_id: request.provider_id, models: Vec::new() }) };
     let mut models = payload.get("data").and_then(|value| value.as_array()).into_iter().flatten()
         .filter_map(|item| item.get("id").and_then(|value| value.as_str()))
-        .filter(|id| !id.is_empty() && id.len() <= 128 && id.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | ':' | '-')))
+        .filter(|id| !id.is_empty() && id.len() <= 128 && id.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | ':' | '-' | '/')))
         .map(str::to_owned).collect::<Vec<_>>();
     models.sort(); models.dedup(); models.truncate(100);
     Ok(DirectProviderModelDiscovery { schema_version: 1, provider_id: request.provider_id, models })
+}
+
+#[tauri::command]
+pub async fn probe_direct_provider(
+    state: State<'_, DirectProviderState>,
+    request: DiscoverDirectProviderRequest,
+) -> Result<(), &'static str> {
+    require_identifier(&request.provider_id, "provider-id-invalid")?;
+    let session = state.0.lock().map_err(|_| "provider-state-unavailable")?.get(&request.provider_id).cloned().ok_or("provider-not-connected")?;
+    let response = Client::new().post(url_for(&session)).headers(headers_for(&session)?).json(&payload_for(&session, &session.model, "Reply with OK.")).send().await.map_err(|_| "provider-request-failed")?;
+    if response.status().is_success() { return Ok(()); }
+    match response.status().as_u16() {
+        401 => Err("provider-http-401"),
+        403 => Err("provider-http-403"),
+        429 => Err("provider-http-429"),
+        _ => Err("provider-request-rejected"),
+    }
 }
 
 #[tauri::command]

@@ -47,13 +47,22 @@ test('桌面 Rust 核心提供直接 OpenAI/Anthropic Provider、模型查询、
   assert.deepEqual(capability.permissions, ['core:default']);
   assert.deepEqual(companionCapability.windows, ['desktop-companion']);
   assert.deepEqual(companionCapability.permissions, ['core:default']);
-  for (const expected of ['mod direct_provider;', 'DirectProviderState::new()', 'configure_direct_provider', 'discover_direct_provider', 'start_direct_provider_stream', 'install_desktop_tray', 'TrayIconBuilder', 'show_desktop_companion', 'close_desktop_companion', 'WindowEvent::CloseRequested', 'app.exit(0)']) assert.ok(desktopCore.includes(expected), `桌面核心缺少：${expected}`);
+  for (const expected of ['mod direct_provider;', 'DirectProviderState::new()', 'configure_direct_provider', 'discover_direct_provider', 'probe_direct_provider', 'start_direct_provider_stream', 'install_desktop_tray', 'TrayIconBuilder', 'show_desktop_companion', 'close_desktop_companion', 'WindowEvent::CloseRequested', 'app.exit(0)']) assert.ok(desktopCore.includes(expected), `桌面核心缺少：${expected}`);
   for (const expected of ['OpenaiCompatible', 'AnthropicCompatible', '/v1/chat/completions', '/v1/messages', 'text/event-stream', 'direct-provider-stream', 'api-key', 'x-api-key']) assert.ok(directProvider.includes(expected), `直接 Provider 缺少：${expected}`);
   for (const forbidden of ['start_local_gateway', 'GATEWAY_ADDRESS', 'GATEWAY_SIDECAR', 'tauri_plugin_shell::init()', 'sidecar(']) assert.equal(desktopCore.includes(forbidden), false, `桌面核心不得包含 Gateway 依赖：${forbidden}`);
   assert.ok(cargoManifest.includes('reqwest'), '直接 HTTPS/SSE 请求需要原生 HTTP 客户端');
   assert.ok(cargoManifest.includes('tray-icon'), '桌面常驻入口需要 Tauri tray-icon');
   assert.equal(cargoManifest.includes('tauri-plugin-shell'), false, '不得保留 sidecar shell plugin');
   assert.ok(desktopMain.includes('windows_subsystem = "windows"'));
+});
+
+test('模型目录仅作为可选辅助能力，连接测试必须调用已配置模型的真实聊天端点', () => {
+  assert.ok(directProvider.includes('headers.insert(ACCEPT, HeaderValue::from_static("application/json"))'));
+  assert.ok(directProvider.includes('subscription gateway may return an'));
+  assert.ok(directProvider.includes('return Ok(DirectProviderModelDiscovery { schema_version: 1, provider_id: request.provider_id, models: Vec::new() })'));
+  assert.ok(directProvider.includes('pub async fn probe_direct_provider'));
+  assert.ok(directProvider.includes('post(url_for(&session))'));
+  assert.ok(directProvider.includes('Reply with OK.'));
 });
 
 test('桌面 Workbench 使用静态 AW 标记而不引入要求 unsafe-eval 的图标运行时代码', () => {

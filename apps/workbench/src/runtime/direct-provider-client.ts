@@ -67,6 +67,11 @@ export class DirectProviderClient {
     return { schemaVersion: 1, providerId, displayName, defaultModel: status.model, protocol: status.protocol, connected: true, canReadSecret: false };
   }
 
+  async probe(providerId: string): Promise<void> {
+    const safeProviderId = requireIdentifier(providerId, 'providerId');
+    await invoke('probe_direct_provider', { request: { providerId: safeProviderId } });
+  }
+
   async discover(providerId: string): Promise<readonly string[]> {
     const safeProviderId = requireIdentifier(providerId, 'providerId');
     const result = await invoke<NativeModelDiscovery>('discover_direct_provider', { request: { providerId: safeProviderId } });

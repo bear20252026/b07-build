@@ -164,6 +164,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             direct_provider::configure_direct_provider,
             direct_provider::discover_direct_provider,
+            direct_provider::probe_direct_provider,
             direct_provider::start_direct_provider_stream,
             choose_workspace_directory,
             show_desktop_companion,
