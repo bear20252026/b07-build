@@ -21,6 +21,7 @@ pub(crate) enum DirectProviderProtocol {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConfigureDirectProviderRequest {
     pub provider_id: String,
     pub protocol: DirectProviderProtocol,
@@ -30,11 +31,13 @@ pub struct ConfigureDirectProviderRequest {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DiscoverDirectProviderRequest {
     pub provider_id: String,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DirectProviderModelDiscovery {
     schema_version: u8,
     provider_id: String,
@@ -42,6 +45,7 @@ pub struct DirectProviderModelDiscovery {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StartDirectProviderStreamRequest {
     pub provider_id: String,
     pub prompt: String,
@@ -50,6 +54,7 @@ pub struct StartDirectProviderStreamRequest {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DirectProviderStatus {
     schema_version: u8,
     provider_id: String,
@@ -60,6 +65,7 @@ pub struct DirectProviderStatus {
 }
 
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct DirectProviderStreamEvent {
     request_id: String,
     kind: &'static str,

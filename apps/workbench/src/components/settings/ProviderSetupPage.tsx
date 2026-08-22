@@ -30,6 +30,27 @@ function baseUrlFor(preset: ProviderPreset, protocol: Protocol): string {
   return preset.defaultBaseUrls[protocol] ?? '';
 }
 
+const SAVED_API_KEYS_STORAGE = 'awo.provider-api-keys.v1';
+
+type SavedApiKeys = Readonly<Record<string, string>>;
+
+function loadSavedApiKeys(): SavedApiKeys {
+  try {
+    const candidate: unknown = JSON.parse(window.localStorage.getItem(SAVED_API_KEYS_STORAGE) ?? '{}');
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return {};
+    return Object.fromEntries(Object.entries(candidate).filter(([id, key]) => /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id) && typeof key === 'string' && key.length <= 4096));
+  } catch { return {}; }
+}
+
+function savedApiKey(providerId: string): string { return loadSavedApiKeys()[providerId] ?? ''; }
+
+function saveApiKey(providerId: string, apiKey: string): void {
+  const current = { ...loadSavedApiKeys() };
+  if (apiKey) current[providerId] = apiKey;
+  else delete current[providerId];
+  window.localStorage.setItem(SAVED_API_KEYS_STORAGE, JSON.stringify(current));
+}
+
 export interface ProviderSetupPageProps {
   connections?: readonly WorkbenchProviderConnection[];
   discoveredModels?: Readonly<Record<string, WorkbenchProviderModelDiscovery | undefined>>;
@@ -51,7 +72,8 @@ export function ProviderSetupPage({ error, pendingProviderId, discoveredModels =
   const [model, setModel] = useState(firstPreset.defaultModel);
   const [baseUrl, setBaseUrl] = useState(baseUrlFor(firstPreset, 'openai-compatible'));
   const [baseUrlDirty, setBaseUrlDirty] = useState(false);
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState(() => savedApiKey(firstPreset.id));
+  const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const selected = useMemo(() => PRESETS.find((item) => item.id === providerId) ?? firstPreset, [providerId, firstPreset]);
   const isSubmitting = pendingProviderId === (customMode ? 'custom' : providerId);
@@ -67,7 +89,8 @@ export function ProviderSetupPage({ error, pendingProviderId, discoveredModels =
     setModel(next.defaultModel);
     setBaseUrl(baseUrlFor(next, nextProtocol));
     setBaseUrlDirty(false);
-    setApiKey('');
+    setApiKey(savedApiKey(next.id));
+    setApiKeyVisible(false);
     setAdvancedOpen(false);
   };
   const chooseCustom = () => {
@@ -77,7 +100,8 @@ export function ProviderSetupPage({ error, pendingProviderId, discoveredModels =
     setModel('my-compatible-model');
     setBaseUrl('');
     setBaseUrlDirty(false);
-    setApiKey('');
+    setApiKey(savedApiKey('custom'));
+    setApiKeyVisible(false);
     setAdvancedOpen(false);
   };
   const chooseProtocol = (nextProtocol: Protocol) => {
@@ -96,7 +120,7 @@ export function ProviderSetupPage({ error, pendingProviderId, discoveredModels =
     } else {
       onConfigure(providerId, { displayName: displayName.trim(), model: model.trim(), baseUrl: baseUrl.trim(), protocol, apiKey });
     }
-    setApiKey('');
+    saveApiKey(customMode ? 'custom' : providerId, apiKey);
   };
 
   return (
@@ -121,7 +145,7 @@ export function ProviderSetupPage({ error, pendingProviderId, discoveredModels =
           {!customMode && advancedOpen && <div className="provider-advanced-fields"><label><span>模型名称</span><input value={model} maxLength={128} onChange={(event) => setModel(event.target.value)} placeholder={selected.defaultModel} /></label><label><span>显示名称</span><input value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} placeholder={`我的 ${selected.title}`} /></label></div>}
           <label className="provider-base-url-field"><span>连接地址 / Base URL（{protocol === 'openai-compatible' ? 'OpenAI' : 'Anthropic'}）</span><input value={baseUrl} inputMode="url" maxLength={512} onChange={(event) => { setBaseUrl(event.target.value); setBaseUrlDirty(true); }} placeholder={customMode ? 'https://api.example.com/v1' : baseUrlFor(selected, protocol) || '按供应商文档填写 HTTPS Base URL'} /><small>填写供应商控制台给出的协议对应基础地址；不要输入完整 chat completion 或 messages 操作路径。</small></label>
           {!customMode && baseUrlFor(selected, protocol) && <button type="button" className="provider-default-url" title="用该供应商当前所选协议的官方默认 Base URL 覆盖本框内容。" onClick={restoreOfficialBaseUrl}>使用当前协议的官方默认地址</button>}
-          <label className="provider-key-field"><span>API key</span><input value={apiKey} type="password" autoComplete="off" onChange={(event) => setApiKey(event.target.value)} placeholder="粘贴 API key" /><small>仅在当前桌面应用会话内存中保存；关闭应用后自动失效。</small></label>
+          <label className="provider-key-field"><span>API key</span><div className="provider-key-input-row"><input value={apiKey} type={apiKeyVisible ? 'text' : 'password'} autoComplete="off" onChange={(event) => { const next = event.target.value; setApiKey(next); saveApiKey(customMode ? 'custom' : providerId, next); }} placeholder="粘贴 API key" /><button type="button" onClick={() => setApiKeyVisible((visible) => !visible)}>{apiKeyVisible ? '隐藏' : '显示'}</button><button type="button" onClick={() => { setApiKey(''); saveApiKey(customMode ? 'custom' : providerId, ''); }}>清除</button></div><small>按你的要求，密钥保存在此 Windows 用户的本地应用存储中，可随时显示；预置和自定义连接使用同一保存方式。</small></label>
           {!customMode && <div className="provider-model-discovery"><div><strong>可用模型</strong><p>连接后可按当前协议、地址和会话密钥查询；查询不到时仍可按供应商文档手动填写模型名称。</p></div><button type="button" title="按当前已连接会话的协议、Base URL 和 API key 查询公开模型列表。" disabled={isSubmitting} onClick={() => onDiscoverModels(providerId)}>{isSubmitting ? '正在查询…' : '查询模型'}</button>{discovery?.outcome === 'reachable' && discovery.models.length === 0 && <span className="provider-model-manual">该服务未提供标准模型列表，请手动填写模型名称。</span>}{discovery && discovery.models.length > 0 && <div className="provider-model-options" aria-label="查询到的模型">{discovery.models.map((item) => <button type="button" key={item} title={`使用 ${item} 作为本次连接的模型名称。`} onClick={() => { setModel(item); setAdvancedOpen(true); }}>{item}</button>)}</div>}</div>}
         </div>
         <div className="onboarding-step onboarding-step--final"><span>3</span><div><strong>连接、查询并测试</strong><p>先按所选协议查询可用模型；之后使用同一协议、地址、密钥和模型执行测试与任务。</p></div></div>
