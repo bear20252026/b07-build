@@ -5,7 +5,7 @@ import test from 'node:test';
 
 const root = process.cwd();
 const packageManifest = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/package.json'), 'utf8')) as Record<string, unknown>;
-const rootPackageManifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as { devDependencies?: Record<string, string> };
+const rootPackageManifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as { devDependencies?: Record<string, string>; scripts?: Record<string, string> };
 const cargoManifest = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/Cargo.toml'), 'utf8');
 const desktopConfig = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/tauri.conf.json'), 'utf8')) as Record<string, unknown>;
 const androidConfig = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/tauri.android.conf.json'), 'utf8')) as Record<string, unknown>;
@@ -41,6 +41,7 @@ test('Android 只通过远程 runner 初始化与构建，且不继承 Windows G
   const android = bundle.android as Record<string, unknown>;
   assert.deepEqual(bundle.externalBin, []);
   assert.equal(android.minSdkVersion, 24);
+  assert.equal(rootPackageManifest.scripts?.['android:build:apk'], 'npm exec --workspace=@awo/desktop-shell -- tauri android build --apk --target aarch64 --target armv7');
   for (const expected of [
     'runs-on: ubuntu-latest', 'actions/setup-java@v5', 'android-actions/setup-android@v3',
     "'ndk;27.2.12479018'", 'npm run android:init', 'npm run android:build:apk',
