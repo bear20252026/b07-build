@@ -62,8 +62,7 @@ import { createGatewayComponentLockReport, createGatewayExtensionProvenanceLockG
 import { createGatewayComponentManagementReport } from './component-management-report.js';
 import { createNativeHostAuthenticationComposition } from './native-host-authentication-composition.js';
 import { createWindowsNativeReleaseComposition } from './windows-native-release-composition.js';
-import { createTaskFileWorkspaceComposition } from './task-file-workspace-composition.js'; import { createProjectWorkspaceComposition } from './project-workspace-composition.js';
-import { createTaskRuntimeComposition } from './task-runtime-composition.js';
+import { createTaskFileWorkspaceComposition } from './task-file-workspace-composition.js'; import { createProjectWorkspaceComposition } from './project-workspace-composition.js'; import { createTaskRuntimeComposition } from './task-runtime-composition.js'; import { createTaskModelInferencePort } from './task-model-inference.js';
 import { createBrowserSessionComposition } from './browser-session-composition.js';
 import { handleGatewayRequest } from './http/router.js';
 const PORT = Number(process.env.AWO_RUNTIME_PORT ?? 4318); const DEFAULT_KNOWLEDGE_WORKSPACE_ID = 'default-local';
@@ -182,6 +181,7 @@ export function createGatewayComposition(): GatewayComposition {
     runTrajectory,
     runWorkspace,
     taskFiles,
+    modelInference: createTaskModelInferencePort(providerConnections, providerInference),
   });
   const extensionActivationPlanner = new ExtensionActivationPlanner(
     extensionRegistry,

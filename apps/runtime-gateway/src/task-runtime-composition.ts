@@ -13,6 +13,20 @@ import {
 } from '@awo/agent-runtime';
 import { createTaskNodes } from './task-node-factory.js';
 
+export interface TaskModelInferenceResult {
+  readonly providerId: string;
+  readonly model: string;
+  readonly output: string;
+  readonly outputDigest: string;
+  readonly outputCharacters: number;
+  readonly latencyMs: number;
+}
+
+/** 仅 Gateway composition root 注入的模型端口；任务 runner 不读取密钥、端点或环境变量。 */
+export interface TaskModelInferencePort {
+  infer(input: { goal: string; profileId: AgentProfileId }): Promise<TaskModelInferenceResult | undefined>;
+}
+
 export interface TaskRuntimeComposition {
   readonly runtime: LocalTaskRuntimeService;
   readonly requests: Map<string, TaskRuntimeRequest>;
@@ -35,6 +49,7 @@ export interface CreateTaskRuntimeCompositionOptions {
   readonly runTrajectory: RunTrajectoryLedger;
   readonly runWorkspace: RunWorkspaceLedger;
   readonly taskFiles: TaskFileWorkspace;
+  readonly modelInference?: TaskModelInferencePort;
 }
 
 function runKey(taskId: string, runId: string): string {
@@ -52,6 +67,7 @@ export function createTaskRuntimeComposition({
   runTrajectory,
   runWorkspace,
   taskFiles,
+  modelInference,
 }: CreateTaskRuntimeCompositionOptions): TaskRuntimeComposition {
   const runtime = new LocalTaskRuntimeService(snapshotStore);
   const requests = new Map<string, TaskRuntimeRequest>();
@@ -105,6 +121,15 @@ export function createTaskRuntimeComposition({
       approvals: new InMemoryApprovalPort(approvedActions),
       runner: {
         async run(node) {
+          if (node.tool.capability === 'model.chat') {
+            const result = await modelInference?.infer({ goal, profileId });
+            if (result) {
+              generatedFilesByCall.set(node.id, [{
+                logicalPath: 'model-output/response.md',
+                content: `# 模型响应\n\n- provider: ${result.providerId}\n- model: ${result.model}\n- latency: ${result.latencyMs}ms\n- digest: ${result.outputDigest}\n\n${result.output}\n`,
+              }]);
+            }
+          }
           if (node.tool.capability === 'filesystem.read') {
             // 用户上传只能在这个 task/run 专属、能力受控的读取步骤形成瞬时文本投影。
             // 不把内容附入事件/DTO，且当前任务 runner 不会由此自动调用远程 Provider。
