@@ -13,7 +13,7 @@ type ProviderPreset = {
 };
 
 const PRESETS: readonly ProviderPreset[] = [
-  { id: 'deepseek', title: 'DeepSeek', description: 'OpenAI-compatible', defaultModel: 'deepseek-v4-pro', defaultBaseUrl: 'https://api.deepseek.com/v1' },
+  { id: 'deepseek', title: 'DeepSeek', description: '默认推荐', defaultModel: 'deepseek-v4-pro', defaultBaseUrl: 'https://api.deepseek.com/v1' },
   { id: 'mimo', title: 'Xiaomi MiMo（按量）', description: 'sk- 密钥', defaultModel: 'mimo-v2.5-pro', defaultBaseUrl: 'https://api.xiaomimimo.com/v1' },
   { id: 'mimo-token-plan-cn', title: 'MiMo Token Plan（中国）', description: 'tp- 订阅密钥', defaultModel: 'mimo-v2.5-pro', defaultBaseUrl: 'https://token-plan-cn.xiaomimimo.com/v1' },
   { id: 'longcat', title: 'LongCat', description: '美团龙猫', defaultModel: 'LongCat-2.0', defaultBaseUrl: 'https://api.longcat.chat/openai/v1' },
@@ -39,10 +39,7 @@ export interface ProviderSetupPageProps {
   onManageConnections(): void;
 }
 
-/**
- * 独立模型配置窗口的表单内容。预置只提供可编辑默认值：地址、模型、显示名和密钥均由
- * 用户在明确的连接动作中提交，且仅作为当前 Gateway 会话的内存配置，不写入任务或浏览器状态。
- */
+/** 原有模型设置页：预置地址仅作为可编辑默认值，提交时与密钥一起写入当前 Gateway 会话。 */
 export function ProviderSetupPage({ gatewayAttached, attachingGateway, gatewayError, error, pendingProviderId, onAttach, onConfigure, onConfigureCustom, onManageConnections }: ProviderSetupPageProps) {
   const firstPreset = PRESETS[0];
   const [providerId, setProviderId] = useState(firstPreset.id);
@@ -52,27 +49,28 @@ export function ProviderSetupPage({ gatewayAttached, attachingGateway, gatewayEr
   const [model, setModel] = useState(firstPreset.defaultModel);
   const [baseUrl, setBaseUrl] = useState(firstPreset.defaultBaseUrl);
   const [apiKey, setApiKey] = useState('');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const selected = useMemo(() => PRESETS.find((item) => item.id === providerId) ?? firstPreset, [providerId]);
   const isSubmitting = pendingProviderId === (customMode ? 'custom' : providerId);
 
-  const chooseService = (nextValue: string) => {
-    if (nextValue === 'custom') {
-      setCustomMode(true);
-      setDisplayName('我的兼容模型');
-      setModel('my-compatible-model');
-      setBaseUrl('');
-      setApiKey('');
-      return;
-    }
-    const next = PRESETS.find((item) => item.id === nextValue) ?? firstPreset;
+  const choosePreset = (nextProviderId: string) => {
+    const next = PRESETS.find((item) => item.id === nextProviderId) ?? firstPreset;
     setCustomMode(false);
     setProviderId(next.id);
     setDisplayName(`我的 ${next.title}`);
     setModel(next.defaultModel);
     setBaseUrl(next.defaultBaseUrl);
     setApiKey('');
+    setAdvancedOpen(false);
   };
-
+  const chooseCustom = () => {
+    setCustomMode(true);
+    setDisplayName('我的兼容模型');
+    setModel('my-compatible-model');
+    setBaseUrl('');
+    setApiKey('');
+    setAdvancedOpen(false);
+  };
   const submit = () => {
     if (!apiKey.trim() || !baseUrl.trim() || !model.trim()) return;
     if (customMode) {
@@ -85,24 +83,32 @@ export function ProviderSetupPage({ gatewayAttached, attachingGateway, gatewayEr
   };
 
   return (
-    <div className="provider-setup-page provider-setup-page--window" aria-label="添加或编辑第三方模型">
-      <div className="provider-window-intro">
-        <div><span>MODEL CONNECTION</span><h2>添加模型</h2><p>预设地址只是起点。请按供应商控制台填写或更正基础地址，再连接并测试。</p></div>
-        <div className={`provider-window-gateway${gatewayAttached ? ' ready' : ''}`}><strong>{gatewayAttached ? 'Gateway 已就绪' : attachingGateway ? '正在准备 Gateway' : '连接时自动准备'}</strong><small>地址和密钥只在当前本机会话内存中有效。</small></div>
-      </div>
-      {gatewayError && <div className="provider-window-error" role="alert"><strong>Gateway 尚未准备好。</strong><span>{gatewayError}</span><button type="button" onClick={onAttach} disabled={attachingGateway}>{attachingGateway ? '正在准备…' : '重新准备'}</button></div>}
-      {error && <div className="provider-window-error" role="alert"><strong>模型连接未完成。</strong><span>{error}</span></div>}
-      <div className="provider-window-form">
-        <label className="provider-window-wide"><span>提供商</span><select aria-label="选择模型提供商" value={customMode ? 'custom' : providerId} onChange={(event) => chooseService(event.target.value)}>{PRESETS.map((item) => <option key={item.id} value={item.id}>{item.title} · {item.description}</option>)}<option value="custom">自定义 / Custom · OpenAI 或 Anthropic-compatible</option></select></label>
-        {customMode && <div className="provider-protocol-inline provider-window-wide" role="radiogroup" aria-label="选择自定义 API 协议"><button className={protocol === 'openai-compatible' ? 'active' : ''} title="使用 OpenAI Chat Completions 兼容格式。" type="button" role="radio" aria-checked={protocol === 'openai-compatible'} onClick={() => setProtocol('openai-compatible')}>OpenAI-compatible</button><button className={protocol === 'anthropic-compatible' ? 'active' : ''} title="使用 Anthropic Messages 兼容格式。" type="button" role="radio" aria-checked={protocol === 'anthropic-compatible'} onClick={() => setProtocol('anthropic-compatible')}>Anthropic-compatible</button></div>}
-        <label className="provider-window-wide"><span>连接地址 / Base URL</span><input value={baseUrl} inputMode="url" maxLength={512} onChange={(event) => setBaseUrl(event.target.value)} placeholder={customMode ? 'https://api.example.com/v1' : selected.defaultBaseUrl} /><small>填写供应商控制台给出的基础地址；不要输入完整 chat completion 或 messages 路径。</small></label>
-        <label><span>模型名称</span><input value={model} maxLength={128} onChange={(event) => setModel(event.target.value)} placeholder={customMode ? 'my-compatible-model' : selected.defaultModel} /></label>
-        <label><span>显示名称</span><input value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} placeholder={customMode ? '我的兼容模型' : `我的 ${selected.title}`} /></label>
-        <label className="provider-key-field provider-window-wide"><span>API key</span><input value={apiKey} type="password" autoComplete="off" onChange={(event) => setApiKey(event.target.value)} placeholder="粘贴 API key" /><small>密钥不会显示在已连接列表、任务事件或日志中；关闭 Gateway 后自动失效。</small></label>
-      </div>
-      {!customMode && providerId.startsWith('mimo') && <p className="provider-compatibility-note">`sk-` 使用“MiMo（按量）”；`tp-` 使用“MiMo Token Plan（中国）”。Token Plan 的默认 OpenAI Base URL 已按官方中国区地址预填，仍可由你更正。</p>}
-      <div className="provider-window-actions"><button className="provider-onboarding-submit" title="将当前字段作为一次会话连接配置，并立即测试模型列表。" type="button" disabled={!apiKey.trim() || !baseUrl.trim() || !model.trim() || (customMode && !displayName.trim()) || isSubmitting || attachingGateway} onClick={submit}>{isSubmitting ? '正在连接并测试…' : attachingGateway ? '正在准备 Gateway…' : '连接并测试'}</button><button type="button" title="查看已连接模型与最近测试结果。" className="provider-next-link" onClick={onManageConnections}>已连接模型 →</button></div>
-      <p className="provider-window-footnote">仅接受公开 HTTPS 服务地址。若使用本地模型，请在“本地模型端点管理”中配置，而不要在此窗口填写回环或内网地址。</p>
+    <div className="provider-setup-page provider-setup-page--focused provider-setup-page--three-step">
+      <header className="settings-page-header provider-setup-header">
+        <div><span>THIRD-PARTY API</span><h1>三步连接模型</h1><p>预置地址可直接更正。填写地址和密钥后立即连接并测试，第三方响应只回到本机工作台。</p></div>
+        <div className={`settings-gateway-status${gatewayAttached ? ' attached' : ''}`}><strong>{gatewayAttached ? 'Gateway 已就绪' : attachingGateway ? '正在准备 Gateway' : '连接时自动准备 Gateway'}</strong><span>{gatewayAttached ? '连接只在当前会话有效。' : '无需先手动启动；点击“连接并测试”后会先启动固定本机回环服务。'}</span></div>
+      </header>
+      {gatewayError && <div className="provider-onboarding-error" role="alert"><strong>本机 Gateway 尚未准备好。</strong><span>{gatewayError}</span><button type="button" onClick={onAttach} disabled={attachingGateway}>{attachingGateway ? '正在准备…' : '重新准备 Gateway'}</button></div>}
+      {error && <div className="provider-onboarding-error" role="alert"><strong>模型连接未完成。</strong><span>{error}</span></div>}
+      <section className="provider-onboarding provider-onboarding--compact provider-three-step" aria-label="Third-party API setup">
+        <div className="onboarding-step"><span>1</span><div><strong>选择服务</strong><p>选择预置服务，或连接自己的兼容模型。</p></div></div>
+        <div className="provider-preset-grid provider-preset-grid--compact provider-preset-grid--simple">
+          {PRESETS.map((item) => <button key={item.id} type="button" title={`选择 ${item.title}；地址和模型名称可编辑。`} className={`provider-preset${!customMode && providerId === item.id ? ' active' : ''}`} onClick={() => choosePreset(item.id)}><strong>{item.title}</strong><small>{item.description}</small></button>)}
+          <button type="button" title="连接符合 OpenAI 或 Anthropic 标准的自有 HTTPS 服务。" className={`provider-preset provider-preset--custom${customMode ? ' active' : ''}`} onClick={chooseCustom}><strong>自定义 API</strong><small>OpenAI 或 Anthropic-compatible</small></button>
+        </div>
+        <div className="onboarding-step"><span>2</span><div><strong>填写连接</strong><p>地址位于密钥上方；预置值来自服务目录，但你可以按供应商控制台自由修改。</p></div></div>
+        <div className="provider-onboarding-form provider-onboarding-form--simple">
+          {customMode && <><div className="provider-protocol-inline" role="radiogroup" aria-label="选择自定义 API 协议"><button className={protocol === 'openai-compatible' ? 'active' : ''} title="使用 OpenAI Chat Completions 兼容格式；只接受 HTTPS Base URL。" type="button" role="radio" aria-checked={protocol === 'openai-compatible'} onClick={() => setProtocol('openai-compatible')}>OpenAI-compatible</button><button className={protocol === 'anthropic-compatible' ? 'active' : ''} title="使用 Anthropic Messages 兼容格式；只接受 HTTPS Base URL。" type="button" role="radio" aria-checked={protocol === 'anthropic-compatible'} onClick={() => setProtocol('anthropic-compatible')}>Anthropic-compatible</button></div><label><span>模型名称</span><input value={model} maxLength={128} onChange={(event) => setModel(event.target.value)} placeholder="my-compatible-model" /></label><label><span>显示名称</span><input value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} placeholder="我的兼容模型" /></label></>}
+          {!customMode && providerId.startsWith('mimo') && <p className="provider-compatibility-note">`sk-` 请使用“MiMo（按量）”；`tp-` 请使用“MiMo Token Plan（中国）”。两类密钥不可混用。</p>}
+          {!customMode && <button className="provider-model-adjust" title="可选地修改默认模型标识或本地显示名称；不会改变地址或密钥。" type="button" onClick={() => setAdvancedOpen((open) => !open)}>{advancedOpen ? '收起模型调整' : '调整模型或名称（可选）'}</button>}
+          {!customMode && advancedOpen && <div className="provider-advanced-fields"><label><span>模型名称</span><input value={model} maxLength={128} onChange={(event) => setModel(event.target.value)} placeholder={selected.defaultModel} /></label><label><span>显示名称</span><input value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} placeholder={`我的 ${selected.title}`} /></label></div>}
+          <label className="provider-base-url-field"><span>连接地址 / Base URL</span><input value={baseUrl} inputMode="url" maxLength={512} onChange={(event) => setBaseUrl(event.target.value)} placeholder={customMode ? 'https://api.example.com/v1' : selected.defaultBaseUrl} /><small>填写供应商控制台给出的基础地址；不要输入完整 chat completion 或 messages 路径。</small></label>
+          <label className="provider-key-field"><span>API key</span><input value={apiKey} type="password" autoComplete="off" onChange={(event) => setApiKey(event.target.value)} placeholder="粘贴 API key" /><small>仅在当前 Gateway 进程内存中保存；关闭 Gateway 后自动失效。</small></label>
+        </div>
+        <div className="onboarding-step onboarding-step--final"><span>3</span><div><strong>连接并测试</strong><p>本次点击会按需启动本机 Gateway，将地址和密钥仅写入当前会话内存，并发起一次模型列表探测；不会自动发送聊天内容或保存密钥。</p></div></div>
+        <div className="provider-submit-row"><button className="provider-onboarding-submit" title="按需启动固定本机 Gateway，并以当前地址和密钥发起一次模型列表测试。" type="button" disabled={!apiKey.trim() || !baseUrl.trim() || !model.trim() || (customMode && !displayName.trim()) || isSubmitting || attachingGateway} onClick={submit}>{isSubmitting ? '正在连接并测试…' : attachingGateway ? '正在准备 Gateway…' : '连接并测试'}</button><button type="button" title="前往已连接模型页，查看测试结果或发送一次文本请求。" className="provider-next-link" onClick={onManageConnections}>查看已连接模型 →</button></div>
+      </section>
+      <p className="provider-compatibility-note">自定义连接使用 HTTPS 公网服务地址；本机或内网模型请使用本地模型端点管理，避免将桌面应用变成访问内网资源的代理。</p>
     </div>
   );
 }
