@@ -374,7 +374,7 @@ export function App() {
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
-            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={gatewayAttached} messages={messages} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} onTemplate={(template) => { setDraft(template.goal); setActiveProfile(template.profileId); setAuthorityMode(template.authorityMode); focusTaskComposer(); }} profiles={profiles} />}
+            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={gatewayAttached} messages={messages} onOpenModels={() => setInspectorSurface('api')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} profiles={profiles} />}
             {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} error={projectWorkspace.error} gatewayAttached={gatewayAttached} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={projectWorkspace.create} onSelect={projectWorkspace.select} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
             {isTaskPage && snapshot && <TaskPage
               activeGoal={activeGoal}
@@ -408,9 +408,9 @@ export function App() {
             </div>
             <section className="workspace-model-strip" aria-label="当前模型连接状态">
               <div><span>MODEL READYNESS</span><strong>{gatewayAttached ? '选择一个已连接模型，开始你的第一个任务' : '先连接第三方模型，再开始工作'}</strong><p>{gatewayAttached ? '模型连接、测试和高级诊断已移动到设置；这里保留任务对话。' : '无需安装本地模型：OpenAI-compatible 和 Anthropic-compatible 均可用。'}</p></div>
-              <button type="button" onClick={() => setActivePage('models')}>{gatewayAttached ? '管理模型' : '连接第三方 API'}</button>
+              <button type="button" onClick={() => setInspectorSurface('api')}>{gatewayAttached ? '管理模型' : '连接第三方 API'}</button>
             </section>
-            <LocalDataFlowBoard connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={gatewayAttached} onOpenModels={() => setActivePage('models')} taskFileCount={taskFiles.length} />
+            <LocalDataFlowBoard connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={gatewayAttached} onOpenModels={() => setInspectorSurface('api')} taskFileCount={taskFiles.length} />
             <TaskStoryboard deliveryCount={deliveries.length} eventCount={events.length} onOpenInspector={focusTaskInspector} snapshot={snapshot} taskFileCount={taskFiles.length} />
             <TaskOutcomeBoard deliveries={deliveries} deliveryPending={deliveryPending} files={taskFiles} onCreateDelivery={taskExecution.requestDelivery} onOpenInspector={focusTaskInspector} />
             {serviceError && <div className="runtime-error" role="alert">{messages.common.local}: {serviceError}</div>}

@@ -17,7 +17,7 @@ export interface ProviderControlPlane {
   hydrateConnections(connections: readonly WorkbenchProviderConnection[]): void;
   reset(): void;
   refresh(): void;
-  configure(providerId: string, input: { displayName?: string; model?: string; apiKey: string }): void;
+  configure(providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; apiKey: string }): void;
   configureCustom(input: { displayName: string; protocol: 'openai-compatible' | 'anthropic-compatible'; baseUrl: string; model: string; apiKey: string }): void;
   register(providerId: string): void;
   activate(providerId: string): void;
@@ -82,7 +82,7 @@ export function useProviderControlPlane(
     return () => { disposed = true; };
   }, [client, errorText, gatewayAttached]);
 
-  const configure = useCallback((providerId: string, input: { displayName?: string; model?: string; apiKey: string }): void => {
+  const configure = useCallback((providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; apiKey: string }): void => {
     if (!requireGateway()) return;
     setPendingProviderId(providerId);
     setError(undefined);

@@ -2,7 +2,6 @@ import type { AgentProfileId } from '@awo/protocol';
 import type { Translation } from '../../i18n/catalog';
 import { WORKBENCH_PROFILE_IDS } from './agent-profiles';
 import { createWorkModeAuditProjection } from './work-mode-projection';
-import { TASK_TEMPLATES, type TaskTemplate } from './task-templates-and-closeout';
 
 export interface ChatHomeProps {
   activeProfile: AgentProfileId;
@@ -14,7 +13,6 @@ export interface ChatHomeProps {
   onOpenModels(): void;
   onProfileChange(profileId: AgentProfileId): void;
   onSuggestion(goal: string): void;
-  onTemplate(template: TaskTemplate): void;
 }
 
 /**
@@ -33,7 +31,6 @@ export function ChatHome({
   onOpenModels,
   onProfileChange,
   onSuggestion,
-  onTemplate,
 }: ChatHomeProps) {
   const home = messages.home;
   const modelTitle = gatewayAttached && connectedProviderCount > 0
@@ -71,7 +68,6 @@ export function ChatHome({
               })}
             </div>
           </section>
-          <section className="chat-home-template-board" aria-label="任务模板"><div className="chat-home-section-heading"><span>任务模板</span><small>选择后会填入任务输入框</small></div><div>{TASK_TEMPLATES.map((template) => <button key={template.id} onClick={() => onTemplate(template)} type="button"><strong>{template.title}</strong><span>{profiles[template.profileId].label} · {messages.authority.mode[template.authorityMode].label}</span></button>)}</div></section>
         </div>
         <aside className="chat-home-context" aria-label="当前任务上下文">
           <section className={`chat-home-provider${gatewayAttached && connectedProviderCount > 0 ? ' ready' : ''}`} aria-label="第三方模型连接状态">

@@ -129,7 +129,7 @@ export function createGatewayComposition(): GatewayComposition {
   // 仅 composition root 允许从本机 Gateway 进程环境取得凭据；route、Profile SQLite 与 WebView 均不可见。
   const providerCredentials = new SessionCredentialResolver(new EnvironmentCredentialResolver((name) => process.env[name]));
   const providerConnections = new ProviderConnectionService(BUILT_IN_PROVIDER_CATALOG, providerProfiles, providerCredentials);
-  const providerInference = new ProviderInferenceService(BUILT_IN_PROVIDER_CATALOG, providerProfiles, providerCredentials);
+  const providerInference = new ProviderInferenceService(BUILT_IN_PROVIDER_CATALOG, providerProfiles, providerCredentials, undefined, undefined, (providerId) => providerConnections.resolveSessionProvider(providerId));
   const mimoTts = new MimoTtsService(BUILT_IN_PROVIDER_CATALOG, providerProfiles, providerCredentials);
   const customProviders = new SessionCustomProviderService(providerCredentials);
   const localModelHealth = new LocalModelHealthRegistry();

@@ -69,15 +69,19 @@ test('Provider session configuration 仅接收白名单字段并且绝不回显�
     const headers = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };
     const malformed = await fetch(`${baseUrl}/api/providers/connections/openai/configure-session`, { method: 'POST', headers, body: JSON.stringify({ displayName: '我的连接', model: 'gpt-safe', apiKey: 'sk-browser-session-only', endpoint: 'https://forbidden.example' }) });
     assert.equal(malformed.status, 400);
-    const configured = await fetch(`${baseUrl}/api/providers/connections/openai/configure-session`, { method: 'POST', headers, body: JSON.stringify({ displayName: '我的连接', model: 'gpt-safe', apiKey: 'sk-browser-session-only' }) });
+    const malformedAddress = await fetch(`${baseUrl}/api/providers/connections/openai/configure-session`, { method: 'POST', headers, body: JSON.stringify({ apiKey: 'sk-browser-session-only', baseUrl: 'http://localhost:4318/v1' }) });
+    assert.equal(malformedAddress.status, 400);
+    const configured = await fetch(`${baseUrl}/api/providers/connections/openai/configure-session`, { method: 'POST', headers, body: JSON.stringify({ displayName: '我的连接', model: 'gpt-safe', baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-browser-session-only' }) });
     assert.equal(configured.status, 200);
     const status = await configured.json() as Record<string, unknown>;
     assert.equal(status.displayName, '我的连接');
     assert.equal(status.defaultModel, 'gpt-safe');
     assert.equal(status.profileStatus, 'active');
     assert.equal(JSON.stringify(status).includes('sk-browser-session-only'), false);
+    assert.equal(JSON.stringify(status).includes('https://api.openai.com'), false);
     const listed = await (await fetch(`${baseUrl}/api/providers/connections`)).text();
     assert.equal(listed.includes('sk-browser-session-only'), false);
+    assert.equal(listed.includes('https://api.openai.com'), false);
   });
 });
 
@@ -232,7 +236,7 @@ test('Custom compatible Provider 只接受显式 HTTPS session 配置，并通�
 });
 
 
-test('MiMo Token Plan 中国预置使用官方端点与 api-key 鉴权，TP 密钥可在同一会话探测并推理', async () => {
+test('MiMo Token Plan 中国可使用用户填写的官方 Base URL 与 api-key 鉴权，在同一会话探测并推理', async () => {
   const originalFetch = globalThis.fetch;
   let modelsTarget = '';
   let inferenceTarget = '';
@@ -259,7 +263,7 @@ test('MiMo Token Plan 中国预置使用官方端点与 api-key 鉴权，TP 密�
     await withGateway(async (baseUrl) => {
       const headers = { 'content-type': 'application/json', 'x-awo-operator-intent': 'provider-connection-v1' };
       const configured = await fetch(`${baseUrl}/api/providers/connections/mimo-token-plan-cn/configure-session`, {
-        method: 'POST', headers, body: JSON.stringify({ apiKey: 'tp-session-only-never-returned' }),
+        method: 'POST', headers, body: JSON.stringify({ baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1', apiKey: 'tp-session-only-never-returned' }),
       });
       assert.equal(configured.status, 200);
       const configuration = await configured.text();

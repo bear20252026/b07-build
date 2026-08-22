@@ -1,6 +1,7 @@
 import type { CredentialResolver, SessionCredentialStore } from './credential-resolver.js';
 import type { ProviderCatalog, ProviderCatalogEntry } from './provider-catalog.js';
 import type { ProviderProfile, ProviderProfileRegistry, ProviderProfileStatus } from './provider-profile.js';
+import { SessionProviderEndpointRegistry } from './session-provider-endpoints.js';
 
 export type ProviderConnectionProfileStatus = ProviderProfileStatus | 'not-registered';
 export type ProviderConnectionProbeOutcome = 'reachable' | 'missing-credential' | 'not-registered' | 'not-active' | 'rejected' | 'unreachable';
@@ -49,6 +50,8 @@ export interface ConfigureSessionProviderRequest {
   reviewedBy: string;
   displayName?: string;
   model?: string;
+  /** 可选的用户显式 HTTPS Base URL；只在当前 Gateway 会话内存中有效。 */
+  baseUrl?: string;
   apiKey: string;
   at: number;
 }
@@ -105,6 +108,7 @@ export class ProviderConnectionService {
     private readonly credentials: CredentialResolver & Partial<SessionCredentialStore>,
     private readonly fetcher: typeof fetch = globalThis.fetch,
     private readonly now: () => number = () => Date.now(),
+    private readonly sessionEndpoints = new SessionProviderEndpointRegistry(),
   ) {}
 
   private readonly sessionPresentation = new Map<string, { displayName?: string; model?: string }>();
@@ -142,6 +146,7 @@ export class ProviderConnectionService {
     const model = request.model?.trim();
     if (displayName !== undefined && (!displayName || displayName.length > 80)) throw new Error('显示名称必须为 1-80 字符');
     if (model !== undefined && !IDENTIFIER.test(model)) throw new Error('模型标识无效');
+    if (request.baseUrl !== undefined) this.sessionEndpoints.configure(provider, request.baseUrl);
     store.call(this.credentials, provider.credentialReference, request.apiKey);
     this.sessionPresentation.set(provider.id, { ...(displayName ? { displayName } : {}), ...(model ? { model } : {}) });
     const existing = this.profiles.get(profileId(provider));
@@ -161,7 +166,7 @@ export class ProviderConnectionService {
   }
 
   async probe(providerId: string): Promise<ProviderConnectionProbeResult> {
-    const provider = this.requireProvider(providerId);
+    const provider = this.resolveSessionProvider(providerId);
     const checkedAt = this.now();
     const profile = this.profiles.get(profileId(provider));
     if (!profile) return { schemaVersion: 1, providerId, outcome: 'not-registered', checkedAt, canReadSecret: false, canAutoConnect: false };
@@ -183,6 +188,11 @@ export class ProviderConnectionService {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /** 供同一 Gateway 内的推理服务复用会话地址；不会向 HTTP 或 WebView 投影 endpoint。 */
+  resolveSessionProvider(providerId: string): ProviderCatalogEntry {
+    return this.sessionEndpoints.resolve(this.requireProvider(providerId));
   }
 
   private statusFor(provider: ProviderCatalogEntry): ProviderConnectionStatus {

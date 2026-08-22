@@ -21,13 +21,13 @@ function readInference(body: unknown): { prompt: string; model?: string } | unde
   return { prompt: candidate.prompt, model: candidate.model as string | undefined };
 }
 
-/** 唯一会话密钥入口：精确白名单，不接受 endpoint、headers、工具、Profile 或任意扩展字段。 */
-function readSessionConfiguration(body: unknown): { displayName?: string; model?: string; apiKey: string } | undefined {
+/** 唯一会话密钥入口：精确白名单；baseUrl 仅可由显式连接动作提交并在 Gateway 会话内存校验、保存。 */
+function readSessionConfiguration(body: unknown): { displayName?: string; model?: string; baseUrl?: string; apiKey: string } | undefined {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
   const candidate = body as Record<string, unknown>;
-  if (Object.keys(candidate).some((key) => key !== 'displayName' && key !== 'model' && key !== 'apiKey')) return undefined;
-  if (typeof candidate.apiKey !== 'string' || (candidate.displayName !== undefined && typeof candidate.displayName !== 'string') || (candidate.model !== undefined && typeof candidate.model !== 'string')) return undefined;
-  return { apiKey: candidate.apiKey, displayName: candidate.displayName as string | undefined, model: candidate.model as string | undefined };
+  if (Object.keys(candidate).some((key) => key !== 'displayName' && key !== 'model' && key !== 'baseUrl' && key !== 'apiKey')) return undefined;
+  if (typeof candidate.apiKey !== 'string' || (candidate.displayName !== undefined && typeof candidate.displayName !== 'string') || (candidate.model !== undefined && typeof candidate.model !== 'string') || (candidate.baseUrl !== undefined && typeof candidate.baseUrl !== 'string')) return undefined;
+  return { apiKey: candidate.apiKey, displayName: candidate.displayName as string | undefined, model: candidate.model as string | undefined, baseUrl: candidate.baseUrl as string | undefined };
 }
 
 /** custom endpoint 只在一次显式登记时接收；后续 probe/infer 只按 session providerId 调用。 */
@@ -46,7 +46,7 @@ function isCustomProviderId(value: string): boolean {
 /**
  * Provider connection 管道：Profile metadata 与 credential availability 的显式控制面。
  * 它不读取运行时环境配置。除 `configure-session` 外不接收密钥、token、URL、工具或 agent 配置；
- * `configure-session` 的 key 只进入 Gateway 当前进程内存且不回显。远程探测与推理均只能由 operator-intent 的显式 POST 发起。
+ * `configure-session` 只接受受控 baseUrl 与 key，二者只进入 Gateway 当前进程内存且不回显。远程探测与推理均只能由 operator-intent 的显式 POST 发起。
  */
 export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, response, url, segments, dependencies }) => {
   if (request.method === 'GET' && url.pathname === '/api/providers/connections') {
@@ -112,7 +112,7 @@ export const handleProviderConnectionRoutes: GatewayRoute = async ({ request, re
     if (operation === 'configure-session') {
       const configuration = readSessionConfiguration(await readJsonBody(request));
       if (!configuration) {
-        sendJson(response, 400, { error: '快速配置只接受 displayName、model 与 apiKey；不得提交 endpoint、header、工具或其他字段' });
+        sendJson(response, 400, { error: '快速配置只接受 displayName、model、baseUrl 与 apiKey；不得提交 header、工具或其他字段' });
         return true;
       }
       const status = dependencies.providerConnections.configureSession({ providerId, reviewedBy: 'desktop-owner', at: Date.now(), ...configuration });

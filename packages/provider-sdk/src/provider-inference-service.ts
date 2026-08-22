@@ -75,12 +75,18 @@ export class ProviderInferenceService {
     private readonly credentials: CredentialResolver,
     private readonly driverFactory: ProviderDriverFactory = createBuiltInDriver,
     private readonly now: () => number = () => Date.now(),
+    /** 仅由同一 Gateway 的连接服务提供会话地址覆盖；浏览器不可传入。 */
+    private readonly sessionEntryResolver?: (providerId: string) => ProviderCatalogEntry,
   ) {}
 
   async infer(request: ProviderInferenceRequest): Promise<ProviderInferenceResult> {
     if (!safeProviderId(request.providerId)) throw new Error('providerId 无效');
-    const entry = this.catalog.get(request.providerId);
-    if (!entry) throw new Error('providerId 不在已审核目录中');
+    const catalogEntry = this.catalog.get(request.providerId);
+    if (!catalogEntry) throw new Error('providerId 不在已审核目录中');
+    const entry = this.sessionEntryResolver?.(request.providerId) ?? catalogEntry;
+    if (entry.id !== catalogEntry.id || entry.driverId !== catalogEntry.driverId || entry.transport !== catalogEntry.transport || entry.credentialReference !== catalogEntry.credentialReference) {
+      throw new Error('Gateway 会话 Provider 覆盖违反已审核目录身份约束');
+    }
     const profileId = `provider.${entry.id}`;
     const profile = this.profiles.get(profileId);
     if (!profile || profile.status !== 'active') throw new Error('远程模型必须先由操作者显式登记并启用 Provider Profile');
