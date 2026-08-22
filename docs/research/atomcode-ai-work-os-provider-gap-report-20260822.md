@@ -203,3 +203,40 @@ AtomCode 的预置模型提供了可借鉴的分层：它的 `ProviderType` 显�
 | 会话凭据生命周期 | **仍为会话级** | API key 不写入数据库或 UI 状态；关闭桌面运行时后须重新填写。Windows Credential Manager 持久账户档案仍是后续 P1。 |
 
 本轮的测试覆盖同时验证了 MiMo Token Plan 中国区两种协议、自定义兼容 Provider、模型列表发现、流式文本顺序、无密钥/地址回显、任务运行时真实调用和 task/run 专属输出文件。全仓验证结果为 **308/308 测试通过**，架构检查、性能预算、生产依赖审计与差异空白检查均通过。该结果验证的是受控模拟的协议与代码链路；由于此前在对话中公开过的密钥不得再次使用，不能将其表述为用户轮换后账号的线上验证成功。
+
+
+## 十一、OpenWorker / AtomCode 的直接连接与会话参考（2026-08-22）
+
+OpenWorker 官方 README 将桌面壳与本地 agent server 区分为 native shell + GUI 和本机 engine/tool/connector；模型由用户自带的 API key 或本地 Ollama 使用，且声明数据只经用户选择的模型与集成离开设备。[16] 它的桌面壳负责监督本地服务而非把 Provider 当成独立受限入口；其模型层支持多个商业 Provider 和任意模型字符串。该模式可借鉴为“Provider 连接的数据模型与对话运行时共用同一解析配置”，但不复制其 Python 服务架构。
+
+AtomCode 官方说明为 API key 用户提供简单路径：在 `/provider` 中选择预置或自定义账户、填 API key，再在该账户下添加一个或多个模型；同一配置文件还可声明多个 Provider，并由 `/model` 或 `/provider` 切换。[17] AtomCode 还提供持久会话、继续最近会话、切换会话和后台会话的交互模式。[18] 因此 AI Work OS 应将预置与自定义服务平等收敛为一个 `Provider Account → Model → Conversation/Project` 路径；预置仅提供可编辑默认值，不能成为权限或流式能力的差异来源。
+
+| 可采用模式 | AI Work OS 落地原则 |
+| --- | --- |
+| Provider 账户下拥有多个模型 | 每个连接可选择或手填模型；预置与自定义共享相同协议、Base URL、API key 和流式调用路径。 |
+| 对话会话可继续与切换 | 会话 metadata、消息历史和项目绑定分层持久化，打开应用恢复最近活动会话。 |
+| 长任务后台化 | 多个项目/会话可独立运行；完成结果回到各自会话，而不替换当前窗口。 |
+| 桌面壳监督本地体验 | Tauri 负责原生窗口、桌面 Companion 和 API key 的直接 Provider HTTPS/SSE 请求，不保留名为 Gateway 的设置或 sidecar。 |
+
+[16] [OpenWorker README（官方 GitHub）](https://github.com/andrewyng/openworker)
+
+[17] [AtomCode Login Methods：API key / Provider / 多模型账户（官方）](https://atomcode.atomgit.com/docs/en/login.html)
+
+[18] [AtomCode README：persistent sessions、resume、background sessions（官方）](https://atomgit.com/atomgit_atomcode/atomcode)
+
+
+## 十二、直接 Provider 通讯与会话体验重构（本轮）
+
+用户已明确要求取消 Gateway。桌面壳现已移除 sidecar 打包配置、回环 `4318` CSP 例外、`shell:allow-spawn` 权限、启动命令和构建脚本入口。第三方连接改为 **Tauri 原生进程直接调用**：用户在同一个模型设置页填写协议、Base URL、API key 与模型；原生客户端按所选 OpenAI-compatible 或 Anthropic-compatible 格式向该 Provider 发起 HTTPS 请求，并把 SSE 文本分块作为桌面事件即时回传 WebView。预置与自定义服务使用同一 `configure → discover models → choose model → stream` 路径，不以预置身份添加额外能力或限制。
+
+> API key 必须出现在第三方请求头中，以便供应商验证账户、配额或订阅；本轮实现将其仅作为 Tauri invoke 的输入传给原生会话并附到供应商请求头。它不会作为 UI 状态、模型返回、模型目录、对话历史或日志字段回显。
+
+| 用户操作 | 实际执行路径 |
+| --- | --- |
+| 连接 MiMo `sk-` 或中国 Token Plan `tp-` | 选择 OpenAI 或 Anthropic 协议、输入对应官方 Base URL 和 key；原生客户端使用 MiMo 的 `api-key`，Anthropic 路径同时带 `anthropic-version`。 |
+| 连接任意预置或自定义兼容服务 | 相同表单、相同 Tauri 原生会话、相同模型目录查询与 SSE 渲染；自定义服务不再退化为不同等级的连接。 |
+| 首页发送消息 | 用户明确选择任务模型后，首页输入直接写入本地可恢复对话并由该 Provider 流式返回；不再等待本机 HTTP 服务。 |
+| 打开或最小化主窗口后使用桌面助手 | Tauri 系统托盘提供“打开工作台 / 显示桌面助手 / 退出”动作；独立角色窗口读取已选模型并复用同一原生 Provider 会话进行流式对话。 |
+| 重新打开应用 | 多个对话的标题、模型选择和消息文本从本地 `localStorage` 恢复；不保存 API key、Base URL 或请求头。 |
+
+这一实现参考 OpenWorker 的“桌面壳 + 用户选择的模型直接工作”产品分层，以及 AtomCode 的“Provider Account → Models → Persistent Sessions / Resume / Background”交互模式，而没有复制其代码或把它们的运行时引入本仓。[16] [17] [18]

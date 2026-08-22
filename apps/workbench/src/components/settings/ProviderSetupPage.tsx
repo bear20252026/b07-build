@@ -31,14 +31,10 @@ function baseUrlFor(preset: ProviderPreset, protocol: Protocol): string {
 }
 
 export interface ProviderSetupPageProps {
-  gatewayAttached: boolean;
-  attachingGateway: boolean;
-  gatewayError?: string;
   connections?: readonly WorkbenchProviderConnection[];
   discoveredModels?: Readonly<Record<string, WorkbenchProviderModelDiscovery | undefined>>;
   error?: string;
   pendingProviderId?: string;
-  onAttach(): void;
   onConfigure(providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; protocol?: Protocol; apiKey: string }): void;
   onConfigureCustom(input: { displayName: string; protocol: Protocol; baseUrl: string; model: string; apiKey: string }): void;
   onDiscoverModels(providerId: string): void;
@@ -46,7 +42,7 @@ export interface ProviderSetupPageProps {
 }
 
 /** 原模型设置页：协议、地址、密钥和模型都在同一个表单内明确呈现。 */
-export function ProviderSetupPage({ gatewayAttached, attachingGateway, gatewayError, error, pendingProviderId, discoveredModels = {}, onAttach, onConfigure, onConfigureCustom, onDiscoverModels, onManageConnections }: ProviderSetupPageProps) {
+export function ProviderSetupPage({ error, pendingProviderId, discoveredModels = {}, onConfigure, onConfigureCustom, onDiscoverModels, onManageConnections }: ProviderSetupPageProps) {
   const firstPreset = PRESETS[0]!;
   const [providerId, setProviderId] = useState(firstPreset.id);
   const [customMode, setCustomMode] = useState(false);
@@ -107,9 +103,8 @@ export function ProviderSetupPage({ gatewayAttached, attachingGateway, gatewayEr
     <div className="provider-setup-page provider-setup-page--focused provider-setup-page--three-step">
       <header className="settings-page-header provider-setup-header">
         <div><span>THIRD-PARTY API</span><h1>三步连接模型</h1><p>先明确 API 协议，再填写可修改的地址、密钥和模型名；测试和任务调用使用同一份会话配置。</p></div>
-        <div className={`settings-gateway-status${gatewayAttached ? ' attached' : ''}`}><strong>{gatewayAttached ? '本机连接服务已就绪' : attachingGateway ? '正在准备本机连接服务' : '连接时自动准备本机连接服务'}</strong><span>{gatewayAttached ? '地址与密钥仅在本次应用会话有效。' : '无需预先操作；点击“连接并测试”后会准备桌面端本机服务。'}</span></div>
+        <div className="settings-gateway-status attached"><strong>桌面直连已就绪</strong><span>连接时会直接使用您填写的协议、地址、密钥与模型。</span></div>
       </header>
-      {gatewayError && <div className="provider-onboarding-error" role="alert"><strong>本机连接服务尚未准备好。</strong><span>{gatewayError}</span><button type="button" onClick={onAttach} disabled={attachingGateway}>{attachingGateway ? '正在准备…' : '重新准备'}</button></div>}
       {error && <div className="provider-onboarding-error" role="alert"><strong>模型连接未完成。</strong><span>{error}</span></div>}
       <section className="provider-onboarding provider-onboarding--compact provider-three-step" aria-label="Third-party API setup">
         <div className="onboarding-step"><span>1</span><div><strong>选择服务</strong><p>选择预置服务，或连接自己的兼容模型。</p></div></div>
@@ -127,10 +122,10 @@ export function ProviderSetupPage({ gatewayAttached, attachingGateway, gatewayEr
           <label className="provider-base-url-field"><span>连接地址 / Base URL（{protocol === 'openai-compatible' ? 'OpenAI' : 'Anthropic'}）</span><input value={baseUrl} inputMode="url" maxLength={512} onChange={(event) => { setBaseUrl(event.target.value); setBaseUrlDirty(true); }} placeholder={customMode ? 'https://api.example.com/v1' : baseUrlFor(selected, protocol) || '按供应商文档填写 HTTPS Base URL'} /><small>填写供应商控制台给出的协议对应基础地址；不要输入完整 chat completion 或 messages 操作路径。</small></label>
           {!customMode && baseUrlFor(selected, protocol) && <button type="button" className="provider-default-url" title="用该供应商当前所选协议的官方默认 Base URL 覆盖本框内容。" onClick={restoreOfficialBaseUrl}>使用当前协议的官方默认地址</button>}
           <label className="provider-key-field"><span>API key</span><input value={apiKey} type="password" autoComplete="off" onChange={(event) => setApiKey(event.target.value)} placeholder="粘贴 API key" /><small>仅在当前桌面应用会话内存中保存；关闭应用后自动失效。</small></label>
-          {!customMode && <div className="provider-model-discovery"><div><strong>可用模型</strong><p>连接后可按当前协议、地址和会话密钥查询；查询不到时仍可按供应商文档手动填写模型名称。</p></div><button type="button" title="按当前已连接会话的协议、Base URL 和 API key 查询公开模型列表。" disabled={!gatewayAttached || isSubmitting} onClick={() => onDiscoverModels(providerId)}>{isSubmitting ? '正在查询…' : '查询模型'}</button>{discovery?.outcome === 'reachable' && discovery.models.length === 0 && <span className="provider-model-manual">该服务未提供标准模型列表，请手动填写模型名称。</span>}{discovery && discovery.models.length > 0 && <div className="provider-model-options" aria-label="查询到的模型">{discovery.models.map((item) => <button type="button" key={item} title={`使用 ${item} 作为本次连接的模型名称。`} onClick={() => { setModel(item); setAdvancedOpen(true); }}>{item}</button>)}</div>}</div>}
+          {!customMode && <div className="provider-model-discovery"><div><strong>可用模型</strong><p>连接后可按当前协议、地址和会话密钥查询；查询不到时仍可按供应商文档手动填写模型名称。</p></div><button type="button" title="按当前已连接会话的协议、Base URL 和 API key 查询公开模型列表。" disabled={isSubmitting} onClick={() => onDiscoverModels(providerId)}>{isSubmitting ? '正在查询…' : '查询模型'}</button>{discovery?.outcome === 'reachable' && discovery.models.length === 0 && <span className="provider-model-manual">该服务未提供标准模型列表，请手动填写模型名称。</span>}{discovery && discovery.models.length > 0 && <div className="provider-model-options" aria-label="查询到的模型">{discovery.models.map((item) => <button type="button" key={item} title={`使用 ${item} 作为本次连接的模型名称。`} onClick={() => { setModel(item); setAdvancedOpen(true); }}>{item}</button>)}</div>}</div>}
         </div>
         <div className="onboarding-step onboarding-step--final"><span>3</span><div><strong>连接、查询并测试</strong><p>先按所选协议查询可用模型；之后使用同一协议、地址、密钥和模型执行测试与任务。</p></div></div>
-        <div className="provider-submit-row"><button className="provider-onboarding-submit" title="准备本机桌面服务，并用当前协议、地址和密钥测试模型连接。" type="button" disabled={!apiKey.trim() || !baseUrl.trim() || !model.trim() || (customMode && !displayName.trim()) || isSubmitting || attachingGateway} onClick={submit}>{isSubmitting ? '正在连接、查询并测试…' : attachingGateway ? '正在准备本机服务…' : '连接并测试'}</button><button type="button" title="前往已连接模型页，查看连接状态与测试结果。" className="provider-next-link" onClick={onManageConnections}>查看已连接模型 →</button></div>
+        <div className="provider-submit-row"><button className="provider-onboarding-submit" title="用当前协议、地址、密钥和模型通过桌面原生连接测试第三方服务。" type="button" disabled={!apiKey.trim() || !baseUrl.trim() || !model.trim() || (customMode && !displayName.trim()) || isSubmitting} onClick={submit}>{isSubmitting ? '正在连接、查询并测试…' : '连接并测试'}</button><button type="button" title="前往已连接模型页，查看连接状态与测试结果。" className="provider-next-link" onClick={onManageConnections}>查看已连接模型 →</button></div>
       </section>
       <p className="provider-compatibility-note">如果供应商只提供一种兼容协议，请按其官方文档选择；切换协议不会自动猜测或伪造另一种服务地址。</p>
     </div>

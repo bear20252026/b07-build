@@ -1,12 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import {
-  HttpWorkbenchTaskClient,
-  type WorkbenchProviderConnection,
-  type WorkbenchProviderConnectionProbe,
-  type WorkbenchProviderInference,
-  type WorkbenchProviderModelDiscovery,
-  type WorkbenchProviderStreamCompletion,
-} from './task-client';
+import { useCallback, useState } from 'react';
+import type { WorkbenchProviderConnection, WorkbenchProviderConnectionProbe, WorkbenchProviderInference, WorkbenchProviderModelDiscovery } from './task-client';
+import { directProviderClient, type DirectProviderConnection, type DirectProviderProtocol } from './direct-provider-client';
 
 export type ProviderErrorText = (error: unknown) => string;
 
@@ -18,18 +12,17 @@ export interface WorkbenchProviderStreamingOutput {
 }
 
 export interface ProviderControlPlane {
-  readonly connections: readonly WorkbenchProviderConnection[] | undefined;
+  readonly connections: readonly WorkbenchProviderConnection[];
   readonly probes: Readonly<Record<string, WorkbenchProviderConnectionProbe | undefined>>;
   readonly discoveredModels: Readonly<Record<string, WorkbenchProviderModelDiscovery | undefined>>;
   readonly inferences: Readonly<Record<string, WorkbenchProviderInference | undefined>>;
   readonly streaming: Readonly<Record<string, WorkbenchProviderStreamingOutput | undefined>>;
   readonly error: string | undefined;
   readonly pendingProviderId: string | undefined;
-  hydrateConnections(connections: readonly WorkbenchProviderConnection[]): void;
   reset(): void;
   refresh(): void;
-  configure(providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; protocol?: 'openai-compatible' | 'anthropic-compatible'; apiKey: string }): void;
-  configureCustom(input: { displayName: string; protocol: 'openai-compatible' | 'anthropic-compatible'; baseUrl: string; model: string; apiKey: string }): void;
+  configure(providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; protocol?: DirectProviderProtocol; apiKey: string }): void;
+  configureCustom(input: { displayName: string; protocol: DirectProviderProtocol; baseUrl: string; model: string; apiKey: string }): void;
   register(providerId: string): void;
   activate(providerId: string): void;
   probe(providerId: string): void;
@@ -38,35 +31,39 @@ export interface ProviderControlPlane {
   stream(providerId: string, prompt: string, model?: string): void;
 }
 
-function replaceConnection(
-  current: readonly WorkbenchProviderConnection[] | undefined,
-  connection: WorkbenchProviderConnection,
-): readonly WorkbenchProviderConnection[] {
-  return [...(current ?? []).filter((item) => item.providerId !== connection.providerId), connection]
-    .sort((left, right) => left.displayName.localeCompare(right.displayName));
-}
-
-function probeFailureMessage(probe: WorkbenchProviderConnectionProbe): string {
-  const detail: Record<Exclude<WorkbenchProviderConnectionProbe['outcome'], 'reachable'>, string> = {
-    'missing-credential': '本机 Gateway 未收到 API key，请重新填写后连接。',
-    'not-registered': '连接状态未初始化，请重新点击“连接并测试”。',
-    'not-active': '连接尚未就绪，请重新点击“连接并测试”。',
-    rejected: '服务拒绝了连接。请确认密钥类型与套餐匹配；MiMo Token Plan 请使用中国区 tp- 密钥。',
-    unreachable: '无法到达服务。请检查网络、代理或服务地址后重试。',
+function errorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const mapping: Record<string, string> = {
+    'provider-not-connected': '此模型尚未连接，请先在模型设置页填写地址、密钥和模型名称。',
+    'provider-request-failed': '第三方服务未响应。请检查网络、Base URL 与供应商服务状态。',
+    'provider-model-list-failed': '第三方服务拒绝模型目录请求；仍可按供应商文档手动填写模型名称。',
+    'provider-http-401': '第三方服务拒绝了 API key，请确认密钥、账号或套餐。',
+    'provider-http-403': '第三方服务拒绝访问，请确认账号权限、套餐与模型可用性。',
   };
-  return `连接测试未通过：${detail[probe.outcome as Exclude<WorkbenchProviderConnectionProbe['outcome'], 'reachable'>]}`;
+  return mapping[message] ?? (message && !/[<{]/.test(message) ? message : '第三方模型请求未完成。');
 }
 
-/**
- * Provider 控制面只经本机 Gateway client 调用。API key 从表单到 session-only Gateway，
- * 不进入 React state、任务事件、SQLite DTO 或本 hook 的返回值。
- */
-export function useProviderControlPlane(
-  gatewayAttached: boolean,
-  errorText: ProviderErrorText,
-  client = HttpWorkbenchTaskClient.forLocalGateway(),
-): ProviderControlPlane {
-  const [connections, setConnections] = useState<readonly WorkbenchProviderConnection[]>();
+function asConnection(connection: DirectProviderConnection): WorkbenchProviderConnection {
+  return {
+    schemaVersion: 1, providerId: connection.providerId, displayName: connection.displayName,
+    driverId: `desktop-direct.${connection.protocol}`, defaultModel: connection.defaultModel,
+    credentialReference: 'native-session', credentialAvailability: 'available', profileStatus: 'active', profileRevision: 1,
+    canReadSecret: false, canAutoConnect: false,
+  };
+}
+
+function replaceConnection(current: readonly WorkbenchProviderConnection[], connection: WorkbenchProviderConnection): readonly WorkbenchProviderConnection[] {
+  return [...current.filter((item) => item.providerId !== connection.providerId), connection].sort((left, right) => left.displayName.localeCompare(right.displayName));
+}
+
+function customProviderId(displayName: string): string {
+  const normalized = displayName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'provider';
+  return `custom-${normalized}-${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
+}
+
+/** 直接 Provider 控制面：配置和 key 经 Tauri invoke 进入原生内存；浏览器不请求本机 HTTP 服务。 */
+export function useProviderControlPlane(): ProviderControlPlane {
+  const [connections, setConnections] = useState<readonly WorkbenchProviderConnection[]>([]);
   const [probes, setProbes] = useState<Readonly<Record<string, WorkbenchProviderConnectionProbe | undefined>>>({});
   const [discoveredModels, setDiscoveredModels] = useState<Readonly<Record<string, WorkbenchProviderModelDiscovery | undefined>>>({});
   const [inferences, setInferences] = useState<Readonly<Record<string, WorkbenchProviderInference | undefined>>>({});
@@ -74,166 +71,69 @@ export function useProviderControlPlane(
   const [error, setError] = useState<string>();
   const [pendingProviderId, setPendingProviderId] = useState<string>();
 
-  const requireGateway = useCallback((): boolean => {
-    if (gatewayAttached) return true;
-    setError('请先显式附着本机 Gateway。');
-    return false;
-  }, [gatewayAttached]);
-
-  const refresh = useCallback((): void => {
-    if (!requireGateway()) return;
-    setError(undefined);
-    void client.providerConnections()
-      .then(setConnections)
-      .catch((nextError: unknown) => setError(errorText(nextError)));
-  }, [client, errorText, requireGateway]);
-
-  useEffect(() => {
-    if (!gatewayAttached) return;
-    let disposed = false;
-    void client.providerConnections()
-      .then((items) => { if (!disposed) setConnections(items); })
-      .catch((nextError: unknown) => { if (!disposed) setError(errorText(nextError)); });
-    return () => { disposed = true; };
-  }, [client, errorText, gatewayAttached]);
-
-  const configure = useCallback((providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; protocol?: 'openai-compatible' | 'anthropic-compatible'; apiKey: string }): void => {
-    if (!requireGateway()) return;
-    setPendingProviderId(providerId);
-    setError(undefined);
-    void client.configureProviderSession(providerId, input)
-      .then(async (connection) => {
-        setConnections((current) => replaceConnection(current, connection));
-        try {
-          const probe = await client.probeProviderConnection(connection.providerId);
-          setProbes((current) => ({ ...current, [connection.providerId]: probe }));
-          if (probe.outcome !== 'reachable') setError(probeFailureMessage(probe));
-          else {
-            const discovery = await client.discoverProviderModels(connection.providerId);
-            setDiscoveredModels((current) => ({ ...current, [connection.providerId]: discovery }));
-          }
-        } catch (nextError) {
-          setError(`连接已保存，但测试未完成：${errorText(nextError)}`);
-        }
-      })
-      .catch((nextError: unknown) => setError(errorText(nextError)))
+  const configure = useCallback((providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; protocol?: DirectProviderProtocol; apiKey: string }): void => {
+    setPendingProviderId(providerId); setError(undefined);
+    void directProviderClient.configure({ providerId, displayName: input.displayName?.trim() || providerId, protocol: input.protocol ?? 'openai-compatible', baseUrl: input.baseUrl ?? '', model: input.model ?? '', apiKey: input.apiKey })
+      .then((result) => setConnections((current) => replaceConnection(current, asConnection(result))))
+      .catch((nextError: unknown) => setError(errorMessage(nextError)))
       .finally(() => setPendingProviderId(undefined));
-  }, [client, errorText, requireGateway]);
+  }, []);
 
-  const configureCustom = useCallback((input: { displayName: string; protocol: 'openai-compatible' | 'anthropic-compatible'; baseUrl: string; model: string; apiKey: string }): void => {
-    if (!requireGateway()) return;
-    setPendingProviderId('custom');
-    setError(undefined);
-    void client.configureCustomProviderSession(input)
-      .then(async (connection) => {
-        setConnections((current) => replaceConnection(current, connection));
-        try {
-          const probe = await client.probeProviderConnection(connection.providerId);
-          setProbes((current) => ({ ...current, [connection.providerId]: probe }));
-          if (probe.outcome !== 'reachable') setError(probeFailureMessage(probe));
-          else {
-            const discovery = await client.discoverProviderModels(connection.providerId);
-            setDiscoveredModels((current) => ({ ...current, [connection.providerId]: discovery }));
-          }
-        } catch (nextError) {
-          setError(`连接已保存，但测试未完成：${errorText(nextError)}`);
-        }
-      })
-      .catch((nextError: unknown) => setError(errorText(nextError)))
+  const configureCustom = useCallback((input: { displayName: string; protocol: DirectProviderProtocol; baseUrl: string; model: string; apiKey: string }): void => {
+    const providerId = customProviderId(input.displayName);
+    setPendingProviderId('custom'); setError(undefined);
+    void directProviderClient.configure({ providerId, ...input })
+      .then((result) => setConnections((current) => replaceConnection(current, asConnection(result))))
+      .catch((nextError: unknown) => setError(errorMessage(nextError)))
       .finally(() => setPendingProviderId(undefined));
-  }, [client, errorText, requireGateway]);
+  }, []);
 
   const discoverModels = useCallback((providerId: string): void => {
-    if (!requireGateway()) return;
-    setPendingProviderId(providerId);
-    setError(undefined);
-    void client.discoverProviderModels(providerId)
-      .then((result) => {
+    setPendingProviderId(providerId); setError(undefined);
+    const checkedAt = Date.now();
+    void directProviderClient.discover(providerId)
+      .then((models) => {
+        const result: WorkbenchProviderModelDiscovery = { schemaVersion: 1, providerId, outcome: 'reachable', checkedAt, models, canReadSecret: false, canAutoConnect: false };
         setDiscoveredModels((current) => ({ ...current, [providerId]: result }));
-        if (result.outcome !== 'reachable') setError(probeFailureMessage(result));
-      })
-      .catch((nextError: unknown) => setError(errorText(nextError)))
-      .finally(() => setPendingProviderId(undefined));
-  }, [client, errorText, requireGateway]);
-
-  const register = useCallback((providerId: string): void => {
-    if (!requireGateway()) return;
-    setPendingProviderId(providerId);
-    setError(undefined);
-    void client.registerProviderConnection(providerId, 'desktop-owner', 'Workbench explicit registration.')
-      .then((connection) => setConnections((current) => replaceConnection(current, connection)))
-      .catch((nextError: unknown) => setError(errorText(nextError)))
-      .finally(() => setPendingProviderId(undefined));
-  }, [client, errorText, requireGateway]);
-
-  const activate = useCallback((providerId: string): void => {
-    if (!requireGateway()) return;
-    setPendingProviderId(providerId);
-    setError(undefined);
-    void client.activateProviderConnection(providerId, 'desktop-owner', 'Workbench explicit activation; no automatic model call.')
-      .then((connection) => setConnections((current) => replaceConnection(current, connection)))
-      .catch((nextError: unknown) => setError(errorText(nextError)))
-      .finally(() => setPendingProviderId(undefined));
-  }, [client, errorText, requireGateway]);
-
-  const probe = useCallback((providerId: string): void => {
-    if (!requireGateway()) return;
-    setPendingProviderId(providerId);
-    setError(undefined);
-    void client.probeProviderConnection(providerId)
-      .then((result) => {
         setProbes((current) => ({ ...current, [providerId]: result }));
-        if (result.outcome !== 'reachable') setError(probeFailureMessage(result));
       })
-      .catch((nextError: unknown) => setError(errorText(nextError)))
+      .catch((nextError: unknown) => {
+        setProbes((current) => ({ ...current, [providerId]: { schemaVersion: 1, providerId, outcome: 'unreachable', checkedAt, canReadSecret: false, canAutoConnect: false } }));
+        setError(errorMessage(nextError));
+      })
       .finally(() => setPendingProviderId(undefined));
-  }, [client, errorText, requireGateway]);
+  }, []);
 
-  const infer = useCallback((providerId: string, prompt: string, model?: string): void => {
-    if (!requireGateway()) return;
-    setPendingProviderId(providerId);
-    setError(undefined);
-    void client.inferProviderConnection(providerId, prompt, model)
-      .then((result) => setInferences((current) => ({ ...current, [providerId]: result })))
-      .catch((nextError: unknown) => setError(errorText(nextError)))
-      .finally(() => setPendingProviderId(undefined));
-  }, [client, errorText, requireGateway]);
+  const probe = useCallback((providerId: string): void => discoverModels(providerId), [discoverModels]);
 
   const stream = useCallback((providerId: string, prompt: string, model?: string): void => {
-    if (!requireGateway()) return;
-    setPendingProviderId(providerId);
-    setError(undefined);
+    setPendingProviderId(providerId); setError(undefined);
     setStreaming((current) => ({ ...current, [providerId]: { output: '', ...(model ? { model } : {}), complete: false } }));
-    void client.streamProviderConnection(providerId, prompt, model, (text) => {
-      setStreaming((current) => {
-        const existing = current[providerId] ?? { output: '', complete: false };
-        return { ...current, [providerId]: { ...existing, output: existing.output + text } };
-      });
-    })
-      .then((completion: WorkbenchProviderStreamCompletion) => {
-        setStreaming((current) => {
-          const existing = current[providerId] ?? { output: '', complete: false };
-          return { ...current, [providerId]: { ...existing, ...(completion.model ? { model: completion.model } : {}), outputCharacters: completion.outputCharacters, complete: true } };
-        });
-      })
-      .catch((nextError: unknown) => setError(errorText(nextError)))
+    void directProviderClient.stream({ providerId, prompt, model, onText: (text) => setStreaming((current) => {
+      const previous = current[providerId] ?? { output: '', complete: false };
+      return { ...current, [providerId]: { ...previous, output: previous.output + text } };
+    }) })
+      .then((completion) => setStreaming((current) => {
+        const previous = current[providerId] ?? { output: '', complete: false };
+        return { ...current, [providerId]: { ...previous, ...(completion.model ? { model: completion.model } : {}), outputCharacters: previous.output.length, complete: true } };
+      }))
+      .catch((nextError: unknown) => setError(errorMessage(nextError)))
       .finally(() => setPendingProviderId(undefined));
-  }, [client, errorText, requireGateway]);
-
-  const hydrateConnections = useCallback((items: readonly WorkbenchProviderConnection[]): void => {
-    setConnections(items);
-    setError(undefined);
   }, []);
 
-  const reset = useCallback((): void => {
-    setConnections(undefined);
-    setProbes({});
-    setDiscoveredModels({});
-    setInferences({});
-    setStreaming({});
-    setError(undefined);
-    setPendingProviderId(undefined);
+  const infer = useCallback((providerId: string, prompt: string, model?: string): void => {
+    const startedAt = Date.now();
+    setPendingProviderId(providerId); setError(undefined);
+    const output: string[] = [];
+    void directProviderClient.stream({ providerId, prompt, model, onText: (text) => output.push(text) })
+      .then((completion) => setInferences((current) => ({ ...current, [providerId]: { schemaVersion: 1, providerId, profileId: `desktop-direct.${providerId}`, profileRevision: 1, model: completion.model ?? model ?? '', dataBoundary: 'remote-allowed', output: output.join(''), outputDigest: 'desktop-direct', outputCharacters: output.join('').length, latencyMs: Math.max(0, Date.now() - startedAt), canReadSecret: false, canAutoExecuteTools: false, canAutoConnect: false } })))
+      .catch((nextError: unknown) => setError(errorMessage(nextError)))
+      .finally(() => setPendingProviderId(undefined));
   }, []);
 
-  return { connections, probes, discoveredModels, inferences, streaming, error, pendingProviderId, hydrateConnections, reset, refresh, configure, configureCustom, register, activate, probe, discoverModels, infer, stream };
+  const reset = useCallback((): void => { setConnections([]); setProbes({}); setDiscoveredModels({}); setInferences({}); setStreaming({}); setError(undefined); setPendingProviderId(undefined); }, []);
+  const refresh = useCallback((): void => { setError(undefined); }, []);
+  const unavailable = useCallback((providerId: string): void => setError(`${providerId} 已通过桌面直接连接；无需登记或激活步骤。`), []);
+
+  return { connections, probes, discoveredModels, inferences, streaming, error, pendingProviderId, reset, refresh, configure, configureCustom, register: unavailable, activate: unavailable, probe, discoverModels, infer, stream };
 }

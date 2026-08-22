@@ -1175,3 +1175,29 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .composer-attachment-chip button:hover { color: var(--danger); background: var(--danger-soft); }
 .composer-drop-hint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--accent-strong); border-radius: 9px; background: color-mix(in srgb, var(--panel) 84%, transparent); font: 700 11px var(--font-ui); pointer-events: none; }
 @media (max-width: 620px) { .composer-attachment-hint { flex-basis: 100%; }.composer-attachment-chip { max-width: min(100%, 260px); } }
+
+.chat-home-direct-response {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel) 88%, var(--accent-soft));
+  box-shadow: var(--shadow-soft);
+}
+.chat-home-direct-response > div { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.chat-home-direct-response span { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .09em; }
+.chat-home-direct-response strong { color: var(--text-strong); font-size: 13px; }
+.chat-home-direct-response small { margin-left: auto; color: var(--muted); }
+.chat-home-direct-response pre { max-height: 260px; overflow: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); font: 13px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+.chat-home-conversations { margin: 0 0 14px; padding: 13px; border: 1px solid var(--border); border-radius: 18px; background: var(--panel); box-shadow: var(--shadow-soft); }
+.chat-home-conversations .chat-home-section-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.chat-home-conversations .chat-home-section-heading > span { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .09em; }
+.chat-home-conversations .chat-home-section-heading > button { min-height: 26px; padding: 0 9px; color: var(--accent-strong); font-size: 11px; font-weight: 700; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-subtle); }
+.chat-home-conversation-list { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 1px; }
+.chat-home-conversation-list > button { min-width: 160px; max-width: 220px; padding: 9px 10px; display: grid; gap: 3px; text-align: left; border: 1px solid var(--border); border-radius: 11px; background: var(--panel-subtle); }
+.chat-home-conversation-list > button.active { border-color: var(--accent); background: var(--accent-soft); }
+.chat-home-conversation-list strong { overflow: hidden; color: var(--text-strong); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.chat-home-conversation-list small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }

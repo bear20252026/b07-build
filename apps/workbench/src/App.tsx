@@ -57,6 +57,7 @@ import {
 import { createProjectClient } from './runtime/project-client';
 import { useProjectWorkspace } from './runtime/use-project-workspace';
 import { useProviderControlPlane } from './runtime/use-provider-control-plane';
+import { useDirectConversations } from './runtime/use-direct-conversations';
 import { useTaskExecution } from './runtime/use-task-execution';
 import { loadCompanionPreferences, saveCompanionPreferences, updateCompanionPreferences } from './runtime/companion-preferences';
 import { loadFloatingCompanionPreferences, saveFloatingCompanionPreferences, type FloatingCompanionPreferencesV1 } from './runtime/floating-companion-preferences';
@@ -165,9 +166,14 @@ export function App() {
   }, localGatewayClient);
   const { snapshot, events, trajectory, workspaceArtifacts, checkpoints, taskFiles, deliveries, pending, deliveryPending, error: serviceError } = taskExecution;
   const projectWorkspace = useProjectWorkspace(gatewayAttached, activePage, gatewayErrorText, localProjectClient);
-  const providerControl = useProviderControlPlane(gatewayAttached, gatewayErrorText, localGatewayClient);
+  const providerControl = useProviderControlPlane();
+  const directConversations = useDirectConversations();
   const profiles = profileUi(messages);
   const profile = profiles[activeProfile];
+  const selectTaskModel = (selection: Readonly<{ providerId: string; model?: string }>): void => {
+    setTaskModelSelection(selection);
+    window.localStorage.setItem('awo.direct-provider.selection.v1', JSON.stringify(selection));
+  };
   const selectedTaskConnection = providerControl.connections?.find((connection) => connection.providerId === taskModelSelection?.providerId);
   const taskModelLabel = selectedTaskConnection ? `${selectedTaskConnection.displayName} · ${taskModelSelection?.model ?? selectedTaskConnection.defaultModel}` : undefined;
   const updateCompanion = (change: Parameters<typeof updateCompanionPreferences>[1]): void => setCompanionPreferences((current) => {
@@ -211,59 +217,17 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gatewayAttached, activePage]);
 
-  const startAndAttachGateway = (): void => {
-    if (attachingGateway || gatewayAttached) return;
-    const awaitGatewayReadiness = (remainingAttempts: number): Promise<readonly WorkbenchProviderConnection[]> => localGatewayClient.providerConnections()
-      .catch((error: unknown) => remainingAttempts <= 0
-        ? Promise.reject(error)
-        : new Promise<void>((resolve) => window.setTimeout(resolve, 250)).then(() => awaitGatewayReadiness(remainingAttempts - 1)));
-    setAttachingGateway(true);
-    setGatewayAttachmentError(undefined);
-    void invoke<'started' | 'already-running'>('start_local_gateway')
-      .then(() => awaitGatewayReadiness(8))
-      .then((connections) => { providerControl.hydrateConnections(connections); setGatewayAttached(true); })
-      .catch((error: unknown) => {
-        setActivePage('models');
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.includes('gateway-sidecar-unavailable')) {
-          setGatewayAttachmentError('本机 Gateway 未能启动。请重新安装完整 Windows 应用后重试；不会自动启动任何其它程序。');
-          return;
-        }
-        if (message.includes('window.__TAURI') || message.includes('IPC')) {
-          setGatewayAttachmentError('此启动入口仅在 Windows 桌面应用中可用。浏览器预览需手动启动本机 Gateway。');
-          return;
-        }
-        setGatewayAttachmentError(gatewayErrorText(error));
-      })
-      .finally(() => setAttachingGateway(false));
-  };
-
-
-  useEffect(() => {
-    if (activePage !== 'models' || gatewayAttached || attachingGateway || gatewayAttachmentError) return;
-    startAndAttachGateway();
-  // 模型设置页只会按需启动固定的本机回环 Gateway，不会因此连接任何第三方服务。
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePage, gatewayAttached, attachingGateway, gatewayAttachmentError]);
-
-  const detachGateway = (): void => {
-    setGatewayAttached(false);
-    setGatewayAttachmentError(undefined);
-    providerControl.reset();
-    setLocalModels(undefined);
-    setControlPlaneDiagnostics(undefined);
-    setSecurityPostureAudit(undefined);
-    setComponentLockReport(undefined);
-    setComponentManagementReport(undefined);
-    setNativeHostAuthenticationReport(undefined);
-    setWindowsNativeReleaseReport(undefined);
-    taskExecution.reset();
-    projectWorkspace.reset();
-  };
-
   const submitIntent = async (): Promise<void> => {
     const goal = draft.trim();
     if (!goal) return;
+    if (taskModelSelection) {
+      directConversations.send(taskModelSelection, goal);
+      setActiveGoal(goal);
+      setComposerAttachments([]);
+      setDraft('');
+      setActivePage('workspace');
+      return;
+    }
     if (await taskExecution.submit(goal, activeProfile, authorityMode, composerAttachments.map((attachment) => ({ id: attachment.descriptor.id, name: attachment.descriptor.name, file: attachment.file })), taskModelSelection)) {
       setActiveGoal(goal);
       setComposerAttachments([]);
@@ -312,8 +276,8 @@ export function App() {
   if (isDesktopCompanionWindow) return <DesktopCompanionSurface />;
 
   const settingsContent = <>
-    {activePage === 'models' && <ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerControl.connections : []} discoveredModels={providerControl.discoveredModels} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onAttach={startAndAttachGateway} onConfigure={providerControl.configure} onConfigureCustom={providerControl.configureCustom} onDiscoverModels={providerControl.discoverModels} onManageConnections={() => setActivePage('connections')} />}
-    {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查询模型目录、选择模型、检查连接状态，或发送一次受限文本请求。</p></div><ProviderConnectionCenter connections={gatewayAttached ? providerControl.connections : []} probes={providerControl.probes} discoveredModels={providerControl.discoveredModels} inferences={providerControl.inferences} streaming={providerControl.streaming} taskModelSelection={taskModelSelection} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onRefresh={providerControl.refresh} onRegister={providerControl.register} onActivate={providerControl.activate} onProbe={providerControl.probe} onDiscoverModels={providerControl.discoverModels} onSelectTaskModel={setTaskModelSelection} onInfer={providerControl.infer} onStream={providerControl.stream} /></section>}
+    {activePage === 'models' && <ProviderSetupPage connections={providerControl.connections} discoveredModels={providerControl.discoveredModels} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onConfigure={providerControl.configure} onConfigureCustom={providerControl.configureCustom} onDiscoverModels={providerControl.discoverModels} onManageConnections={() => setActivePage('connections')} />}
+    {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查询模型目录、选择模型、检查连接状态，或发送一次受限文本请求。</p></div><ProviderConnectionCenter connections={providerControl.connections} probes={providerControl.probes} discoveredModels={providerControl.discoveredModels} inferences={providerControl.inferences} streaming={providerControl.streaming} taskModelSelection={taskModelSelection} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onRefresh={providerControl.refresh} onProbe={providerControl.probe} onDiscoverModels={providerControl.discoverModels} onSelectTaskModel={selectTaskModel} onInfer={providerControl.infer} onStream={providerControl.stream} /></section>}
     {activePage === 'workspace-files' && <WorkspaceFilesPage preferences={workspaceFilePreferences} onChange={updateWorkspaceFiles} />}
     {activePage === 'terminal-coding' && <TerminalCodingPage workspace={workspaceFilePreferences} />}
     {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><ApiUsageSummaryCard gatewayAttached={gatewayAttached} onOpen={() => setActivePage('api-usage')} /><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /></section>}
@@ -355,9 +319,7 @@ export function App() {
               <button aria-label="打开项目产物检查器" className="titlebar-icon-button" onClick={() => setInspectorSurface('artifacts')} title="打开当前任务的项目产物检查器；只显示受控文件投影。" type="button">▧</button>
               <button aria-label="打开 Companion 独立窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('companion')} title="打开独立 Companion 角色窗口；不会切换模型或授予权限。" type="button">◉</button>
             </div>
-            {activePage !== 'models' && <button className={`gateway-attach-button${gatewayAttached ? ' attached' : ''}`} type="button" onClick={gatewayAttached ? detachGateway : startAndAttachGateway} disabled={attachingGateway}>
-              {attachingGateway ? '正在启动并附着…' : gatewayAttached ? '断开本机 Gateway' : '启动并附着 Gateway'}
-            </button>}
+            {activePage !== 'models' && <button className="gateway-attach-button attached" type="button" onClick={() => setActivePage('models')}>管理 API 连接</button>}
             {isTaskPage && <><div className="profile-switcher" aria-label={messages.profile.selectAria}>
               {WORKBENCH_PROFILE_IDS.map((profileId) => (
                 <button
@@ -377,7 +339,7 @@ export function App() {
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
-            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={gatewayAttached} taskModelLabel={taskModelLabel} messages={messages} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} profiles={profiles} />}
+            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} conversations={directConversations.conversations} activeConversationId={directConversations.activeConversation?.id} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} onSelectConversation={directConversations.select} onNewConversation={() => { if (taskModelSelection) directConversations.create(taskModelSelection); }} profiles={profiles} />}
             {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} error={projectWorkspace.error} gatewayAttached={gatewayAttached} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={projectWorkspace.create} onSelect={projectWorkspace.select} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
             {isTaskPage && snapshot && <TaskPage
               activeGoal={activeGoal}
@@ -410,10 +372,10 @@ export function App() {
               </div>
             </div>
             <section className="workspace-model-strip" aria-label="当前模型连接状态">
-              <div><span>MODEL READYNESS</span><strong>{gatewayAttached ? '选择一个已连接模型，开始你的第一个任务' : '先连接第三方模型，再开始工作'}</strong><p>{gatewayAttached ? '模型连接、测试和高级诊断已移动到设置；这里保留任务对话。' : '无需安装本地模型：OpenAI-compatible 和 Anthropic-compatible 均可用。'}</p></div>
-              <button type="button" onClick={() => setActivePage('models')}>{gatewayAttached ? '管理模型' : '连接第三方 API'}</button>
+              <div><span>MODEL READYNESS</span><strong>{providerControl.connections.length > 0 ? '选择一个已连接模型，开始你的第一个任务' : '先连接第三方模型，再开始工作'}</strong><p>{providerControl.connections.length > 0 ? '模型连接、测试和模型选择已移动到设置；这里保留任务对话。' : '无需安装本地模型：OpenAI-compatible 和 Anthropic-compatible 均可用。'}</p></div>
+              <button type="button" onClick={() => setActivePage('models')}>{providerControl.connections.length > 0 ? '管理模型' : '连接第三方 API'}</button>
             </section>
-            <LocalDataFlowBoard connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={gatewayAttached} onOpenModels={() => setActivePage('models')} taskFileCount={taskFiles.length} />
+            <LocalDataFlowBoard connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} onOpenModels={() => setActivePage('models')} taskFileCount={taskFiles.length} />
             <TaskStoryboard deliveryCount={deliveries.length} eventCount={events.length} onOpenInspector={focusTaskInspector} snapshot={snapshot} taskFileCount={taskFiles.length} />
             <TaskOutcomeBoard deliveries={deliveries} deliveryPending={deliveryPending} files={taskFiles} onCreateDelivery={taskExecution.requestDelivery} onOpenInspector={focusTaskInspector} />
             {serviceError && <div className="runtime-error" role="alert">{messages.common.local}: {serviceError}</div>}

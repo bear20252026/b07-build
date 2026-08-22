@@ -1,40 +1,34 @@
 //! AI Work OS desktop shell.
 //!
 //! The WebView receives no filesystem, shell, database, environment, updater, deep-link, or
-//! native-helper API. The sole process bridge starts the fixed bundled Gateway. The small set of
-//! Companion commands can only create, restore, or destroy the fixed local desktop window.
+//! native-helper API. Third-party model requests are issued by the fixed native Provider client
+//! from explicit user configuration; Companion commands only create, restore, or destroy the fixed local desktop window.
+
+#[cfg(not(mobile))]
+mod direct_provider;
 
 #[cfg(not(mobile))]
 use std::{
-    fs::create_dir_all,
-    net::{SocketAddr, TcpStream},
     path::PathBuf,
     sync::Mutex,
-    time::Duration,
 };
 
-use tauri::{AppHandle, Manager};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    AppHandle, Manager,
+};
 #[cfg(not(mobile))]
 use tauri::{State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 #[cfg(not(mobile))]
 use tauri_plugin_dialog::DialogExt;
 #[cfg(not(mobile))]
-use tauri_plugin_shell::{process::CommandChild, ShellExt};
 
 #[cfg(not(mobile))]
-const GATEWAY_ADDRESS: &str = "127.0.0.1:4318";
-#[cfg(not(mobile))]
-const GATEWAY_SIDECAR: &str = "awo-runtime-gateway";
-#[cfg(not(mobile))]
-const HEALTH_ATTEMPTS: u8 = 20;
-#[cfg(not(mobile))]
-const HEALTH_DELAY: Duration = Duration::from_millis(100);
 const MAIN_WINDOW_LABEL: &str = "main";
 #[cfg(not(mobile))]
 const DESKTOP_COMPANION_WINDOW_LABEL: &str = "desktop-companion";
 
-#[cfg(not(mobile))]
-struct GatewayLaunchState(Mutex<Option<CommandChild>>);
 #[cfg(not(mobile))]
 struct WorkspaceDirectoryState(Mutex<Option<PathBuf>>);
 
@@ -43,76 +37,6 @@ struct WorkspaceDirectoryState(Mutex<Option<PathBuf>>);
 struct WorkspaceDirectorySelection {
     selected: bool,
     label: &'static str,
-}
-
-#[cfg(not(mobile))]
-#[derive(serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-enum GatewayStartOutcome {
-    Started,
-    AlreadyRunning,
-}
-
-/// 为 sidecar 建立唯一的、每用户私有的数据工作目录；该路径不返回给 WebView。
-#[cfg(not(mobile))]
-fn gateway_data_directory(app: &AppHandle) -> Result<std::path::PathBuf, &'static str> {
-    let directory = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|_| "gateway-data-directory-unavailable")?;
-    // Gateway composition root 将其持久化文件统一置于相对 `.awo/`；只预建该固定子目录。
-    create_dir_all(directory.join(".awo")).map_err(|_| "gateway-data-directory-unavailable")?;
-    Ok(directory)
-}
-
-#[cfg(not(mobile))]
-fn gateway_is_reachable() -> bool {
-    let Ok(address) = GATEWAY_ADDRESS.parse::<SocketAddr>() else {
-        return false;
-    };
-    TcpStream::connect_timeout(&address, Duration::from_millis(75)).is_ok()
-}
-
-/// Starts only the audited bundled Gateway sidecar in its fixed `serve` mode.
-/// No path, port, environment, command, or other process argument is caller-controlled.
-#[cfg(not(mobile))]
-#[tauri::command]
-fn start_local_gateway(
-    app: AppHandle,
-    state: State<'_, GatewayLaunchState>,
-) -> Result<GatewayStartOutcome, &'static str> {
-    if gateway_is_reachable() {
-        return Ok(GatewayStartOutcome::AlreadyRunning);
-    }
-
-    let data_directory = gateway_data_directory(&app)?;
-    let command = app
-        .shell()
-        .sidecar(GATEWAY_SIDECAR)
-        .map_err(|_| "gateway-sidecar-unavailable")
-        .and_then(|command| {
-            command
-                .current_dir(data_directory)
-                .args(["serve"])
-                .spawn()
-                .map_err(|_| "gateway-sidecar-unavailable")
-        })?;
-    let (_events, child) = command;
-
-    for _ in 0..HEALTH_ATTEMPTS {
-        std::thread::sleep(HEALTH_DELAY);
-        if gateway_is_reachable() {
-            let mut stored_child = state
-                .0
-                .lock()
-                .map_err(|_| "gateway-launch-state-unavailable")?;
-            *stored_child = Some(child);
-            return Ok(GatewayStartOutcome::Started);
-        }
-    }
-
-    child.kill().map_err(|_| "gateway-sidecar-stop-failed")?;
-    Err("gateway-sidecar-unavailable")
 }
 
 /// Opens the system folder picker only after an explicit user action. The selected path remains
@@ -201,6 +125,30 @@ fn close_desktop_companion(app: AppHandle) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Keeps the application discoverable after the main window is minimized or hidden by the Companion surface.
+#[cfg(not(mobile))]
+fn install_desktop_tray(app: &AppHandle) -> tauri::Result<()> {
+    let show_workbench = MenuItem::with_id(app, "tray-show-workbench", "打开工作台", true, None::<&str>)?;
+    let show_companion = MenuItem::with_id(app, "tray-show-companion", "显示桌面助手", true, None::<&str>)?;
+    let exit = MenuItem::with_id(app, "tray-exit", "退出 AI Work OS", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_workbench, &show_companion, &exit])?;
+    let mut builder = TrayIconBuilder::with_id("ai-work-os-tray")
+        .tooltip("AI Work OS · 直接模型连接")
+        .menu(&menu);
+    if let Some(icon) = app.default_window_icon().cloned() {
+        builder = builder.icon(icon);
+    }
+    builder
+        .on_menu_event(|app, event| match event.id().0.as_str() {
+            "tray-show-workbench" => { let _ = close_desktop_companion(app.clone()); }
+            "tray-show-companion" => { let _ = show_desktop_companion(app.clone()); }
+            "tray-exit" => app.exit(0),
+            _ => {}
+        })
+        .build(app)?;
+    Ok(())
+}
+
 /// The only full-exit path exposed by the desktop Companion surface.
 #[tauri::command]
 fn exit_ai_work_os(app: AppHandle) {
@@ -210,12 +158,13 @@ fn exit_ai_work_os(app: AppHandle) {
 #[cfg(not(mobile))]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(GatewayLaunchState(Mutex::new(None)))
+        .manage(direct_provider::DirectProviderState::new())
         .manage(WorkspaceDirectoryState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
-            start_local_gateway,
+            direct_provider::configure_direct_provider,
+            direct_provider::discover_direct_provider,
+            direct_provider::start_direct_provider_stream,
             choose_workspace_directory,
             show_desktop_companion,
             close_desktop_companion,
@@ -226,6 +175,7 @@ pub fn run() {
                 .get_webview_window(MAIN_WINDOW_LABEL)
                 .ok_or("desktop configuration must define the main window")?;
             main_window.set_focus()?;
+            install_desktop_tray(app.handle())?;
             Ok(())
         })
         .on_window_event(|window, event| {

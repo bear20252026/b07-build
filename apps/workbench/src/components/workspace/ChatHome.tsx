@@ -2,6 +2,7 @@ import type { AgentProfileId } from '@awo/protocol';
 import type { Translation } from '../../i18n/catalog';
 import { WORKBENCH_PROFILE_IDS } from './agent-profiles';
 import { createWorkModeAuditProjection } from './work-mode-projection';
+import type { DirectConversation } from '../../runtime/use-direct-conversations';
 
 export interface ChatHomeProps {
   activeProfile: AgentProfileId;
@@ -9,11 +10,16 @@ export interface ChatHomeProps {
   connectedProviderCount: number;
   gatewayAttached: boolean;
   taskModelLabel?: string;
+  directResponse?: Readonly<{ output: string; model?: string; complete: boolean }>;
+  conversations?: readonly DirectConversation[];
+  activeConversationId?: string;
   messages: Translation;
   profiles: Readonly<Record<AgentProfileId, { label: string; description: string }>>;
   onOpenModels(): void;
   onProfileChange(profileId: AgentProfileId): void;
   onSuggestion(goal: string): void;
+  onSelectConversation(id: string): void;
+  onNewConversation(): void;
 }
 
 /**
@@ -28,11 +34,16 @@ export function ChatHome({
   connectedProviderCount,
   gatewayAttached,
   taskModelLabel,
+  directResponse,
+  conversations = [],
+  activeConversationId,
   messages,
   profiles,
   onOpenModels,
   onProfileChange,
   onSuggestion,
+  onSelectConversation,
+  onNewConversation,
 }: ChatHomeProps) {
   const home = messages.home;
   const modelTitle = gatewayAttached && connectedProviderCount > 0
@@ -49,6 +60,8 @@ export function ChatHome({
             <h1>{home.title}</h1>
             <p>{home.description}</p>
           </div>
+          {conversations.length > 0 && <section className="chat-home-conversations" aria-label="可恢复对话历史"><div className="chat-home-section-heading"><span>CONVERSATIONS</span><button type="button" onClick={onNewConversation}>新对话</button></div><div className="chat-home-conversation-list">{conversations.map((conversation) => <button key={conversation.id} type="button" className={conversation.id === activeConversationId ? 'active' : ''} onClick={() => onSelectConversation(conversation.id)}><strong>{conversation.title}</strong><small>{conversation.selection.model ?? conversation.selection.providerId} · {conversation.messages.length} 条消息</small></button>)}</div></section>}
+          {directResponse && <section className="chat-home-direct-response" aria-live="polite"><div><span>DIRECT MODEL RESPONSE</span><strong>{directResponse.model ?? taskModelLabel ?? '已选模型'}</strong><small>{directResponse.complete ? '流式回答完成' : '正在接收第三方文本分块…'}</small></div><pre>{directResponse.output || '正在等待模型返回首个文本分块…'}</pre></section>}
           <section className="chat-home-profile" aria-label={home.profileLabel}>
             <div className="chat-home-section-heading"><span>{home.profileLabel}</span><small>{profiles[activeProfile].label}</small></div>
             <div className="chat-home-profile-grid">
