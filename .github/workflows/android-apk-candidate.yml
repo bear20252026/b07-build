@@ -83,19 +83,24 @@ jobs:
             -validity 30 \
             -dname 'CN=AI Work OS Android Candidate, O=AI Work OS, C=US' \
             -noprompt
+          build_tools_dir=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)
+          test -n "$build_tools_dir"
+          zipalign_bin="$ANDROID_HOME/build-tools/$build_tools_dir/zipalign"
+          apksigner_bin="$ANDROID_HOME/build-tools/$build_tools_dir/apksigner"
+          test -x "$zipalign_bin" && test -x "$apksigner_bin"
           mapfile -t apks < <(find apps/desktop-shell/src-tauri/gen/android/app/build/outputs/apk -type f -name '*release-unsigned.apk' | sort)
           test "${#apks[@]}" -gt 0
           for apk in "${apks[@]}"; do
             signed="${apk%-unsigned.apk}.apk"
-            zipalign -f -p 4 "$apk" "$signed.aligned"
-            apksigner sign \
+            "$zipalign_bin" -f -p 4 "$apk" "$signed.aligned"
+            "$apksigner_bin" sign \
               --ks "$keystore" \
               --ks-key-alias ai-work-os-candidate \
               --ks-pass pass:android \
               --key-pass pass:android \
               --out "$signed" \
               "$signed.aligned"
-            apksigner verify --verbose --print-certs "$signed"
+            "$apksigner_bin" verify --verbose --print-certs "$signed"
             rm -f "$apk" "$signed.aligned"
           done
           rm -rf "$signing_dir"

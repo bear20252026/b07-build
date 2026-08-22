@@ -47,7 +47,8 @@ test('Android 只通过远程 runner 初始化与构建，且不继承 Windows G
     'runs-on: ubuntu-latest', 'actions/setup-java@v5', 'android-actions/setup-android@v3',
     "'ndk;27.2.12479018'", 'npm run android:init', 'npm run android:build:apk',
     "'signingStatus': 'ephemeral-test-signed-release-candidate'", 'Sign release APKs with an ephemeral test certificate',
-    'keytool -genkeypair', 'apksigner sign', 'apksigner verify', 'includesWindowsGatewaySidecar',
+    'keytool -genkeypair', 'zipalign_bin', 'apksigner_bin', '"$apksigner_bin" sign',
+    '"$apksigner_bin" verify', 'includesWindowsGatewaySidecar',
     'includesDesktopCompanionCommands', 'actions/upload-artifact@v7',
   ]) assert.ok(androidWorkflow.includes(expected), `Android 远程构建工作流缺少：${expected}`);
   for (const forbidden of ['gateway:sidecar', 'Start-Process', 'git push', 'contents: write']) {
