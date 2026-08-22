@@ -22,6 +22,7 @@ const gatewaySidecarBuild = readFileSync(resolve(root, 'scripts/windows/build-ga
 
 test('桌面壳只加载本地 Workbench 静态产物并生成每用户 Windows NSIS 安装器', () => {
   assert.equal(packageManifest.name, '@awo/desktop-shell');
+  assert.equal((packageManifest.scripts as Record<string, unknown>).tauri, 'tauri');
   const build = desktopConfig.build as Record<string, unknown>;
   const bundle = desktopConfig.bundle as Record<string, unknown>;
   const windows = bundle.windows as Record<string, unknown>;
