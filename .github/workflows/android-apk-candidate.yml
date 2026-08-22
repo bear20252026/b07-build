@@ -66,6 +66,40 @@ jobs:
       - name: Build APK candidates
         run: npm run android:build:apk
 
+      - name: Sign release APKs with an ephemeral test certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          signing_dir="$RUNNER_TEMP/ai-work-os-android-signing"
+          keystore="$signing_dir/candidate-release.jks"
+          mkdir -p "$signing_dir"
+          keytool -genkeypair \
+            -keystore "$keystore" \
+            -storepass android \
+            -keypass android \
+            -alias ai-work-os-candidate \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 30 \
+            -dname 'CN=AI Work OS Android Candidate, O=AI Work OS, C=US' \
+            -noprompt
+          mapfile -t apks < <(find apps/desktop-shell/src-tauri/gen/android/app/build/outputs/apk -type f -name '*release-unsigned.apk' | sort)
+          test "${#apks[@]}" -gt 0
+          for apk in "${apks[@]}"; do
+            signed="${apk%-unsigned.apk}.apk"
+            zipalign -f -p 4 "$apk" "$signed.aligned"
+            apksigner sign \
+              --ks "$keystore" \
+              --ks-key-alias ai-work-os-candidate \
+              --ks-pass pass:android \
+              --key-pass pass:android \
+              --out "$signed" \
+              "$signed.aligned"
+            apksigner verify --verbose --print-certs "$signed"
+            rm -f "$apk" "$signed.aligned"
+          done
+          rm -rf "$signing_dir"
+
       - name: Collect APKs and write manifest
         id: package
         shell: bash
@@ -95,7 +129,7 @@ jobs:
               'product': 'AI Work OS',
               'platform': 'android',
               'artifactKind': 'android-apk-candidate',
-              'signingStatus': 'debug-signed-candidate',
+              'signingStatus': 'ephemeral-test-signed-release-candidate',
               'publicTrust': False,
               'includesWindowsGatewaySidecar': False,
               'includesDesktopCompanionCommands': False,

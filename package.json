@@ -19,7 +19,7 @@
     "desktop:typecheck": "npm run typecheck --workspace=@awo/desktop-shell",
     "gateway:sidecar": "node scripts/windows/build-gateway-sidecar.mjs",
     "android:init": "npm exec --workspace=@awo/desktop-shell -- tauri android init --ci",
-    "android:build:apk": "npm exec --workspace=@awo/desktop-shell -- tauri android build --debug --apk --target aarch64 --target armv7",
+    "android:build:apk": "npm exec --workspace=@awo/desktop-shell -- tauri android build --apk --target aarch64 --target armv7",
     "performance:check": "npm run build --workspace=@awo/workbench && node tools/performance-budget.mjs"
   },
   "devDependencies": {
