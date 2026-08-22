@@ -4,6 +4,7 @@
 //! native-helper API. The sole process bridge starts the fixed bundled Gateway. The small set of
 //! Companion commands can only create, restore, or destroy the fixed local desktop window.
 
+#[cfg(not(mobile))]
 use std::{
     fs::create_dir_all,
     net::{SocketAddr, TcpStream},
@@ -12,26 +13,39 @@ use std::{
     time::Duration,
 };
 
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Manager};
+#[cfg(not(mobile))]
+use tauri::{State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+#[cfg(not(mobile))]
 use tauri_plugin_dialog::DialogExt;
+#[cfg(not(mobile))]
 use tauri_plugin_shell::{process::CommandChild, ShellExt};
 
+#[cfg(not(mobile))]
 const GATEWAY_ADDRESS: &str = "127.0.0.1:4318";
+#[cfg(not(mobile))]
 const GATEWAY_SIDECAR: &str = "awo-runtime-gateway";
+#[cfg(not(mobile))]
 const HEALTH_ATTEMPTS: u8 = 20;
+#[cfg(not(mobile))]
 const HEALTH_DELAY: Duration = Duration::from_millis(100);
 const MAIN_WINDOW_LABEL: &str = "main";
+#[cfg(not(mobile))]
 const DESKTOP_COMPANION_WINDOW_LABEL: &str = "desktop-companion";
 
+#[cfg(not(mobile))]
 struct GatewayLaunchState(Mutex<Option<CommandChild>>);
+#[cfg(not(mobile))]
 struct WorkspaceDirectoryState(Mutex<Option<PathBuf>>);
 
+#[cfg(not(mobile))]
 #[derive(serde::Serialize)]
 struct WorkspaceDirectorySelection {
     selected: bool,
     label: &'static str,
 }
 
+#[cfg(not(mobile))]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum GatewayStartOutcome {
@@ -40,6 +54,7 @@ enum GatewayStartOutcome {
 }
 
 /// 为 sidecar 建立唯一的、每用户私有的数据工作目录；该路径不返回给 WebView。
+#[cfg(not(mobile))]
 fn gateway_data_directory(app: &AppHandle) -> Result<std::path::PathBuf, &'static str> {
     let directory = app
         .path()
@@ -50,6 +65,7 @@ fn gateway_data_directory(app: &AppHandle) -> Result<std::path::PathBuf, &'stati
     Ok(directory)
 }
 
+#[cfg(not(mobile))]
 fn gateway_is_reachable() -> bool {
     let Ok(address) = GATEWAY_ADDRESS.parse::<SocketAddr>() else {
         return false;
@@ -59,6 +75,7 @@ fn gateway_is_reachable() -> bool {
 
 /// Starts only the audited bundled Gateway sidecar in its fixed `serve` mode.
 /// No path, port, environment, command, or other process argument is caller-controlled.
+#[cfg(not(mobile))]
 #[tauri::command]
 fn start_local_gateway(
     app: AppHandle,
@@ -100,6 +117,7 @@ fn start_local_gateway(
 
 /// Opens the system folder picker only after an explicit user action. The selected path remains
 /// in native memory; the WebView receives only a non-sensitive label and cannot browse the path.
+#[cfg(not(mobile))]
 #[tauri::command]
 fn choose_workspace_directory(
     app: AppHandle,
@@ -127,6 +145,7 @@ fn choose_workspace_directory(
 
 /// Creates only the fixed, local Companion surface and hides the main workbench after success.
 /// It neither starts a model/Gateway nor grants the new WebView Shell, file, capture, or autostart access.
+#[cfg(not(mobile))]
 #[tauri::command]
 fn show_desktop_companion(app: AppHandle) -> Result<(), &'static str> {
     if let Some(window) = app.get_webview_window(DESKTOP_COMPANION_WINDOW_LABEL) {
@@ -162,6 +181,7 @@ fn show_desktop_companion(app: AppHandle) -> Result<(), &'static str> {
 }
 
 /// Destroys only the fixed Companion window and returns to the main workbench.
+#[cfg(not(mobile))]
 #[tauri::command]
 fn close_desktop_companion(app: AppHandle) -> Result<(), &'static str> {
     if let Some(window) = app.get_webview_window(DESKTOP_COMPANION_WINDOW_LABEL) {
