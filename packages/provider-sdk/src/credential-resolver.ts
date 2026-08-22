@@ -31,8 +31,6 @@ const ENVIRONMENT_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'env.openrouter': 'OPENROUTER_API_KEY',
   'env.mimo': 'MIMO_API_KEY',
   'env.mimo-token-plan-cn': 'MIMO_TOKEN_PLAN_CN_API_KEY',
-  'env.mimo-token-plan-sgp': 'MIMO_TOKEN_PLAN_SGP_API_KEY',
-  'env.mimo-token-plan-ams': 'MIMO_TOKEN_PLAN_AMS_API_KEY',
   'env.longcat': 'LONGCAT_API_KEY',
   'env.kimi': 'MOONSHOT_API_KEY',
   'env.zhipu': 'ZAI_API_KEY',

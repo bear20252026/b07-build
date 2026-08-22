@@ -119,7 +119,7 @@ function statusLabel(status: WorkbenchTaskSnapshot['status'] | undefined, messag
 
 function gatewayErrorText(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? '');
-  if (/Failed to fetch|DOCTYPE|Unexpected token|JSON/i.test(message)) return '未收到可用的 Gateway 响应。请点击“启动并附着 Gateway”，等待本机服务就绪后重试。';
+  if (/Failed to fetch|DOCTYPE|Unexpected token|JSON/i.test(message)) return '未收到可用的 Gateway 响应。应用会在连接模型时按需启动本机服务；请稍候或重试。';
   if (/aborted|timeout/i.test(message)) return '本机 Gateway 暂未就绪或供应商响应超时。请稍候重试，并检查模型名称和 API key。';
   return message && !/[<{]/.test(message) ? message : '连接请求未完成。请检查 Gateway 状态后重试。';
 }
@@ -236,6 +236,13 @@ export function App() {
   };
 
 
+  useEffect(() => {
+    if (activePage !== 'models' || gatewayAttached || attachingGateway || gatewayAttachmentError) return;
+    startAndAttachGateway();
+  // 模型设置页只会按需启动固定的本机回环 Gateway，不会因此连接任何第三方服务。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePage, gatewayAttached, attachingGateway, gatewayAttachmentError]);
+
   const detachGateway = (): void => {
     setGatewayAttached(false);
     setGatewayAttachmentError(undefined);
@@ -302,7 +309,7 @@ export function App() {
   if (isDesktopCompanionWindow) return <DesktopCompanionSurface />;
 
   const settingsContent = <>
-    {activePage === 'models' && <ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerControl.connections : []} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onAttach={startAndAttachGateway} onDetach={detachGateway} onConfigure={providerControl.configure} onConfigureCustom={providerControl.configureCustom} onManageConnections={() => setActivePage('connections')} />}
+    {activePage === 'models' && <ProviderSetupPage gatewayAttached={gatewayAttached} attachingGateway={attachingGateway} gatewayError={gatewayAttachmentError} connections={gatewayAttached ? providerControl.connections : []} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onAttach={startAndAttachGateway} onConfigure={providerControl.configure} onConfigureCustom={providerControl.configureCustom} onManageConnections={() => setActivePage('connections')} />}
     {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查看状态、手动测试模型目录或发送一次受限文本请求；不会自动调用第三方 API。</p></div><ProviderConnectionCenter connections={gatewayAttached ? providerControl.connections : []} probes={providerControl.probes} inferences={providerControl.inferences} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onRefresh={providerControl.refresh} onRegister={providerControl.register} onActivate={providerControl.activate} onProbe={providerControl.probe} onInfer={providerControl.infer} /></section>}
     {activePage === 'workspace-files' && <WorkspaceFilesPage preferences={workspaceFilePreferences} onChange={updateWorkspaceFiles} />}
     {activePage === 'terminal-coding' && <TerminalCodingPage workspace={workspaceFilePreferences} />}

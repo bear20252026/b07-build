@@ -33,6 +33,17 @@ function replaceConnection(
     .sort((left, right) => left.displayName.localeCompare(right.displayName));
 }
 
+function probeFailureMessage(probe: WorkbenchProviderConnectionProbe): string {
+  const detail: Record<Exclude<WorkbenchProviderConnectionProbe['outcome'], 'reachable'>, string> = {
+    'missing-credential': '本机 Gateway 未收到 API key，请重新填写后连接。',
+    'not-registered': '连接状态未初始化，请重新点击“连接并测试”。',
+    'not-active': '连接尚未就绪，请重新点击“连接并测试”。',
+    rejected: '服务拒绝了连接。请确认密钥类型与套餐匹配；MiMo Token Plan 请使用中国区 tp- 密钥。',
+    unreachable: '无法到达服务。请检查网络、代理或服务地址后重试。',
+  };
+  return `连接测试未通过：${detail[probe.outcome as Exclude<WorkbenchProviderConnectionProbe['outcome'], 'reachable'>]}`;
+}
+
 /**
  * Provider 控制面只经本机 Gateway client 调用。API key 从表单到 session-only Gateway，
  * 不进入 React state、任务事件、SQLite DTO 或本 hook 的返回值。
@@ -81,7 +92,7 @@ export function useProviderControlPlane(
         try {
           const probe = await client.probeProviderConnection(connection.providerId);
           setProbes((current) => ({ ...current, [connection.providerId]: probe }));
-          if (probe.outcome !== 'reachable') setError(`连接已保存，但测试未通过：${probe.outcome}`);
+          if (probe.outcome !== 'reachable') setError(probeFailureMessage(probe));
         } catch (nextError) {
           setError(`连接已保存，但测试未完成：${errorText(nextError)}`);
         }
@@ -100,7 +111,7 @@ export function useProviderControlPlane(
         try {
           const probe = await client.probeProviderConnection(connection.providerId);
           setProbes((current) => ({ ...current, [connection.providerId]: probe }));
-          if (probe.outcome !== 'reachable') setError(`连接已保存，但测试未通过：${probe.outcome}`);
+          if (probe.outcome !== 'reachable') setError(probeFailureMessage(probe));
         } catch (nextError) {
           setError(`连接已保存，但测试未完成：${errorText(nextError)}`);
         }
@@ -134,7 +145,10 @@ export function useProviderControlPlane(
     setPendingProviderId(providerId);
     setError(undefined);
     void client.probeProviderConnection(providerId)
-      .then((result) => setProbes((current) => ({ ...current, [providerId]: result })))
+      .then((result) => {
+        setProbes((current) => ({ ...current, [providerId]: result }));
+        if (result.outcome !== 'reachable') setError(probeFailureMessage(result));
+      })
       .catch((nextError: unknown) => setError(errorText(nextError)))
       .finally(() => setPendingProviderId(undefined));
   }, [client, errorText, requireGateway]);
