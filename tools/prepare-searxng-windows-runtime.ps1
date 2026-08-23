@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$searxngRoot = Join-Path $projectRoot 'third_party\searxng'
+$searxngRoot = Join-Path $projectRoot 'third_party\searxng-windows'
 $runtimeRoot = Join-Path $projectRoot 'apps\desktop-shell\src-tauri\resources\research\python-runtime'
 $pythonVersion = '3.13.13'
 $pythonArchiveName = "python-$pythonVersion-embed-$Architecture.zip"

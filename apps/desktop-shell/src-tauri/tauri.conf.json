@@ -45,7 +45,7 @@
     "resources": {
       "../../../third_party/last30days-skill/": "research/last30days-skill/",
       "../../../third_party/last30days-skill-cn/": "research/last30days-skill-cn/",
-      "../../../third_party/searxng/": "research/searxng/",
+      "../../../third_party/searxng-windows/": "research/searxng/",
       "resources/research/python-runtime/": "research/python-runtime/"
     },
     "windows": {

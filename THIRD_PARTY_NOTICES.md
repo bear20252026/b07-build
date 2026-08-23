@@ -60,11 +60,11 @@ The vendored paths, immutable upstream commit identifiers and source handling ru
 
 ## SearXNG
 
-This repository includes the complete, unmodified source snapshot of [`searxng/searxng`](https://github.com/searxng/searxng) under `third_party/searxng/` for the planned optional local metasearch backend.
+This repository includes the complete, unmodified source snapshot of [`searxng/searxng`](https://github.com/searxng/searxng) in `third_party/searxng-source-9fea41204fdfa7a5cfa15b0ebd12904c520478ce.tar.gz` for the optional local metasearch backend. A Windows-executable mirror at `third_party/searxng-windows/` omits only four upstream web-server socket template filenames containing `:` because Windows Git cannot represent those filenames; they remain verbatim in the complete source archive and are not used by the embedded Python runtime.
 
 - Upstream repository: https://github.com/searxng/searxng
 - Pinned upstream commit: `9fea41204fdfa7a5cfa15b0ebd12904c520478ce`
 - Upstream license: GNU Affero General Public License v3.0 (AGPL-3.0)
-- Full unmodified license text: `third_party/searxng/LICENSE`
-- Local modification status: no upstream source-code modifications. AI Work OS launcher, local HTTP adapter, runtime-bundle scripts and configuration templates must remain outside this directory and document their relationship to this source snapshot.
+- Full unmodified license text: `third_party/searxng-windows/LICENSE` and `third_party/searxng-source-9fea41204fdfa7a5cfa15b0ebd12904c520478ce.tar.gz`.
+- Local modification status: no upstream source-code modifications. The Windows resource mirror is a filesystem-portability projection only; AI Work OS launcher, local HTTP adapter, runtime-bundle scripts and configuration templates remain outside the upstream source mirror.
 - Current distribution status: the source is present in the repository, but no AI Work OS binary has yet shipped an embedded Python runtime, SearXNG dependency payload or SearXNG process. Before any installer includes that payload, the release must include the corresponding source, full notices, exact build/dependency instructions and required license disclosures.
