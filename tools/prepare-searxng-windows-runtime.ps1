@@ -36,10 +36,9 @@ Expand-Archive -Force -Path $pythonArchive -DestinationPath $runtimeRoot
 
 $pth = Get-ChildItem -Path $runtimeRoot -Filter 'python*._pth' | Select-Object -First 1
 if (-not $pth) { throw '未找到 CPython 嵌入式 _pth 配置文件。' }
-$pthContent = Get-Content -Raw $pth.FullName
-$pthContent = $pthContent -replace '(?m)^#import site$', 'import site'
-if ($pthContent -notmatch '(?m)^Lib/site-packages$') { $pthContent = "Lib/site-packages`r`n$pthContent" }
-Set-Content -NoNewline -Encoding ascii -Path $pth.FullName -Value $pthContent
+$pthLines = @(Get-Content -Path $pth.FullName | ForEach-Object { if ($_ -eq '#import site') { 'import site' } else { $_ } })
+if (-not ($pthLines -contains 'Lib/site-packages')) { $pthLines = @('Lib/site-packages') + $pthLines }
+[System.IO.File]::WriteAllLines($pth.FullName, [string[]]$pthLines, [System.Text.Encoding]::ASCII)
 
 $python = Join-Path $runtimeRoot 'python.exe'
 Write-Host "下载 pip 引导程序：$bootstrapUrl"
