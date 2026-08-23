@@ -1,6 +1,6 @@
 [package]
 name = "awo-desktop-shell"
-version = "0.1.5"
+version = "0.1.6"
 description = "AI Work OS Windows desktop shell"
 authors = ["AI Work OS Development"]
 edition = "2021"
@@ -28,6 +28,13 @@ tokio = { version = "1", features = ["io-util", "macros", "process", "sync", "ti
 base64 = "0.22"
 pdf-extract = "0.7"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# AtomCode enables SChannel alongside Rustls on Windows because browser/curl-native traffic can
+# pass corporate or regional network paths that reset a Rustls-only TLS fingerprint. Feature
+# unification preserves the cross-platform Rustls path while selecting Windows native TLS.
+reqwest = { version = "0.12", default-features = false, features = ["native-tls"] }
+winreg = "0.55"
 
 [lints.rust]
 unsafe_code = "forbid"

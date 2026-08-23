@@ -190,13 +190,59 @@ fn network_error_code(error: &reqwest::Error) -> &'static str {
     network_error_code_from_parts(error.is_timeout(), error.is_connect(), error.is_request(), &error.to_string())
 }
 
+/// Converts the Windows `ProxyServer` registry value into a reqwest-compatible URL without
+/// returning it to the WebView, diagnostics, log, Provider context or chat timeline.
+/// Windows uses either one bare proxy for every scheme or `http=…;https=…` entries.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn windows_proxy_url_from_server(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() { return None; }
+    let mut http = None;
+    let mut https = None;
+    for part in raw.split(';') {
+        let part = part.trim();
+        if let Some((scheme, endpoint)) = part.split_once('=') {
+            match scheme.trim().to_ascii_lowercase().as_str() {
+                "https" => https = Some(endpoint.trim()),
+                "http" => http = Some(endpoint.trim()),
+                _ => {}
+            }
+        }
+    }
+    let selected = https.or(http).unwrap_or(raw).trim();
+    if selected.is_empty() { return None; }
+    Some(if selected.contains("://") { selected.to_owned() } else { format!("http://{selected}") })
+}
+
+#[cfg(target_os = "windows")]
+fn windows_system_https_proxy() -> Option<String> {
+    use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+    let internet_settings = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Internet Settings")
+        .ok()?;
+    let enabled: u32 = internet_settings.get_value("ProxyEnable").unwrap_or(0);
+    if enabled == 0 { return None; }
+    let server: String = internet_settings.get_value("ProxyServer").ok()?;
+    windows_proxy_url_from_server(&server)
+}
+
 /// 探测与真实聊天共享同一网络策略。默认 reqwest 总超时会把慢首 token 的
 /// 长上下文流误判为“服务未响应”；使用明确的长请求期限并限制建立连接时间。
+/// On Windows, mirror the static system proxy used by browser/curl-native traffic. This is a
+/// direct HTTPS client setting, not a local HTTP gateway or a request relay.
 fn provider_http_client() -> Result<Client, &'static str> {
-    Client::builder()
+    let builder = Client::builder()
         .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(20 * 60))
-        .build()
+        .timeout(Duration::from_secs(20 * 60));
+    #[cfg(target_os = "windows")]
+    let builder = {
+        let mut builder = builder;
+        if let Some(proxy_url) = windows_system_https_proxy() {
+            if let Ok(proxy) = reqwest::Proxy::https(&proxy_url) { builder = builder.proxy(proxy); }
+        }
+        builder
+    };
+    builder.build()
         .map_err(|_| "provider-client-unavailable")
 }
 
@@ -506,5 +552,13 @@ mod tests {
         assert!(super::headers_for(&session).expect("headers").get("api-key").is_some());
         let messages = vec![super::DirectProviderMessage { role: "user".to_owned(), content: "看图".to_owned(), images: vec![DirectProviderImage { media_type: "image/bmp".to_owned(), base64_data: "aGVsbG8=".to_owned() }] }];
         assert!(super::validate_messages(&messages).is_ok());
+    }
+
+    #[test]
+    fn parses_windows_system_proxy_server_without_exposing_it_to_callers() {
+        assert_eq!(super::windows_proxy_url_from_server("127.0.0.1:7890").as_deref(), Some("http://127.0.0.1:7890"));
+        assert_eq!(super::windows_proxy_url_from_server("http=proxy.test:8080;https=secure.test:8443").as_deref(), Some("http://secure.test:8443"));
+        assert_eq!(super::windows_proxy_url_from_server("https://already.test:443").as_deref(), Some("https://already.test:443"));
+        assert_eq!(super::windows_proxy_url_from_server("   "), None);
     }
 }
