@@ -5,6 +5,7 @@ import { last30daysClient, type Last30DaysMode } from './last30days-client';
 import { hybridSearchClient } from './hybrid-search-client';
 import { searxngLocalClient } from './searxng-local-client';
 import { projectMemoryClient } from './project-memory-client';
+import { recordProviderDiagnostic } from './provider-diagnostics';
 import { attachmentContextText, attachmentImages, type DirectChatAttachmentContext } from './direct-chat-attachments';
 
 export interface DirectConversationSelection { readonly providerId: string; readonly model?: string; }
@@ -269,23 +270,29 @@ export function useDirectConversations(): DirectConversations {
     const providerUserMessage = providerContext === durableContext ? userMessage : { ...userMessage, context: providerContext };
     const history = providerHistory([...base.messages, providerUserMessage]);
     const lastMessage = history.at(-1);
-    const messagesForProvider = lastMessage ? [...history.slice(0, -1), { ...lastMessage, ...(attachmentImages(attachments).length ? { images: attachmentImages(attachments) } : {}) }] : history;
+    const images = attachmentImages(attachments);
+    const messagesForProvider = lastMessage ? [...history.slice(0, -1), { ...lastMessage, ...(images.length ? { images } : {}) }] : history;
     update((current) => [{ ...base, selection, title: base.messages.length === 0 ? titleFor(text) : base.title, messages: [...base.messages, userMessage].slice(-MAX_MESSAGES), updatedAt: now }, ...current.filter((item) => item.id !== conversationId)]);
     setActiveId(conversationId); setStreaming(true); setError(undefined);
     let output = '';
     let reasoning = '';
     let streamRefreshTimer: number | undefined;
+    let providerStartedAt = Date.now();
+    let firstByteAt: number | undefined;
     try {
       const refreshStream = () => update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: [...conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), streamingAssistantMessage(conversationId, output, now, selection.model, reasoning)].slice(-MAX_MESSAGES), updatedAt: Date.now() })));
       const scheduleStreamRefresh = (): void => {
         if (streamRefreshTimer !== undefined) return;
         streamRefreshTimer = window.setTimeout(() => { streamRefreshTimer = undefined; refreshStream(); }, 50);
       };
-      const completion = await directProviderClient.stream({ providerId: selection.providerId, model: selection.model, messages: messagesForProvider, onText: (chunk) => { output += chunk; scheduleStreamRefresh(); }, onReasoning: (chunk) => { reasoning += chunk; scheduleStreamRefresh(); } });
+      providerStartedAt = Date.now();
+      const completion = await directProviderClient.stream({ providerId: selection.providerId, model: selection.model, messages: messagesForProvider, onText: (chunk) => { firstByteAt ??= Date.now(); output += chunk; scheduleStreamRefresh(); }, onReasoning: (chunk) => { firstByteAt ??= Date.now(); reasoning += chunk; scheduleStreamRefresh(); } });
+      recordProviderDiagnostic({ providerId: selection.providerId, model: completion.model ?? selection.model, stage: 'chat', outcome: 'succeeded', startedAt: providerStartedAt, firstByteAt, includedImages: images.length > 0 });
       if (streamRefreshTimer !== undefined) { window.clearTimeout(streamRefreshTimer); streamRefreshTimer = undefined; refreshStream(); }
       update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== `${conversationId}-stream` ? message : { ...message, ...(completion.model ? { model: completion.model } : {}) }), updatedAt: Date.now() })));
       return true;
     } catch (nextError: unknown) {
+      recordProviderDiagnostic({ providerId: selection.providerId, model: selection.model, stage: 'chat', outcome: 'failed', startedAt: providerStartedAt, error: nextError, includedImages: images.length > 0 });
       if (streamRefreshTimer !== undefined) window.clearTimeout(streamRefreshTimer);
       setError(streamErrorText(nextError));
       update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), updatedAt: Date.now() })));

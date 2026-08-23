@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import type { WorkbenchProviderConnection, WorkbenchProviderConnectionProbe, WorkbenchProviderInference, WorkbenchProviderModelDiscovery } from './task-client';
 import { directProviderClient, type DirectProviderConnection, type DirectProviderProtocol } from './direct-provider-client';
 import { loadDirectProviderAccounts, saveDirectProviderAccount } from './direct-provider-accounts';
+import { recordProviderDiagnostic } from './provider-diagnostics';
 
 export type ProviderErrorText = (error: unknown) => string;
 
@@ -92,28 +93,42 @@ export function useProviderControlPlane(): ProviderControlPlane {
   }, []);
 
   const configure = useCallback((providerId: string, input: { displayName?: string; model?: string; baseUrl?: string; protocol?: DirectProviderProtocol; apiKey: string }): void => {
+    const startedAt = Date.now();
+    let configured = false;
+    let probeStartedAt = startedAt;
     setPendingProviderId(providerId); setError(undefined);
     void (async () => {
       const result = await directProviderClient.configure({ providerId, displayName: input.displayName?.trim() || providerId, protocol: input.protocol ?? 'openai-compatible', baseUrl: input.baseUrl ?? '', model: input.model ?? '', apiKey: input.apiKey });
       saveDirectProviderAccount({ schemaVersion: 1, providerId: result.providerId, displayName: result.displayName, protocol: result.protocol, baseUrl: input.baseUrl ?? '', model: result.defaultModel, apiKey: input.apiKey });
       setConnections((current) => replaceConnection(current, asConnection(result)));
+      recordProviderDiagnostic({ providerId, model: result.defaultModel, stage: 'configured', outcome: 'succeeded', startedAt });
+      configured = true;
+      probeStartedAt = Date.now();
       await directProviderClient.probe(providerId);
       const checkedAt = Date.now();
       setProbes((current) => ({ ...current, [providerId]: { schemaVersion: 1, providerId, outcome: 'reachable', checkedAt, canReadSecret: false, canAutoConnect: false } }));
-    })().catch((nextError: unknown) => setError(errorMessage(nextError))).finally(() => setPendingProviderId(undefined));
+      recordProviderDiagnostic({ providerId, model: result.defaultModel, stage: 'probe', outcome: 'succeeded', startedAt: probeStartedAt });
+    })().catch((nextError: unknown) => { recordProviderDiagnostic({ providerId, model: input.model, stage: configured ? 'probe' : 'configured', outcome: 'failed', startedAt: configured ? probeStartedAt : startedAt, error: nextError }); setError(errorMessage(nextError)); }).finally(() => setPendingProviderId(undefined));
   }, []);
 
   const configureCustom = useCallback((input: { displayName: string; protocol: DirectProviderProtocol; baseUrl: string; model: string; apiKey: string }): void => {
     const providerId = customProviderId(input.displayName);
+    const startedAt = Date.now();
+    let configured = false;
+    let probeStartedAt = startedAt;
     setPendingProviderId('custom'); setError(undefined);
     void (async () => {
       const result = await directProviderClient.configure({ providerId, ...input });
       saveDirectProviderAccount({ schemaVersion: 1, providerId: result.providerId, displayName: result.displayName, protocol: result.protocol, baseUrl: input.baseUrl, model: result.defaultModel, apiKey: input.apiKey });
       setConnections((current) => replaceConnection(current, asConnection(result)));
+      recordProviderDiagnostic({ providerId: result.providerId, model: result.defaultModel, stage: 'configured', outcome: 'succeeded', startedAt });
+      configured = true;
+      probeStartedAt = Date.now();
       await directProviderClient.probe(result.providerId);
       const checkedAt = Date.now();
       setProbes((current) => ({ ...current, [result.providerId]: { schemaVersion: 1, providerId: result.providerId, outcome: 'reachable', checkedAt, canReadSecret: false, canAutoConnect: false } }));
-    })().catch((nextError: unknown) => setError(errorMessage(nextError))).finally(() => setPendingProviderId(undefined));
+      recordProviderDiagnostic({ providerId: result.providerId, model: result.defaultModel, stage: 'probe', outcome: 'succeeded', startedAt: probeStartedAt });
+    })().catch((nextError: unknown) => { recordProviderDiagnostic({ providerId, model: input.model, stage: configured ? 'probe' : 'configured', outcome: 'failed', startedAt: configured ? probeStartedAt : startedAt, error: nextError }); setError(errorMessage(nextError)); }).finally(() => setPendingProviderId(undefined));
   }, []);
 
   const discoverModels = useCallback((providerId: string): void => {
@@ -133,11 +148,13 @@ export function useProviderControlPlane(): ProviderControlPlane {
   }, []);
 
   const probe = useCallback((providerId: string): void => {
+    const startedAt = Date.now();
     setPendingProviderId(providerId); setError(undefined);
     const checkedAt = Date.now();
     void directProviderClient.probe(providerId)
-      .then(() => setProbes((current) => ({ ...current, [providerId]: { schemaVersion: 1, providerId, outcome: 'reachable', checkedAt, canReadSecret: false, canAutoConnect: false } })))
+      .then(() => { recordProviderDiagnostic({ providerId, stage: 'probe', outcome: 'succeeded', startedAt }); setProbes((current) => ({ ...current, [providerId]: { schemaVersion: 1, providerId, outcome: 'reachable', checkedAt, canReadSecret: false, canAutoConnect: false } })); })
       .catch((nextError: unknown) => {
+        recordProviderDiagnostic({ providerId, stage: 'probe', outcome: 'failed', startedAt, error: nextError });
         setProbes((current) => ({ ...current, [providerId]: { schemaVersion: 1, providerId, outcome: 'unreachable', checkedAt, canReadSecret: false, canAutoConnect: false } }));
         setError(errorMessage(nextError));
       })
@@ -145,17 +162,19 @@ export function useProviderControlPlane(): ProviderControlPlane {
   }, []);
 
   const stream = useCallback((providerId: string, prompt: string, model?: string): void => {
+    const startedAt = Date.now();
+    let firstByteAt: number | undefined;
     setPendingProviderId(providerId); setError(undefined);
     setStreaming((current) => ({ ...current, [providerId]: { output: '', ...(model ? { model } : {}), complete: false } }));
-    void directProviderClient.stream({ providerId, messages: [{ role: 'user', content: prompt }], model, onText: (text) => setStreaming((current) => {
+    void directProviderClient.stream({ providerId, messages: [{ role: 'user', content: prompt }], model, onText: (text) => { firstByteAt ??= Date.now(); setStreaming((current) => {
       const previous = current[providerId] ?? { output: '', complete: false };
       return { ...current, [providerId]: { ...previous, output: previous.output + text } };
-    }) })
-      .then((completion) => setStreaming((current) => {
+    }); } })
+      .then((completion) => { recordProviderDiagnostic({ providerId, model: completion.model ?? model, stage: 'stream-test', outcome: 'succeeded', startedAt, firstByteAt }); setStreaming((current) => {
         const previous = current[providerId] ?? { output: '', complete: false };
         return { ...current, [providerId]: { ...previous, ...(completion.model ? { model: completion.model } : {}), outputCharacters: previous.output.length, complete: true } };
-      }))
-      .catch((nextError: unknown) => setError(errorMessage(nextError)))
+      }); })
+      .catch((nextError: unknown) => { recordProviderDiagnostic({ providerId, model, stage: 'stream-test', outcome: 'failed', startedAt, error: nextError }); setError(errorMessage(nextError)); })
       .finally(() => setPendingProviderId(undefined));
   }, []);
 

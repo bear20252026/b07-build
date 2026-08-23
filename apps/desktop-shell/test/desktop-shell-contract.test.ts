@@ -12,9 +12,11 @@ const capability = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src
 const companionCapability = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/capabilities/desktop-companion-window.json'), 'utf8')) as Record<string, unknown>;
 const desktopCore = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/lib.rs'), 'utf8');
 const directProvider = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/direct_provider.rs'), 'utf8');
+const searxngLocal = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/searxng_local.rs'), 'utf8');
 const desktopMain = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/main.rs'), 'utf8');
 const workbenchVite = readFileSync(resolve(root, 'apps/workbench/vite.config.ts'), 'utf8');
 const workbenchSider = readFileSync(resolve(root, 'apps/workbench/src/components/layout/Sider.tsx'), 'utf8');
+const workbenchApp = readFileSync(resolve(root, 'apps/workbench/src/App.tsx'), 'utf8');
 
 function csp(): string {
   const app = desktopConfig.app as Record<string, unknown>;
@@ -47,13 +49,29 @@ test('桌面 Rust 核心提供直接 OpenAI/Anthropic Provider、模型查询、
   assert.deepEqual(capability.permissions, ['core:default']);
   assert.deepEqual(companionCapability.windows, ['desktop-companion']);
   assert.deepEqual(companionCapability.permissions, ['core:default']);
-  for (const expected of ['mod direct_provider;', 'DirectProviderState::new()', 'configure_direct_provider', 'discover_direct_provider', 'probe_direct_provider', 'start_direct_provider_stream', 'install_desktop_tray', 'TrayIconBuilder', 'show_desktop_companion', 'close_desktop_companion', 'WindowEvent::CloseRequested', 'app.exit(0)']) assert.ok(desktopCore.includes(expected), `桌面核心缺少：${expected}`);
+  for (const expected of ['mod direct_provider;', 'DirectProviderState::new()', 'configure_direct_provider', 'discover_direct_provider', 'probe_direct_provider', 'start_direct_provider_stream', 'desktop_diagnostics', 'searxng_local_status', 'install_desktop_tray', 'TrayIconBuilder', 'show_desktop_companion', 'close_desktop_companion', 'WindowEvent::CloseRequested', 'app.exit(0)']) assert.ok(desktopCore.includes(expected), `桌面核心缺少：${expected}`);
   for (const expected of ['OpenaiCompatible', 'AnthropicCompatible', '/v1/chat/completions', '/v1/messages', 'text/event-stream', 'direct-provider-stream', 'api-key', 'x-api-key']) assert.ok(directProvider.includes(expected), `直接 Provider 缺少：${expected}`);
   for (const forbidden of ['start_local_gateway', 'GATEWAY_ADDRESS', 'GATEWAY_SIDECAR', 'tauri_plugin_shell::init()', 'sidecar(']) assert.equal(desktopCore.includes(forbidden), false, `桌面核心不得包含 Gateway 依赖：${forbidden}`);
   assert.ok(cargoManifest.includes('reqwest'), '直接 HTTPS/SSE 请求需要原生 HTTP 客户端');
   assert.ok(cargoManifest.includes('tray-icon'), '桌面常驻入口需要 Tauri tray-icon');
   assert.equal(cargoManifest.includes('tauri-plugin-shell'), false, '不得保留 sidecar shell plugin');
   assert.ok(desktopMain.includes('windows_subsystem = "windows"'));
+});
+
+test('P0 诊断只读取本地状态，不启动 SearXNG、不暴露密钥、聊天正文或文件路径', () => {
+  assert.ok(desktopCore.includes('It neither starts SearXNG nor exposes paths'));
+  assert.ok(desktopCore.includes('AI_WORK_OS_SOURCE_REVISION'));
+  assert.ok(searxngLocal.includes('pub fn searxng_local_status'));
+  assert.ok(searxngLocal.includes('X-Forwarded-For'));
+  assert.ok(searxngLocal.includes('STARTUP_TIMEOUT_SECONDS: u64 = 35'));
+  assert.equal(desktopCore.includes('api_key'), false);
+});
+
+test('明确 /github 命令只在本地打开确认式 GitHub 协作面板，不进入 Provider 聊天发送', () => {
+  assert.ok(workbenchApp.includes('resolveGitHubCollaborationIntent'));
+  assert.ok(workbenchApp.includes("setInspectorSurface('github-collaboration')"));
+  assert.ok(workbenchApp.includes('const githubIntent = resolveGitHubCollaborationIntent(goal)'));
+  assert.ok(workbenchApp.includes('directConversations.send(taskModelSelection, goal'));
 });
 
 test('模型目录仅作为可选辅助能力，连接测试必须调用已配置模型的真实聊天端点', () => {

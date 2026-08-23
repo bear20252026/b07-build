@@ -30,6 +30,8 @@ import { createProjectClient } from './runtime/project-client';
 import { useProjectWorkspace } from './runtime/use-project-workspace';
 import { useProviderControlPlane } from './runtime/use-provider-control-plane';
 import { useDirectConversations } from './runtime/use-direct-conversations';
+import { desktopDiagnosticsClient, type DesktopDiagnosticsSnapshot } from './runtime/desktop-diagnostics-client';
+import { resolveGitHubCollaborationIntent } from './runtime/github-collaboration-intent';
 import type { Last30DaysMode } from './runtime/last30days-client';
 import { readDirectChatAttachments } from './runtime/direct-chat-attachments';
 import { useTaskExecution } from './runtime/use-task-execution';
@@ -172,6 +174,7 @@ export function App() {
   const [authorityMode, setAuthorityMode] = useState<WorkbenchAuthorityMode>('review');
   const [taskModelSelection, setTaskModelSelection] = useState<Readonly<{ providerId: string; model?: string }> | undefined>(loadTaskModelSelection);
   const [directSetupError, setDirectSetupError] = useState<string>();
+  const [desktopDiagnostics, setDesktopDiagnostics] = useState<DesktopDiagnosticsSnapshot>();
   const [companionPreferences, setCompanionPreferences] = useState(() => loadCompanionPreferences());
   const [floatingCompanionPreferences, setFloatingCompanionPreferences] = useState(() => loadFloatingCompanionPreferences());
   const [companionStudioPreferences, setCompanionStudioPreferences] = useState(() => loadCompanionStudioPreferences());
@@ -254,9 +257,23 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gatewayAttached, activePage]);
 
+  useEffect(() => {
+    if (activePage !== 'connections') return;
+    let disposed = false;
+    void desktopDiagnosticsClient.read().then((snapshot) => { if (!disposed) setDesktopDiagnostics(snapshot); }).catch(() => { if (!disposed) setDesktopDiagnostics(undefined); });
+    return () => { disposed = true; };
+  }, [activePage, providerControl.connections.length]);
+
   const submitIntent = async (): Promise<void> => {
     const goal = draft.trim();
     if (!goal) return;
+    const githubIntent = resolveGitHubCollaborationIntent(goal);
+    if (githubIntent) {
+      setInspectorSurface('github-collaboration');
+      setDirectSetupError(githubIntent.acknowledgement);
+      setDraft('');
+      return;
+    }
     if (providerControl.restoring) {
       setDirectSetupError('正在恢复本地模型会话，请稍候再发送。');
       return;
@@ -321,7 +338,7 @@ export function App() {
 
   const settingsContent = <>
     {activePage === 'models' && <ProviderSetupPage connections={providerControl.connections} discoveredModels={providerControl.discoveredModels} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onConfigure={providerControl.configure} onConfigureCustom={providerControl.configureCustom} onDiscoverModels={providerControl.discoverModels} onManageConnections={() => setActivePage('connections')} />}
-    {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查询模型目录、选择模型、检查连接状态，或发送一次受限文本请求。</p></div><ProviderConnectionCenter connections={providerControl.connections} probes={providerControl.probes} discoveredModels={providerControl.discoveredModels} inferences={providerControl.inferences} streaming={providerControl.streaming} taskModelSelection={taskModelSelection} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onRefresh={providerControl.refresh} onProbe={providerControl.probe} onDiscoverModels={providerControl.discoverModels} onSelectTaskModel={selectTaskModel} onInfer={providerControl.infer} onStream={providerControl.stream} /></section>}
+    {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查询模型目录、选择模型、检查连接状态，或发送一次受限文本请求。</p></div><ProviderConnectionCenter connections={providerControl.connections} probes={providerControl.probes} discoveredModels={providerControl.discoveredModels} inferences={providerControl.inferences} streaming={providerControl.streaming} desktopDiagnostics={desktopDiagnostics} taskModelSelection={taskModelSelection} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onRefresh={providerControl.refresh} onProbe={providerControl.probe} onDiscoverModels={providerControl.discoverModels} onSelectTaskModel={selectTaskModel} onInfer={providerControl.infer} onStream={providerControl.stream} /></section>}
     {activePage === 'workspace-files' && <WorkspaceFilesPage preferences={workspaceFilePreferences} onChange={updateWorkspaceFiles} />}
     {activePage === 'terminal-coding' && <TerminalCodingPage workspace={workspaceFilePreferences} />}
     {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><ApiUsageSummaryCard gatewayAttached={gatewayAttached} onOpen={() => setActivePage('api-usage')} /><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /></section>}
@@ -482,7 +499,7 @@ export function App() {
               value={draft}
             />
             <div className="composer-footer">
-              <span className="composer-hint">{messages.task.composerHint}</span>
+              <span className="composer-hint">{messages.task.composerHint} · 输入 <code>/github</code> 打开本地 GitHub 协作窗口。</span>
               <div className="composer-actions">
                 <button aria-busy={directConversations.searching} aria-pressed={webSearchEnabled} className={`composer-web-search${webSearchEnabled ? ' active' : ''}${directConversations.searching ? ' loading' : ''}`} disabled={directConversations.searching} onClick={() => setWebSearchEnabled((current) => !current)} title={directConversations.searching ? '正在并行获取本轮检索与研究原始内容。' : webSearchEnabled ? '已开启：发送本轮消息时将执行所选后端并传递原始内容、来源与后端回执。' : '点击开启：仅为本轮发送显式执行所选检索或近 30 天研究。'} type="button">{directConversations.searching ? '⌕ 正在研究…' : webSearchEnabled ? researchMode === 'web-search' ? '⌕ 联网检索已开启' : researchMode === 'hybrid' ? '⌕ 混合检索已开启' : researchMode === 'last30days-cn' ? '⌕ 中文近 30 天研究已开启' : '⌕ 近 30 天研究已开启' : '⌕ 联网检索'}</button>
                 <label className="authority-select">

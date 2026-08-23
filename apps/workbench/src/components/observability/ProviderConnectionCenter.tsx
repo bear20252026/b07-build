@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import './ProviderConnectionCenter.css';
 import type { WorkbenchProviderConnection, WorkbenchProviderConnectionProbe, WorkbenchProviderInference, WorkbenchProviderModelDiscovery } from '../../runtime/task-client';
 import type { WorkbenchProviderStreamingOutput } from '../../runtime/use-provider-control-plane';
+import type { DesktopDiagnosticsSnapshot } from '../../runtime/desktop-diagnostics-client';
+import { providerDiagnosticEntries, providerDiagnosticReport, subscribeProviderDiagnostics, type ProviderDiagnosticEntry } from '../../runtime/provider-diagnostics';
 
 export interface ProviderConnectionCenterProps {
   connections?: readonly WorkbenchProviderConnection[];
@@ -10,6 +12,7 @@ export interface ProviderConnectionCenterProps {
   discoveredModels: Readonly<Record<string, WorkbenchProviderModelDiscovery | undefined>>;
   taskModelSelection?: Readonly<{ providerId: string; model?: string }>;
   streaming: Readonly<Record<string, WorkbenchProviderStreamingOutput | undefined>>;
+  desktopDiagnostics?: DesktopDiagnosticsSnapshot;
   error?: string;
   pendingProviderId?: string;
   onRefresh(): void;
@@ -28,10 +31,22 @@ function probeLabel(probe: WorkbenchProviderConnectionProbe | undefined): string
   return probe.latencyMs === undefined ? labels[probe.outcome] : `${labels[probe.outcome]} · ${probe.latencyMs} ms`;
 }
 
+function entryLabel(entry: ProviderDiagnosticEntry): string {
+  const outcome = entry.outcome === 'succeeded' ? '完成' : `失败${entry.errorCode ? `：${entry.errorCode}` : ''}`;
+  return `${entry.displayName} · ${entry.stage} · ${outcome} · ${entry.elapsedMs} ms${entry.includedImages ? ' · 含图片' : ''}`;
+}
+
 /** 所有连接均为 Tauri 原生进程直连的 Provider 会话；预置与自定义服务共享同一操作路径。 */
-export function ProviderConnectionCenter({ connections, probes, inferences, streaming, discoveredModels, taskModelSelection, error, pendingProviderId, onRefresh, onProbe, onDiscoverModels, onSelectTaskModel, onInfer, onStream }: ProviderConnectionCenterProps) {
+export function ProviderConnectionCenter({ connections, probes, inferences, streaming, desktopDiagnostics, discoveredModels, taskModelSelection, error, pendingProviderId, onRefresh, onProbe, onDiscoverModels, onSelectTaskModel, onInfer, onStream }: ProviderConnectionCenterProps) {
   const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({});
   const [models, setModels] = useState<Readonly<Record<string, string>>>({});
+  const [diagnostics, setDiagnostics] = useState<readonly ProviderDiagnosticEntry[]>(providerDiagnosticEntries);
+  const [copyState, setCopyState] = useState<string>();
+  useEffect(() => subscribeProviderDiagnostics(() => setDiagnostics(providerDiagnosticEntries())), []);
+  const copyDiagnostics = (): void => {
+    const report = providerDiagnosticReport({ desktopVersion: desktopDiagnostics?.desktopVersion, sourceRevision: desktopDiagnostics?.sourceRevision, providerEntries: diagnostics, searxng: desktopDiagnostics?.searxng, workspaceSelected: desktopDiagnostics?.workspaceSelected });
+    void navigator.clipboard.writeText(report).then(() => setCopyState('已复制本地诊断报告。')).catch(() => setCopyState('无法访问系统剪贴板；诊断内容未发送到网络。'));
+  };
   return (
     <section className="provider-connection-center" aria-label="Commercial model provider connections">
       <div className="provider-connection-heading">
@@ -43,6 +58,12 @@ export function ProviderConnectionCenter({ connections, probes, inferences, stre
         <button className="panel-refresh-button" title="刷新当前桌面会话内的连接列表；不会发起网络请求。" type="button" onClick={onRefresh}>刷新状态</button>
       </div>
       {error && <p className="provider-connection-error" role="alert">{error}</p>}
+      <section className="provider-diagnostics-report" aria-label="Provider 本地诊断报告">
+        <div><div><strong>本地诊断报告</strong><span>测试连接、流式测试与真实聊天均记录为同一原生会话的非敏感摘要。</span></div><button type="button" onClick={copyDiagnostics}>复制诊断报告</button></div>
+        <p>桌面 {desktopDiagnostics?.desktopVersion ?? '状态读取中'} · 来源 {desktopDiagnostics?.sourceRevision.slice(0, 12) ?? '读取中'} · 已连接 Provider {desktopDiagnostics?.connectedProviderCount ?? connections?.length ?? 0} 个 · 工作区{desktopDiagnostics?.workspaceSelected ? '已选择' : '未选择'} · SearXNG {desktopDiagnostics ? (desktopDiagnostics.searxng.state === 'running' ? `运行中（127.0.0.1:${desktopDiagnostics.searxng.port}）` : '未启动') : '状态读取中'}。</p>
+        {copyState && <p className="provider-diagnostics-copy" role="status">{copyState}</p>}
+        <ul>{diagnostics.length ? diagnostics.slice(0, 5).map((entry) => <li key={`${entry.at}-${entry.providerId}-${entry.stage}`}>{entryLabel(entry)}</li>) : <li>暂无本会话 Provider 操作记录。</li>}</ul>
+      </section>
       {!connections && <p className="provider-connection-empty">正在读取当前桌面会话的模型连接…</p>}
       {connections?.length === 0 && <p className="provider-connection-empty">尚未连接模型。请先在“API 连接”填写任意预置或自定义兼容服务。</p>}
       {connections?.map((connection) => {

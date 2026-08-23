@@ -1,6 +1,6 @@
 [package]
 name = "awo-desktop-shell"
-version = "0.1.2"
+version = "0.1.3"
 description = "AI Work OS Windows desktop shell"
 authors = ["AI Work OS Development"]
 edition = "2021"

@@ -99,6 +99,10 @@ impl DirectProviderState {
     }
 }
 
+pub(crate) fn connected_provider_count(state: &DirectProviderState) -> Result<usize, &'static str> {
+    Ok(state.0.lock().map_err(|_| "provider-state-unavailable")?.len())
+}
+
 fn require_identifier(value: &str, field: &'static str) -> Result<(), &'static str> {
     if value.is_empty() || value.len() > 128 || !value.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | ':' | '-')) {
         return Err(field);

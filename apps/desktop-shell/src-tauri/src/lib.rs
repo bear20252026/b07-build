@@ -55,6 +55,18 @@ struct WorkspaceDirectorySelection {
     label: &'static str,
 }
 
+#[cfg(not(mobile))]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopDiagnosticsSnapshot {
+    schema_version: u8,
+    desktop_version: &'static str,
+    source_revision: &'static str,
+    workspace_selected: bool,
+    connected_provider_count: usize,
+    searxng: searxng_local::SearxngLocalStatus,
+}
+
 /// Opens the system folder picker only after an explicit user action. The selected path remains
 /// in native memory; the WebView receives only a non-sensitive label and cannot browse the path.
 #[cfg(not(mobile))]
@@ -80,6 +92,26 @@ fn choose_workspace_directory(
     Ok(WorkspaceDirectorySelection {
         selected: true,
         label: "已选择本地工作区",
+    })
+}
+
+/// Exposes only non-sensitive, local runtime health. It neither starts SearXNG nor exposes paths,
+/// Provider URLs, API keys, chat content, files, terminal output, or external network state.
+#[cfg(not(mobile))]
+#[tauri::command]
+fn desktop_diagnostics(
+    workspace: State<'_, WorkspaceDirectoryState>,
+    providers: State<'_, direct_provider::DirectProviderState>,
+    searxng: State<'_, searxng_local::SearxngState>,
+) -> Result<DesktopDiagnosticsSnapshot, &'static str> {
+    let workspace_selected = workspace.0.lock().map_err(|_| "workspace-directory-unavailable")?.is_some();
+    Ok(DesktopDiagnosticsSnapshot {
+        schema_version: 1,
+        desktop_version: env!("CARGO_PKG_VERSION"),
+        source_revision: option_env!("AI_WORK_OS_SOURCE_REVISION").unwrap_or("unavailable"),
+        workspace_selected,
+        connected_provider_count: direct_provider::connected_provider_count(&providers)?,
+        searxng: searxng_local::status(&searxng)?,
     })
 }
 
@@ -189,6 +221,8 @@ pub fn run() {
             hybrid_search::search_hybrid,
             searxng_local::search_searxng_local,
             searxng_local::stop_searxng_local,
+            searxng_local::searxng_local_status,
+            desktop_diagnostics,
             terminal::start_terminal_command,
             terminal::cancel_terminal_command,
             file_extract::extract_file_content,

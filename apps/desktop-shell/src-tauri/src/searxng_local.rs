@@ -1,5 +1,5 @@
 use crate::web_search::{WebSearchResponse, WebSearchSource};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fs, net::TcpListener, path::PathBuf, process::Stdio, sync::Mutex, time::{Duration, SystemTime, UNIX_EPOCH}};
 use tauri::{path::BaseDirectory, AppHandle, Manager, State};
@@ -11,6 +11,17 @@ const MAX_RESULTS: usize = 100;
 const MAX_RAW_CONTENT_CHARS: usize = 1_000_000;
 
 pub struct SearxngState(Mutex<Option<SearxngRuntime>>);
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearxngLocalStatus {
+    schema_version: u8,
+    state: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    port: Option<u16>,
+    startup_timeout_seconds: u64,
+    request_timeout_seconds: u64,
+}
 
 struct SearxngRuntime {
     port: u16,
@@ -95,6 +106,17 @@ fn running_port(state: &SearxngState) -> Result<Option<u16>, &'static str> {
     }
 }
 
+pub(crate) fn status(state: &SearxngState) -> Result<SearxngLocalStatus, &'static str> {
+    let port = running_port(state)?;
+    Ok(SearxngLocalStatus {
+        schema_version: 1,
+        state: if port.is_some() { "running" } else { "not-started" },
+        port,
+        startup_timeout_seconds: STARTUP_TIMEOUT_SECONDS,
+        request_timeout_seconds: REQUEST_TIMEOUT_SECONDS,
+    })
+}
+
 async fn ensure_running(app: &AppHandle, state: &SearxngState) -> Result<u16, &'static str> {
     if let Some(port) = running_port(state)? { return Ok(port); }
     let source = resource_directory(app)?;
@@ -175,6 +197,10 @@ pub async fn search_searxng_local(app: AppHandle, state: State<'_, SearxngState>
 #[tauri::command]
 pub async fn stop_searxng_local(state: State<'_, SearxngState>) -> Result<(), &'static str> { stop_runtime(&state).await }
 
+/// Returns state without starting Python or accessing the network, for the local diagnostics report.
+#[tauri::command]
+pub fn searxng_local_status(state: State<'_, SearxngState>) -> Result<SearxngLocalStatus, &'static str> { status(&state) }
+
 #[cfg(test)]
 mod tests {
     use super::response_from_json;
@@ -192,5 +218,14 @@ mod tests {
         let headers = super::loopback_headers();
         assert_eq!(headers.get("X-Forwarded-For").and_then(|value| value.to_str().ok()), Some("127.0.0.1"));
         assert_eq!(headers.get("X-Real-IP").and_then(|value| value.to_str().ok()), Some("127.0.0.1"));
+    }
+
+    #[test]
+    fn local_status_does_not_start_a_runtime() {
+        let state = super::SearxngState::new();
+        let status = super::status(&state).expect("status");
+        assert_eq!(status.state, "not-started");
+        assert_eq!(status.port, None);
+        assert_eq!(status.startup_timeout_seconds, 35);
     }
 }

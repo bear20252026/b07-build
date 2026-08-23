@@ -91,3 +91,8 @@
 - [x] 对照已提及的 OpenWorker、AtomCode、AionUi、Chatbox、Cherry Studio、LobeChat、AnythingLLM、Jan、Open WebUI、OpenClaw、ClawCode、UI-TARS Desktop、DeepSeek-Harness 与 MiMo-Code，形成基于一手资料的能力矩阵、许可边界与适配结论。
 - [x] 将 AI Work OS 当前实现映射到成熟项目能力矩阵，区分“已具备”“已实现待 Windows 验证”“尚缺失”“不宜复制或不适合当前 Windows 桌面范围”。
 - [x] 基于用户价值、可靠性、依赖关系、维护成本和许可证风险，形成 P0–P3 改进路线；未经主人确认不将建议性新功能直接纳入实现。
+- [x] 实现统一 Provider 连接诊断：连接测试、实际聊天、流式首字节、图片能力与错误分类使用同一配置快照，并且不记录或回传密钥。
+- [x] 在设置中提供可复制的本地诊断报告，包含桌面版本、来源提交、Provider 非敏感配置、SearXNG 状态、工作区/会话存储和最近错误分类。
+- [x] 为聊天输入接入确定性 `/github` 协作命令和可见提示；仅打开本地 GitHub 协作面板及加载状态，提交和推送仍必须由面板勾选确认。
+- [x] 建立 0.1.3 Windows 回归清单与自动化覆盖，至少包括真实聊天、图片、SearXNG、混合检索、长会话、复制、跳到最新、KaTeX、会话切换和 GitHub 协作入口。
+- [ ] 通过云端 GitHub Actions Windows runner 构建、来源证明核验并交付新的 0.1.3 安装器；不得使用用户 Windows 本机构建工具链。
