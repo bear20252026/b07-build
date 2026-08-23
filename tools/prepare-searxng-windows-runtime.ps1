@@ -15,11 +15,11 @@ $pythonUrl = "https://www.python.org/ftp/python/$pythonVersion/$pythonArchiveNam
 $bootstrapUrl = 'https://bootstrap.pypa.io/get-pip.py'
 
 if (-not (Test-Path (Join-Path $searxngRoot 'LICENSE'))) {
-  throw "找不到已固定的 SearXNG 源码：$searxngRoot"
+  throw "Pinned SearXNG source was not found: $searxngRoot"
 }
 
 if ((Test-Path (Join-Path $runtimeRoot 'python.exe')) -and -not $Force) {
-  Write-Host "SearXNG Python 运行时已存在：$runtimeRoot"
+  Write-Host "SearXNG Python runtime already exists: $runtimeRoot"
   exit 0
 }
 
@@ -30,23 +30,23 @@ New-Item -ItemType Directory -Force -Path $downloadDirectory | Out-Null
 $pythonArchive = Join-Path $downloadDirectory $pythonArchiveName
 $getPip = Join-Path $downloadDirectory 'get-pip.py'
 
-Write-Host "下载固定 CPython 嵌入式运行时：$pythonUrl"
+Write-Host "Downloading pinned CPython embeddable runtime: $pythonUrl"
 Invoke-WebRequest -UseBasicParsing -Uri $pythonUrl -OutFile $pythonArchive
 Expand-Archive -Force -Path $pythonArchive -DestinationPath $runtimeRoot
 
 $pth = Get-ChildItem -Path $runtimeRoot -Filter 'python*._pth' | Select-Object -First 1
-if (-not $pth) { throw '未找到 CPython 嵌入式 _pth 配置文件。' }
+if (-not $pth) { throw 'CPython embeddable _pth configuration file was not found.' }
 $pthLines = @(Get-Content -Path $pth.FullName | ForEach-Object { if ($_ -eq '#import site') { 'import site' } else { $_ } })
 if (-not ($pthLines -contains 'Lib/site-packages')) { $pthLines = @('Lib/site-packages') + $pthLines }
 [System.IO.File]::WriteAllLines($pth.FullName, [string[]]$pthLines, [System.Text.Encoding]::ASCII)
 
 $python = Join-Path $runtimeRoot 'python.exe'
-Write-Host "下载 pip 引导程序：$bootstrapUrl"
+Write-Host "Downloading pip bootstrap: $bootstrapUrl"
 Invoke-WebRequest -UseBasicParsing -Uri $bootstrapUrl -OutFile $getPip
 & $python $getPip --no-warn-script-location
 
 $coreRequirements = Join-Path $searxngRoot 'requirements.txt'
-Write-Host '安装 SearXNG 固定核心依赖（仅接受预编译 Windows wheels）…'
+Write-Host 'Installing pinned SearXNG core dependencies from Windows wheels only...'
 & $python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: -r $coreRequirements
 
 $manifest = [ordered]@{
@@ -63,4 +63,4 @@ $manifest = [ordered]@{
 $manifest | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 (Join-Path $runtimeRoot 'runtime-manifest.json')
 Copy-Item -Force (Join-Path $searxngRoot 'LICENSE') (Join-Path $runtimeRoot 'SEARXNG-AGPL-3.0.txt')
 Remove-Item -Force -Recurse $downloadDirectory
-Write-Host "已准备可打包的 SearXNG Python 运行时：$runtimeRoot"
+Write-Host "Packaged SearXNG Python runtime prepared: $runtimeRoot"
