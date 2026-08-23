@@ -99,5 +99,6 @@
 - [x] 阻断性修复：排查 0.1.3 第三方 Provider 再次显示“无法连接”的恢复、配置、连接测试和首页真实聊天链路；普通聊天必须继续原生直连，禁止通过重新引入 Gateway 规避故障。0.1.4 使预设或自定义 MiMo Token Plan 的 `tp-` 密钥均使用官方 `api-key` 认证头。
 - [x] 将 `provider-request-failed` 从笼统“第三方服务未响应”拆分为 DNS、TLS/证书、连接超时、请求超时和无法建立连接等不含密钥的可操作错误分类，并核验 MiMo Token Plan 中国区直连请求构造。
 - [x] 通过 GitHub Windows runner 构建并核验 0.1.4 直连修复安装器：工作流 #32652865337 成功，来源提交 9e2eba7f52a341ca80c4969f2039f9bdaaf03758，`bundlesExplicitGatewaySidecar=false`。
-- [ ] 阻断性修复：依据 MiMo 官方文档核验并实现视觉模型能力路由、OpenAI/Anthropic 图片载荷和自由模型切换；图片不得被静默丢弃，也不得因固定模型名或错误端点误报为本地限制。
-- [ ] 阻断性修复：隔离 SearXNG、Exa、混合检索与 Provider 聊天错误；检索后端失败必须给出各自可读状态，并继续发送原始用户问题至选中的第三方模型。
+- [x] 阻断性修复：依据 MiMo 官方文档核验并实现视觉模型能力路由、OpenAI/Anthropic 图片载荷和自由模型切换；图片不得被静默丢弃，也不得因固定模型名或错误端点误报为本地限制。0.1.5 新增 MiMo `mimo-v2.5` 视觉模型快捷选择和 `mimo-v2.5-pro` 图片专属错误说明。
+- [x] 阻断性修复：隔离 SearXNG、Exa、混合检索与 Provider 聊天错误；检索后端失败必须给出各自可读状态，并继续发送原始用户问题至选中的第三方模型。0.1.5 将嵌入 Python 早退、loopback 请求失败和拒绝状态分别显示为检索活动。
+- [x] 通过 GitHub Windows runner 构建并核验 0.1.5 图片与检索修复安装器：工作流 #32654528364 成功，来源提交 9c52231b6ca2870de8aa4c60183c9b6548fcb516，`bundlesExplicitGatewaySidecar=false`。
