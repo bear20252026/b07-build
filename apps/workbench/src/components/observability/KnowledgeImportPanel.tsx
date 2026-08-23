@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { HttpKnowledgeWorkspaceClient, type WorkbenchKnowledgeImportReceipt, type WorkbenchKnowledgeWorkspace } from '../../runtime/knowledge-workspace-client';
 
 const client = new HttpKnowledgeWorkspaceClient();
-const DEFAULT_BUDGET_BYTES = 25 * 1024 * 1024;
-
 function identifier(prefix: string): string {
   return `${prefix}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 }

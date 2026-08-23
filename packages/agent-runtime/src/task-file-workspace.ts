@@ -216,6 +216,14 @@ function resolveContainedPath(root: string, ...segments: readonly string[]): str
   return path;
 }
 
+/**
+ * 逻辑 ID 允许 `:` 用于可读命名空间（如 `delivery:<digest>`），但 Windows 禁止它出现在
+ * 物理路径段中。输入标识符不允许 `%`，因此 `%3A` 是无碰撞、可逆且跨平台的文件名映射。
+ */
+function storagePathSegment(identifier: string): string {
+  return identifier.replaceAll(':', '%3A');
+}
+
 function previousVersion(records: readonly TaskFileRecordV1[], record: TaskFileRecordV1): TaskFileRecordV1 | undefined {
   return records
     .filter((candidate) => candidate.logicalPath === record.logicalPath && candidate.version < record.version)
@@ -538,11 +546,11 @@ export class TaskFileWorkspace {
   }
 
   private filePath(taskId: string, runId: string, taskFileIdValue: string): string {
-    return resolveContainedPath(this.root, taskId, runId, `${taskFileIdValue}.data`);
+    return resolveContainedPath(this.root, storagePathSegment(taskId), storagePathSegment(runId), `${storagePathSegment(taskFileIdValue)}.data`);
   }
 
   private deliveryPath(taskId: string, runId: string, deliveryIdValue: string): string {
-    return resolveContainedPath(this.deliveriesRoot, taskId, runId, `${deliveryIdValue}.zip`);
+    return resolveContainedPath(this.deliveriesRoot, storagePathSegment(taskId), storagePathSegment(runId), `${storagePathSegment(deliveryIdValue)}.zip`);
   }
 }
 

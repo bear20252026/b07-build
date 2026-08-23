@@ -20,7 +20,7 @@ export function TerminalCodingPage({ workspace }: { workspace: WorkspaceFilePref
   const [done, setDone] = useState<TerminalDoneEvent>();
   const [error, setError] = useState<string>();
   const [confirmed, setConfirmed] = useState(false);
-  const disposeRef = useRef<(() => void)>();
+  const disposeRef = useRef<(() => void) | undefined>(undefined);
   useEffect(() => () => disposeRef.current?.(), []);
   const highImpact = useMemo(() => HIGH_IMPACT.test(command), [command]);
   const running = Boolean(runId && !done);

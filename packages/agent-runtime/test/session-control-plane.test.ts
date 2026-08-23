@@ -92,7 +92,8 @@ test('SQLite session store 追加 durable 历史、保持 immutable 副本并拒
     assert.equal(history.length, 2);
     assert.equal(history[0]?.stateVersion, 1);
     assert.equal(history[1]?.stateVersion, 2);
-    assert.deepEqual(new SqliteSessionSnapshotStore(filePath).list(), [touched]);
+    const reopened = new SqliteSessionSnapshotStore(filePath);
+    try { assert.deepEqual(reopened.list(), [touched]); } finally { reopened.close(); }
     assert.throws(() => store.save({ ...touched, scope: { ...touched.scope, persistence: 'incognito' } }));
     store.close();
   } finally {

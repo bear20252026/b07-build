@@ -54,7 +54,7 @@ async function withGateway<T>(run: (baseUrl: string) => Promise<T>): Promise<T> 
     const port = await application.ready;
     return await run(`http://127.0.0.1:${port}`);
   } finally {
-    application.close();
+    await application.close();
     for (const key of DATABASE_VARIABLES) {
       const value = previous.get(key);
       if (value === undefined) delete process.env[key];

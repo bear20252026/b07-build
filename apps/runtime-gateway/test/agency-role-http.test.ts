@@ -22,7 +22,7 @@ async function withGateway<T>(run: (baseUrl: string) => Promise<T>): Promise<T> 
   process.env.AWO_KNOWLEDGE_WORKSPACE_DIR = join(root, 'knowledge'); process.env.AWO_TASK_FILE_ROOT = join(root, 'files');
   const app = startLocalGateway(0);
   try { return await run(`http://127.0.0.1:${await app.ready}`); } finally {
-    app.close(); for (const variable of DATABASE_VARIABLES) { const priorValue = prior.get(variable); if (priorValue === undefined) delete process.env[variable]; else process.env[variable] = priorValue; }
+    await app.close(); for (const variable of DATABASE_VARIABLES) { const priorValue = prior.get(variable); if (priorValue === undefined) delete process.env[variable]; else process.env[variable] = priorValue; }
     rmSync(root, { recursive: true, force: true });
   }
 }

@@ -27,7 +27,7 @@ export function CompanionControlPage({ gatewayAttached, preferences, onBack, onU
   const [ttsVoice, setTtsVoice] = useState('mimo_default');
   const [ttsPending, setTtsPending] = useState(false);
   const [ttsStatus, setTtsStatus] = useState<string>();
-  const audioRef = useRef<HTMLAudioElement>();
+  const audioRef = useRef<HTMLAudioElement | undefined>(undefined);
   const visualStatus = preferences.visualEnabled ? visualModeLabel(preferences.visualMode) : '角色已完全关闭';
   const previewVoice = (): void => {
     if (!gatewayAttached || !preferences.voiceEnabled || ttsPending) return;

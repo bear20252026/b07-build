@@ -26,7 +26,7 @@ export function DesktopCompanionSurface() {
   const send = (): void => {
     if (!selection || !draft.trim() || pending) return;
     setPending(true); setOutput(''); setError(undefined);
-    void directProviderClient.stream({ providerId: selection.providerId, prompt: draft, model: selection.model, onText: (text) => setOutput((current) => current + text) })
+    void directProviderClient.stream({ providerId: selection.providerId, messages: [{ role: 'user', content: draft }], model: selection.model, onText: (text) => setOutput((current) => current + text) })
       .catch((nextError: unknown) => setError(nextError instanceof Error ? nextError.message : '第三方模型未完成响应。'))
       .finally(() => setPending(false));
   };

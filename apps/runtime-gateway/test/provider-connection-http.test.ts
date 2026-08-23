@@ -27,7 +27,7 @@ async function withGateway<T>(run: (baseUrl: string) => Promise<T>): Promise<T> 
   try {
     return await run(`http://127.0.0.1:${await app.ready}`);
   } finally {
-    app.close();
+    await app.close();
     for (const key of DATABASE_VARIABLES) {
       const value = previous.get(key);
       if (value === undefined) delete process.env[key]; else process.env[key] = value;

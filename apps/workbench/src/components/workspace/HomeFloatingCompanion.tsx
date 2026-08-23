@@ -17,7 +17,7 @@ export function HomeFloatingCompanion({ desktopCompanionAvailable, preferences, 
 }) {
   const [position, setPosition] = useState<Position>({ x: presentation.x, y: presentation.y });
   const [dragging, setDragging] = useState(false);
-  const dragOffset = useRef<Position>();
+  const dragOffset = useRef<Position | undefined>(undefined);
   useEffect(() => { if (!dragging) setPosition({ x: presentation.x, y: presentation.y }); }, [presentation.x, presentation.y, dragging]);
   useEffect(() => {
     if (presentation.route === 'still' || dragging) return;

@@ -58,7 +58,7 @@ export function ChatHome({
   onProfileChange,
   onSuggestion,
 }: ChatHomeProps) {
-  const timelineRef = useRef<HTMLElement>();
+  const timelineRef = useRef<HTMLElement | null>(null);
   const previousMessageCount = useRef(activeConversation?.messages.length ?? 0);
   const stickToBottom = useRef(true);
   const [windowStart, setWindowStart] = useState(() => messageWindowStart(activeConversation?.messages.length ?? 0));

@@ -268,11 +268,8 @@ export function createGatewayComposition(): GatewayComposition {
     close: closeResources,
   };
 }
-export interface LocalGatewayApplication {
-  /** 仅在绑定 loopback port 后 resolve；对外不暴露 server、socket 或执行能力。 */
-  readonly ready: Promise<number>;
-  close(): void;
-}
+/** 仅在绑定 loopback port 后 resolve；对外不暴露 server、socket 或执行能力。 */
+export interface LocalGatewayApplication { readonly ready: Promise<number>; close(): Promise<void>; }
 /** 进程无关的 HTTP host：组合根只在启动时创建，信号处理仍由 main.ts 单独负责。 */
 export function startLocalGateway(port = PORT): LocalGatewayApplication {
   const composition = createGatewayComposition();
@@ -293,8 +290,8 @@ export function startLocalGateway(port = PORT): LocalGatewayApplication {
   });
   return {
     ready,
-    close(): void {
-      server.close(() => composition.close());
-    },
+    close: (): Promise<void> => new Promise((resolveClose, rejectClose) => server.close((serverError) => {
+      try { composition.close(); serverError ? rejectClose(serverError) : resolveClose(); } catch (closeError) { rejectClose(closeError); }
+    })),
   };
 }

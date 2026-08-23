@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 /* Unsloth-inspired UI alignment only: preserve direct Provider and streaming behaviour. */
 import './components/observability/GatewayAttachment.css';
 import { invoke } from '@tauri-apps/api/core';
@@ -139,9 +139,7 @@ function gatewayErrorText(error: unknown): string {
 
 export function App() {
   const [activePage, setActivePage] = useState<WorkbenchPage>('workspace');
-  const [gatewayAttached, setGatewayAttached] = useState(false);
-  const [gatewayAttachmentError, setGatewayAttachmentError] = useState<string>();
-  const [attachingGateway, setAttachingGateway] = useState(false);
+  const [gatewayAttached] = useState(false);
   const [localModels, setLocalModels] = useState<readonly WorkbenchLocalModelHealth[]>();
   const [localModelError, setLocalModelError] = useState<string>();
   const [controlPlaneDiagnostics, setControlPlaneDiagnostics] = useState<WorkbenchControlPlaneDiagnostics>();
@@ -312,7 +310,7 @@ export function App() {
   };
 
   const isDesktopCompanionWindow = typeof window !== 'undefined' && (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } }).__TAURI_INTERNALS__?.metadata?.currentWindow?.label === 'desktop-companion';
-  const openDesktopCompanion = (): void => { void invoke('show_desktop_companion').catch((error: unknown) => setGatewayAttachmentError(gatewayErrorText(error))); };
+  const openDesktopCompanion = (): void => { void invoke('show_desktop_companion').catch((error: unknown) => setDirectSetupError(gatewayErrorText(error))); };
   if (isDesktopCompanionWindow) return <DesktopCompanionSurface />;
 
   const settingsContent = <>

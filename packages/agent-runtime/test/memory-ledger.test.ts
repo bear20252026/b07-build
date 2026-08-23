@@ -139,7 +139,8 @@ test('SQLite ledger 追加 revision、持久化 provenance 并提供不可变历
     assert.equal(history.length, 2);
     assert.equal(history[0]?.status, 'candidate');
     assert.equal(history[1]?.status, 'confirmed');
-    assert.equal(new SqliteMemoryLedgerStore(filePath).load('memory-sqlite')?.revision, confirmed.revision);
+    const reopened = new SqliteMemoryLedgerStore(filePath);
+    try { assert.equal(reopened.load('memory-sqlite')?.revision, confirmed.revision); } finally { reopened.close(); }
     store.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });
