@@ -1,0 +1,9 @@
+# last30days-cn has no hard Python runtime dependencies.
+#
+# Optional enhancements:
+#   python -m pip install jieba
+#     Better Chinese segmentation. Without it the skill falls back to CJK bigrams.
+#
+#   python -m pip install playwright
+#   python -m playwright install chromium
+#     Enables browser crawler mode for platforms that need logged-in or rendered pages.

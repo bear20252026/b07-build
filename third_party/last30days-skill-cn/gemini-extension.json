@@ -1,0 +1,55 @@
+{
+  "name": "last30days-cn",
+  "version": "3.2.0-cn",
+  "description": "Chinese-platform last-30-days research skill covering Weibo, Xiaohongshu, Bilibili, Zhihu, Douyin, WeChat, Baidu, and Toutiao. Includes compact Markdown, full Markdown, JSON, and Guizang-inspired Swiss/IKB HTML report output.",
+  "settings": [
+    {
+      "name": "Extension Directory",
+      "description": "Gemini CLI extension install directory.",
+      "envVar": "GEMINI_EXTENSION_DIR",
+      "sensitive": false
+    },
+    {
+      "name": "Weibo Access Token",
+      "description": "Optional Weibo API access token.",
+      "envVar": "WEIBO_ACCESS_TOKEN",
+      "sensitive": true
+    },
+    {
+      "name": "ScrapeCreators API Key",
+      "description": "Optional API key kept for compatibility with existing configuration.",
+      "envVar": "SCRAPECREATORS_API_KEY",
+      "sensitive": true
+    },
+    {
+      "name": "Zhihu Cookie",
+      "description": "Optional Zhihu login cookie for higher-quality search.",
+      "envVar": "ZHIHU_COOKIE",
+      "sensitive": true
+    },
+    {
+      "name": "TikHub API Key",
+      "description": "Optional TikHub key for Douyin search.",
+      "envVar": "TIKHUB_API_KEY",
+      "sensitive": true
+    },
+    {
+      "name": "WeChat API Key",
+      "description": "Optional WeChat public-account search API key.",
+      "envVar": "WECHAT_API_KEY",
+      "sensitive": true
+    },
+    {
+      "name": "Baidu API Key",
+      "description": "Optional Baidu search API key.",
+      "envVar": "BAIDU_API_KEY",
+      "sensitive": true
+    },
+    {
+      "name": "Baidu Secret Key",
+      "description": "Optional Baidu secret key paired with BAIDU_API_KEY.",
+      "envVar": "BAIDU_SECRET_KEY",
+      "sensitive": true
+    }
+  ]
+}
