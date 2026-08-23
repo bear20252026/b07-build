@@ -42,31 +42,27 @@ jobs:
           npm run desktop:typecheck
           node --experimental-sqlite --import tsx --test apps/desktop-shell/test/desktop-shell-contract.test.ts
 
-      - name: Build fixed Gateway sidecar
-        shell: pwsh
-        run: |
-          npm run gateway:sidecar
-          if (-not (Test-Path .\apps\desktop-shell\src-tauri\binaries\awo-runtime-gateway-x86_64-pc-windows-msvc.exe)) { throw 'Expected fixed Windows Gateway sidecar was not generated.' }
-
       - name: Build desktop Setup.exe candidate
         id: package
         shell: pwsh
         run: |
+          node tools/verify-desktop-release-version.mjs
           npm run desktop:build
           if (-not $?) { throw 'Desktop shell Setup.exe packaging failed.' }
           $installer = Get-ChildItem -LiteralPath .\apps\desktop-shell\src-tauri\target\release\bundle\nsis -File -Filter 'AI Work OS_*_x64-setup.exe' | Select-Object -First 1
           if ($null -eq $installer) { throw 'Expected desktop Setup.exe output was not generated.' }
           $hash = Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256
+          $version = node -p "require('./apps/desktop-shell/package.json').version"
           $manifest = [ordered]@{
             schemaVersion = 1
             product = 'AI Work OS'
-            version = '0.1.0'
+            version = $version
             platform = 'windows-x64'
             artifactKind = 'desktop-shell-setup-candidate'
             signingStatus = 'unsigned-candidate'
             publicTrust = $false
             canAutoStartGateway = $false
-            bundlesExplicitGatewaySidecar = $true
+            bundlesExplicitGatewaySidecar = $false
             canAutoStartNativeHelper = $false
             canPromoteBridgeTrust = $false
             sourceRevision = '${{ github.sha }}'

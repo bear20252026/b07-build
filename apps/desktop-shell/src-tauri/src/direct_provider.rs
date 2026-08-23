@@ -253,6 +253,14 @@ fn error_from_sse(data: &str) -> Option<String> {
     (!compact.is_empty()).then_some(compact)
 }
 
+fn http_error_message(status: reqwest::StatusCode, body: &str, includes_images: bool) -> String {
+    if status.as_u16() == 404 && includes_images {
+        return "provider-http-404-image: 当前 Base URL、协议或模型未接受图片内容；请改用供应商支持视觉的模型或核对兼容端点".to_owned();
+    }
+    let upstream = error_from_sse(body).unwrap_or_default();
+    if upstream.is_empty() { format!("provider-http-{}", status.as_u16()) } else { format!("provider-http-{}: {}", status.as_u16(), upstream) }
+}
+
 fn emit(app: &AppHandle, event: DirectProviderStreamEvent) {
     let _ = app.emit("direct-provider-stream", event);
 }
@@ -343,7 +351,13 @@ pub fn start_direct_provider_stream(
         };
         let response = client.post(url_for(&session)).headers(match headers_for(&session) { Ok(headers) => headers, Err(message) => { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some(message.to_owned()) }); return; } }).json(&payload_for(&session, &model, &request.messages)).send().await;
         let Ok(mut response) = response else { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some("provider-request-failed".to_owned()) }); return; };
-        if !response.status().is_success() { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some(format!("provider-http-{}", response.status().as_u16())) }); return; }
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            let includes_images = request.messages.iter().any(|message| !message.images.is_empty());
+            emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: Some(model), message: Some(http_error_message(status, &body, includes_images)) });
+            return;
+        }
         let mut buffer = String::new();
         loop {
             match response.chunk().await {
@@ -423,5 +437,11 @@ mod tests {
         let payload = super::payload_for(&session, "model", &messages);
         assert_eq!(payload.pointer("/messages/0/content/0/text").and_then(|value| value.as_str()), Some("请看图片"));
         assert_eq!(payload.pointer("/messages/0/content/1/image_url/url").and_then(|value| value.as_str()), Some("data:image/png;base64,aGVsbG8="));
+    }
+
+    #[test]
+    fn identifies_image_specific_not_found_responses_without_claiming_local_blocking() {
+        assert_eq!(super::http_error_message(reqwest::StatusCode::NOT_FOUND, "", true), "provider-http-404-image: 当前 Base URL、协议或模型未接受图片内容；请改用供应商支持视觉的模型或核对兼容端点");
+        assert_eq!(super::http_error_message(reqwest::StatusCode::NOT_FOUND, "", false), "provider-http-404");
     }
 }

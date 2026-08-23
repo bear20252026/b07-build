@@ -18,6 +18,22 @@ function MessageText({ value }: Readonly<{ value: string }>) {
   return <Suspense fallback={<span className="math-text-plain">{value}</span>}><LazyMathText value={value} /></Suspense>;
 }
 
+async function copyMessageText(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.append(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  textarea.remove();
+}
+
 export interface ChatHomeProps {
   activeProfile: AgentProfileId;
   authorityMode: 'plan' | 'review' | 'automate';
@@ -71,17 +87,17 @@ export function ChatHome({
   const visibleStart = messageWindowStart(messageCount, windowStart);
   const visibleMessages = activeConversation?.messages.slice(visibleStart) ?? [];
   const latestMessage = activeConversation?.messages.at(-1);
-  const { onScroll } = useChatAutoScroll(timelineRef, `${activeConversation?.id ?? 'none'}:${messageCount}:${latestMessage?.text.length ?? 0}`);
+  const { onScroll, jumpToLatest, showJumpToLatest } = useChatAutoScroll(timelineRef, `${activeConversation?.id ?? 'none'}:${messageCount}:${latestMessage?.text.length ?? 0}`, activeConversation?.id);
 
   useEffect(() => {
-    const previous = previousMessageCount.current;
-    if (messageCount > previous) {
-      setWindowStart(Math.max(0, messageCount - MESSAGE_RENDER_WINDOW));
-    } else if (messageCount < previous) {
-      setWindowStart(messageWindowStart(messageCount));
-    }
+    setWindowStart((current) => messageWindowStart(messageCount, current));
     previousMessageCount.current = messageCount;
   }, [messageCount]);
+
+  useEffect(() => {
+    setWindowStart(messageWindowStart(messageCount));
+    previousMessageCount.current = messageCount;
+  }, [activeConversation?.id]);
 
   return (
     <section className={`chat-home chat-home--studio${hasConversationContent ? ' chat-home--conversation-active' : ' chat-home--conversation-idle'}${draftActive && !hasConversationContent ? ' chat-home--drafting' : ''}`} aria-label={messages.task.title}>
@@ -98,10 +114,11 @@ export function ChatHome({
           {hasConversationContent && activeConversation && <section className="chat-home-message-timeline" aria-live="polite" aria-label="当前对话消息" onScroll={onScroll} ref={timelineRef}>
             {visibleStart > 0 && <button className="chat-home-load-history" onClick={() => setWindowStart((current) => Math.max(0, current - MESSAGE_RENDER_WINDOW))} type="button">加载更早的 {Math.min(MESSAGE_RENDER_WINDOW, visibleStart)} 条消息</button>}
             {visibleMessages.map((message) => <article className={`chat-home-message chat-home-message--${message.role}`} key={message.id}>
-              <span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span>
+              <div className="chat-home-message-meta"><span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span><button className="chat-home-message-copy" onClick={() => { void copyMessageText(message.text); }} title="复制这一条对话的完整文本" type="button">复制</button></div>
               {message.activities?.map((activity) => <details className="chat-home-message-process" key={`${message.id}-${activity.kind}`}><summary>{activity.kind === 'reasoning' ? '模型过程（供应商实际返回）' : activity.kind === 'web-search' ? '联网检索（本轮明确启用）' : activity.kind === 'research' ? '近 30 天研究（本轮明确启用）' : activity.kind === 'hybrid-search' ? '混合检索（并行后端）' : activity.kind === 'searxng' ? '本地 SearXNG（本轮明确启用）' : '附件上下文与图片（本轮传递状态）'}</summary><pre>{activity.text}</pre>{activity.sources && activity.sources.length > 0 && <ol className="chat-home-search-sources">{activity.sources.map((source) => <li key={source.url}><a href={source.url} rel="noreferrer" target="_blank">{source.title}</a></li>)}</ol>}</details>)}
               <div className="chat-home-message-content"><MessageText value={message.text} /></div>
             </article>)}
+            {showJumpToLatest && <button aria-label="跳到最新消息" className="chat-home-jump-latest" onClick={jumpToLatest} title="跳到最新消息" type="button">↓</button>}
           </section>}
           {directResponse && !activeConversation?.messages.length && <section className="chat-home-direct-response" aria-live="polite"><div><span>DIRECT MODEL RESPONSE</span><strong>{directResponse.model ?? taskModelLabel ?? '已选模型'}</strong><small>{directResponse.complete ? '流式回答完成' : '正在接收第三方文本分块…'}</small></div><pre>{directResponse.output || '正在等待模型返回首个文本分块…'}</pre></section>}
           {directError && <p className="chat-home-direct-error" role="alert">{directError}</p>}

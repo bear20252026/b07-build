@@ -5,7 +5,7 @@ use std::{fs, net::TcpListener, path::PathBuf, process::Stdio, sync::Mutex, time
 use tauri::{path::BaseDirectory, AppHandle, Manager, State};
 use tokio::process::{Child, Command};
 
-const STARTUP_TIMEOUT_SECONDS: u64 = 20;
+const STARTUP_TIMEOUT_SECONDS: u64 = 35;
 const REQUEST_TIMEOUT_SECONDS: u64 = 30;
 const MAX_RESULTS: usize = 100;
 const MAX_RAW_CONTENT_CHARS: usize = 1_000_000;
@@ -67,11 +67,18 @@ fn write_settings(app: &AppHandle, port: u16) -> Result<PathBuf, &'static str> {
 
 fn local_url(port: u16, path: &str) -> String { format!("http://127.0.0.1:{}{}", port, path) }
 
+fn loopback_headers() -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("X-Forwarded-For", reqwest::header::HeaderValue::from_static("127.0.0.1"));
+    headers.insert("X-Real-IP", reqwest::header::HeaderValue::from_static("127.0.0.1"));
+    headers
+}
+
 async fn wait_until_ready(port: u16) -> Result<(), &'static str> {
     let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build().map_err(|_| "searxng-unavailable")?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(STARTUP_TIMEOUT_SECONDS);
     while tokio::time::Instant::now() < deadline {
-        if let Ok(response) = client.get(local_url(port, "/")).send().await {
+        if let Ok(response) = client.get(local_url(port, "/")).headers(loopback_headers()).send().await {
             if response.status().is_success() { return Ok(()); }
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
@@ -154,7 +161,7 @@ pub async fn search_searxng_local_impl(app: &AppHandle, state: &SearxngState, re
     let max_results = request.max_results.unwrap_or(MAX_RESULTS).clamp(1, MAX_RESULTS);
     let port = ensure_running(app, state).await?;
     let client = reqwest::Client::builder().timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS)).build().map_err(|_| "searxng-unavailable")?;
-    let response = client.get(local_url(port, "/search")).query(&[("q", normalized_query.as_str()), ("format", "json")]).send().await.map_err(|_| "searxng-request-failed")?;
+    let response = client.get(local_url(port, "/search")).headers(loopback_headers()).query(&[("q", normalized_query.as_str()), ("format", "json")]).send().await.map_err(|_| "searxng-request-failed")?;
     if !response.status().is_success() { return Err("searxng-request-rejected"); }
     let value = response.json::<Value>().await.map_err(|_| "searxng-response-invalid")?;
     response_from_json(normalized_query, value, max_results)
@@ -178,5 +185,12 @@ mod tests {
         let response = response_from_json("AI Work OS".to_owned(), json!({ "results": [{ "title": "Example", "url": "https://example.com/post", "content": "可读正文" }] }), 8).expect("valid response");
         assert_eq!(response.sources.len(), 1);
         assert!(response.raw_content.contains("https://example.com/post"));
+    }
+
+    #[test]
+    fn loopback_requests_identify_the_local_caller_for_searxng_request_handling() {
+        let headers = super::loopback_headers();
+        assert_eq!(headers.get("X-Forwarded-For").and_then(|value| value.to_str().ok()), Some("127.0.0.1"));
+        assert_eq!(headers.get("X-Real-IP").and_then(|value| value.to_str().ok()), Some("127.0.0.1"));
     }
 }

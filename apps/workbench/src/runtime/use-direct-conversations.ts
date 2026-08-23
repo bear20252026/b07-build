@@ -87,6 +87,7 @@ export function providerHistory(messages: readonly DirectConversationMessage[]):
 function streamErrorText(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? '');
   if (message.startsWith('provider-sse-error: ')) return `第三方模型在流式请求中返回错误：${message.slice('provider-sse-error: '.length)}`;
+  if (message.startsWith('provider-http-404-image:')) return '图片已交给第三方 Provider，但当前 Base URL、协议或模型端点不接受视觉内容。请改用该供应商支持图片的模型，或核对 OpenAI/Anthropic 兼容协议与 Base URL。';
   const messages: Record<string, string> = {
     'provider-not-connected': '当前模型尚未在本次桌面会话中连接。请在“管理 API 连接”中点击“连接并测试”后重试。',
     'provider-http-401': '第三方服务拒绝了 API key；请检查密钥、账号或套餐。',
@@ -138,7 +139,7 @@ function searxngErrorText(error: unknown): string {
   const messages: Record<string, string> = {
     'searxng-resource-unavailable': '本地 SearXNG 源码未随当前桌面资源可用，本轮将继续以普通聊天发送。',
     'searxng-python-unavailable': '本地 SearXNG 未找到可用的内嵌或当前 Windows Python 运行时，本轮将继续以普通聊天发送。',
-    'searxng-start-timeout': '本地 SearXNG 启动超时，本轮将继续以普通聊天发送。',
+    'searxng-start-timeout': '本地 SearXNG 在嵌入式 Python 冷启动期间未完成健康检查，本轮将继续以普通聊天发送；下次搜索会自动重试。',
     'searxng-no-results': '本地 SearXNG 未返回可传递来源，本轮将继续以普通聊天发送。',
   };
   return messages[message] ?? '本地 SearXNG 检索未完成，本轮将继续以普通聊天发送。';
