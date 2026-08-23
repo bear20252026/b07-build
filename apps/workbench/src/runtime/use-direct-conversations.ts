@@ -85,7 +85,7 @@ export function providerHistory(messages: readonly DirectConversationMessage[]):
   return tail.slice(start).filter((message) => message.text !== '…').map((message) => ({ role: message.role, content: message.context ?? message.text }));
 }
 
-function streamErrorText(error: unknown): string {
+export function streamErrorText(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? '');
   if (message.startsWith('provider-sse-error: ')) return `第三方模型在流式请求中返回错误：${message.slice('provider-sse-error: '.length)}`;
   if (message.startsWith('provider-http-404-image:')) return '图片已交给第三方 Provider，但当前 Base URL、协议或模型端点不接受视觉内容。请改用该供应商支持图片的模型，或核对 OpenAI/Anthropic 兼容协议与 Base URL。';
@@ -94,7 +94,12 @@ function streamErrorText(error: unknown): string {
     'provider-http-401': '第三方服务拒绝了 API key；请检查密钥、账号或套餐。',
     'provider-http-403': '第三方服务拒绝访问；请检查账号权限、套餐与模型可用性。',
     'provider-http-429': '第三方服务正在限流，请稍后重试。',
-    'provider-request-failed': '第三方服务未响应；请检查网络、Base URL 与供应商服务状态。',
+    'provider-dns-failed': '无法解析 Provider 域名。请检查网络 DNS、Base URL 域名与网络代理设置。',
+    'provider-tls-failed': 'Provider 的 TLS/证书握手失败。请检查系统时间、证书拦截代理或供应商 HTTPS 状态。',
+    'provider-connect-failed': '已找到 Provider 域名，但无法建立 HTTPS 连接。请检查网络、防火墙、代理或 Base URL。',
+    'provider-request-timeout': 'Provider 请求等待超时。请检查网络、模型服务负载或缩短本轮上下文后重试。',
+    'provider-request-invalid': '桌面端无法构造当前 Provider 请求。请重新保存协议、Base URL、模型与密钥后重试。',
+    'provider-request-failed': '第三方请求未完成，但未得到可分类的网络错误。请复制“已连接模型”中的本地诊断报告。',
     'provider-stream-failed': '第三方服务已建立响应但流式传输中断；请检查模型、上下文长度、网络或供应商状态。',
     'provider-client-unavailable': '桌面端无法创建第三方模型 HTTP 客户端；请重启应用后重试。',
     'provider-request-rejected': '第三方服务拒绝了当前协议、地址、模型或请求参数；请按供应商文档核对后重试。',

@@ -143,7 +143,9 @@ fn headers_for(session: &DirectProviderSession) -> Result<HeaderMap, &'static st
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     headers.insert(ACCEPT, HeaderValue::from_static("text/event-stream"));
-    let is_mimo = session.provider_id == "mimo" || session.provider_id.starts_with("mimo-token-plan-");
+    // MiMo Token Plan's official `tp-` keys use `api-key` regardless of whether the
+    // user selected the preset or supplied the same official endpoint as a custom Provider.
+    let is_mimo = session.provider_id == "mimo" || session.provider_id.starts_with("mimo-token-plan-") || session.api_key.trim_start().starts_with("tp-");
     match session.protocol {
         DirectProviderProtocol::OpenaiCompatible if is_mimo => {
             headers.insert("api-key", HeaderValue::from_str(&session.api_key).map_err(|_| "api-key-invalid")?);
@@ -161,6 +163,24 @@ fn headers_for(session: &DirectProviderSession) -> Result<HeaderMap, &'static st
         }
     }
     Ok(headers)
+}
+
+fn network_error_code_from_parts(is_timeout: bool, is_connect: bool, is_request: bool, detail: &str) -> &'static str {
+    if is_timeout { return "provider-request-timeout"; }
+    if is_connect {
+        let detail = detail.to_ascii_lowercase();
+        if detail.contains("dns") || detail.contains("getaddrinfo") || detail.contains("name or service") || detail.contains("no such host") { return "provider-dns-failed"; }
+        if detail.contains("tls") || detail.contains("ssl") || detail.contains("certificate") || detail.contains("rustls") { return "provider-tls-failed"; }
+        return "provider-connect-failed";
+    }
+    if is_request { return "provider-request-invalid"; }
+    "provider-request-failed"
+}
+
+/// Returns a stable local error code only. The reqwest error text may contain a URL and is never
+/// emitted to the WebView, diagnostic report, log, Provider context or chat timeline.
+fn network_error_code(error: &reqwest::Error) -> &'static str {
+    network_error_code_from_parts(error.is_timeout(), error.is_connect(), error.is_request(), &error.to_string())
 }
 
 /// 探测与真实聊天共享同一网络策略。默认 reqwest 总超时会把慢首 token 的
@@ -299,7 +319,7 @@ pub async fn discover_direct_provider(
     let session = state.0.lock().map_err(|_| "provider-state-unavailable")?.get(&request.provider_id).cloned().ok_or("provider-not-connected")?;
     let mut headers = headers_for(&session)?;
     headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-    let response = provider_http_client()?.get(model_list_url_for(&session)).headers(headers).send().await.map_err(|_| "provider-request-failed")?;
+    let response = provider_http_client()?.get(model_list_url_for(&session)).headers(headers).send().await.map_err(|error| network_error_code(&error))?;
     // `/models` is optional in OpenAI-compatible services. A subscription gateway may return an
     // HTML page, a vendor-specific payload, or 404 while normal chat inference remains available.
     // Return an empty catalog so the UI preserves the user's manually supplied model identifier.
@@ -323,7 +343,7 @@ pub async fn probe_direct_provider(
     require_identifier(&request.provider_id, "provider-id-invalid")?;
     let session = state.0.lock().map_err(|_| "provider-state-unavailable")?.get(&request.provider_id).cloned().ok_or("provider-not-connected")?;
     let probe_messages = vec![DirectProviderMessage { role: "user".to_owned(), content: "Reply with OK.".to_owned(), images: Vec::new() }];
-    let response = provider_http_client()?.post(url_for(&session)).headers(headers_for(&session)?).json(&payload_for(&session, &session.model, &probe_messages)).send().await.map_err(|_| "provider-request-failed")?;
+    let response = provider_http_client()?.post(url_for(&session)).headers(headers_for(&session)?).json(&payload_for(&session, &session.model, &probe_messages)).send().await.map_err(|error| network_error_code(&error))?;
     if response.status().is_success() { return Ok(()); }
     match response.status().as_u16() {
         401 => Err("provider-http-401"),
@@ -354,7 +374,7 @@ pub fn start_direct_provider_stream(
             }
         };
         let response = client.post(url_for(&session)).headers(match headers_for(&session) { Ok(headers) => headers, Err(message) => { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some(message.to_owned()) }); return; } }).json(&payload_for(&session, &model, &request.messages)).send().await;
-        let Ok(mut response) = response else { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some("provider-request-failed".to_owned()) }); return; };
+        let mut response = match response { Ok(response) => response, Err(error) => { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some(network_error_code(&error).to_owned()) }); return; } };
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
@@ -383,7 +403,7 @@ pub fn start_direct_provider_stream(
                     }
                 }
                 Ok(None) => { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "done", text: None, model: Some(model), message: None }); return; }
-                Err(_) => { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some("provider-stream-failed".to_owned()) }); return; }
+                Err(error) => { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some(network_error_code(&error).to_owned()) }); return; }
             }
         }
     });
@@ -447,5 +467,22 @@ mod tests {
     fn identifies_image_specific_not_found_responses_without_claiming_local_blocking() {
         assert_eq!(super::http_error_message(reqwest::StatusCode::NOT_FOUND, "", true), "provider-http-404-image: 当前 Base URL、协议或模型未接受图片内容；请改用供应商支持视觉的模型或核对兼容端点");
         assert_eq!(super::http_error_message(reqwest::StatusCode::NOT_FOUND, "", false), "provider-http-404");
+    }
+
+    #[test]
+    fn classifies_network_failures_without_returning_transport_details() {
+        assert_eq!(super::network_error_code_from_parts(true, false, false, "ignored"), "provider-request-timeout");
+        assert_eq!(super::network_error_code_from_parts(false, true, false, "dns lookup failed"), "provider-dns-failed");
+        assert_eq!(super::network_error_code_from_parts(false, true, false, "TLS certificate verify failed"), "provider-tls-failed");
+        assert_eq!(super::network_error_code_from_parts(false, true, false, "connection refused"), "provider-connect-failed");
+        assert_eq!(super::network_error_code_from_parts(false, false, true, "request builder"), "provider-request-invalid");
+    }
+
+    #[test]
+    fn token_plan_key_uses_official_api_key_header_for_custom_or_preset_connection() {
+        let session = super::DirectProviderSession { provider_id: "custom-mimo-cn".to_owned(), protocol: DirectProviderProtocol::OpenaiCompatible, base_url: "https://token-plan-cn.xiaomimimo.com/v1".to_owned(), model: "mimo-v2.5-pro".to_owned(), api_key: "tp-example".to_owned() };
+        let headers = super::headers_for(&session).expect("headers");
+        assert_eq!(headers.get("api-key").and_then(|value| value.to_str().ok()), Some("tp-example"));
+        assert!(headers.get(reqwest::header::AUTHORIZATION).is_none());
     }
 }
