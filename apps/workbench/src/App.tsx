@@ -163,6 +163,7 @@ export function App() {
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
   const [authorityMode, setAuthorityMode] = useState<WorkbenchAuthorityMode>('review');
   const [taskModelSelection, setTaskModelSelection] = useState<Readonly<{ providerId: string; model?: string }> | undefined>(loadTaskModelSelection);
+  const [directSetupError, setDirectSetupError] = useState<string>();
   const [companionPreferences, setCompanionPreferences] = useState(() => loadCompanionPreferences());
   const [floatingCompanionPreferences, setFloatingCompanionPreferences] = useState(() => loadFloatingCompanionPreferences());
   const [companionStudioPreferences, setCompanionStudioPreferences] = useState(() => loadCompanionStudioPreferences());
@@ -190,7 +191,7 @@ export function App() {
     selectTaskModel({ providerId: connection.providerId, ...(connection.defaultModel ? { model: connection.defaultModel } : {}) });
   }, [providerControl.connections, taskModelSelection]);
   const selectedTaskConnection = providerControl.connections?.find((connection) => connection.providerId === taskModelSelection?.providerId);
-  const taskModelLabel = selectedTaskConnection ? `${selectedTaskConnection.displayName} · ${taskModelSelection?.model ?? selectedTaskConnection.defaultModel}` : taskModelSelection?.model;
+  const taskModelLabel = selectedTaskConnection ? `${selectedTaskConnection.displayName} · ${taskModelSelection?.model ?? selectedTaskConnection.defaultModel}` : undefined;
   const updateCompanion = (change: Parameters<typeof updateCompanionPreferences>[1]): void => setCompanionPreferences((current) => {
     const next = updateCompanionPreferences(current, change);
     saveCompanionPreferences(next);
@@ -235,7 +236,16 @@ export function App() {
   const submitIntent = async (): Promise<void> => {
     const goal = draft.trim();
     if (!goal) return;
-    if (taskModelSelection) {
+    if (providerControl.restoring) {
+      setDirectSetupError('正在恢复本地模型会话，请稍候再发送。');
+      return;
+    }
+    if (!taskModelSelection || !selectedTaskConnection) {
+      setDirectSetupError('请先在 API 连接中完成模型连接并选择任务模型；首页不会回退到旧的本机 Gateway 链路。');
+      return;
+    }
+    setDirectSetupError(undefined);
+    {
       const sent = await directConversations.send(taskModelSelection, goal);
       if (!sent) return;
       setActiveGoal(goal);
@@ -243,12 +253,6 @@ export function App() {
       setDraft('');
       setActivePage('workspace');
       return;
-    }
-    if (await taskExecution.submit(goal, activeProfile, authorityMode, composerAttachments.map((attachment) => ({ id: attachment.descriptor.id, name: attachment.descriptor.name, file: attachment.file })), taskModelSelection)) {
-      setActiveGoal(goal);
-      setComposerAttachments([]);
-      setDraft('');
-      setActivePage('task');
     }
   };
 
@@ -355,7 +359,7 @@ export function App() {
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
-            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} directError={directConversations.error} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} conversations={directConversations.conversations} activeConversationId={directConversations.activeConversation?.id} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} onSelectConversation={directConversations.select} onNewConversation={() => { if (taskModelSelection) directConversations.create(taskModelSelection); }} profiles={profiles} />}
+            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} restoringProviderSession={providerControl.restoring} directError={directSetupError ?? directConversations.error} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} conversations={directConversations.conversations} activeConversationId={directConversations.activeConversation?.id} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} onSelectConversation={directConversations.select} onNewConversation={() => { if (taskModelSelection) directConversations.create(taskModelSelection); }} profiles={profiles} />}
             {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} error={projectWorkspace.error} storageReady={true} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={projectWorkspace.create} onSelect={projectWorkspace.select} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
             {isTaskPage && snapshot && <TaskPage
               activeGoal={activeGoal}
@@ -446,8 +450,8 @@ export function App() {
                 </label>
                 <span className="composer-mode" title={messages.authority.mode[authorityMode].description}>{profile.label} · {messages.authority.mode[authorityMode].label}</span>
                 <button className="composer-collapse" onClick={() => setComposerCollapsed(true)} title="一键收起对话编辑器，保留当前草稿。" type="button">收起</button>
-                <button className="composer-submit" disabled={!draft.trim() || pending || directConversations.streaming} onClick={() => void submitIntent()} type="button">
-                  {pending || directConversations.streaming ? messages.task.submitting : messages.task.submit}
+                <button className="composer-submit" disabled={!draft.trim() || pending || directConversations.streaming || providerControl.restoring} onClick={() => void submitIntent()} type="button">
+                  {pending || directConversations.streaming || providerControl.restoring ? messages.task.submitting : messages.task.submit}
                 </button>
               </div>
             </div>

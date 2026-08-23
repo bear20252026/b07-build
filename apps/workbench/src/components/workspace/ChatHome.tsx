@@ -12,6 +12,7 @@ export interface ChatHomeProps {
   taskModelLabel?: string;
   directResponse?: Readonly<{ output: string; model?: string; complete: boolean }>;
   directError?: string;
+  restoringProviderSession?: boolean;
   conversations?: readonly DirectConversation[];
   activeConversationId?: string;
   messages: Translation;
@@ -37,6 +38,7 @@ export function ChatHome({
   taskModelLabel,
   directResponse,
   directError,
+  restoringProviderSession = false,
   conversations = [],
   activeConversationId,
   messages,
@@ -49,7 +51,7 @@ export function ChatHome({
 }: ChatHomeProps) {
   const home = messages.home;
   const hasTaskModel = Boolean(taskModelLabel);
-  const modelTitle = hasTaskModel ? taskModelLabel! : (gatewayAttached && connectedProviderCount > 0 ? home.providerReady(connectedProviderCount) : home.providerWaiting);
+  const modelTitle = restoringProviderSession ? '正在恢复本地模型会话…' : (hasTaskModel ? taskModelLabel! : (gatewayAttached && connectedProviderCount > 0 ? home.providerReady(connectedProviderCount) : home.providerWaiting));
   const workMode = createWorkModeAuditProjection({ profileId: activeProfile, authorityMode, connectedProviderCount });
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId);
   const hasConversationContent = Boolean(directResponse?.output) || Boolean(activeConversation && activeConversation.messages.length > 0);
@@ -102,7 +104,7 @@ export function ChatHome({
             <div>
               <span>MODEL CONNECTION</span>
               <strong>{modelTitle}</strong>
-              <p>{taskModelLabel ? `当前任务模型：${taskModelLabel}。发送对话将只调用此选择。` : `${home.providerDescription} 请在 API 连接中明确选择一个任务模型。`}</p>
+              <p>{restoringProviderSession ? '仅在本地重建已保存的原生 Provider 会话，不会自动探测、查询模型或发送第三方请求。' : taskModelLabel ? `当前任务模型：${taskModelLabel}。发送对话将只调用此选择。` : `${home.providerDescription} 请在 API 连接中明确选择一个任务模型。`}</p>
             </div>
             <button onClick={onOpenModels} type="button">{taskModelLabel ? '管理 API' : home.openModels}</button>
           </section>

@@ -30,3 +30,11 @@
 
 * <https://github.com/andrewyng/openworker>
 * <https://atomgit.com/atomgit_atomcode/atomcode>
+
+## 启动时的原生 Provider 会话重建
+
+已新增 `awo.direct-provider-accounts.v1` 本地账本，保存 `providerId`、显示名称、协议、Base URL、模型名和按用户要求可查看的 API key。用户在“连接并测试”成功配置后，应用会保存该完整账户配置；下次 Windows 桌面应用启动时，Workbench 仅调用 Tauri 原生 `configure_direct_provider` 重建内存会话，然后恢复同一 `providerId` 的模型选择与对话历史。
+
+该启动恢复**不会**自动执行连接测试、模型目录查询或聊天请求，也不会写入会话记录、项目账本或诊断板。只有用户发送消息或手动选择“连接并测试 / 查询模型”时，才会发出第三方网络请求。恢复失败时首页会提示用户在 API 连接页面重新连接，而不会回退至已移除的 Gateway 或 `127.0.0.1:4318` 链路。
+
+验证结果：新增直接 Provider 账户账本的更新和异常数据降级测试；全仓 `npm test` 为 **309/309** 通过，TypeScript、Workbench 生产构建、Rust `cargo check` 与差异空白检查均通过。真实供应商回复仍需在安装后的 Tauri WebView 中由用户使用自己的有效账户完成验证。
