@@ -66,7 +66,16 @@ import { loadCompanionStudioPreferences, saveCompanionStudioPreferences, updateC
 import { loadWorkspaceFilePreferences, saveWorkspaceFilePreferences, type WorkspaceFilePreferencesV1 } from './runtime/workspace-file-contract';
 
 const localGatewayClient = HttpWorkbenchTaskClient.forLocalGateway();
-const localProjectClient = createProjectClient('http://127.0.0.1:4318');
+const localProjectClient = createProjectClient();
+
+function loadTaskModelSelection(): Readonly<{ providerId: string; model?: string }> | undefined {
+  try {
+    const value = JSON.parse(window.localStorage.getItem('awo.direct-provider.selection.v1') ?? '') as { providerId?: unknown; model?: unknown };
+    if (typeof value.providerId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.providerId)) return undefined;
+    if (value.model !== undefined && (typeof value.model !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(value.model))) return undefined;
+    return { providerId: value.providerId, ...(typeof value.model === 'string' && value.model ? { model: value.model } : {}) };
+  } catch { return undefined; }
+}
 
 function profileUi(messages: Translation): Record<AgentProfileId, { label: string; description: string }> {
   return messages.profile;
@@ -153,7 +162,7 @@ export function App() {
   const [activeGoal, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
   const [authorityMode, setAuthorityMode] = useState<WorkbenchAuthorityMode>('review');
-  const [taskModelSelection, setTaskModelSelection] = useState<Readonly<{ providerId: string; model?: string }>>();
+  const [taskModelSelection, setTaskModelSelection] = useState<Readonly<{ providerId: string; model?: string }> | undefined>(loadTaskModelSelection);
   const [companionPreferences, setCompanionPreferences] = useState(() => loadCompanionPreferences());
   const [floatingCompanionPreferences, setFloatingCompanionPreferences] = useState(() => loadFloatingCompanionPreferences());
   const [companionStudioPreferences, setCompanionStudioPreferences] = useState(() => loadCompanionStudioPreferences());
@@ -166,7 +175,7 @@ export function App() {
     approvalFailed: messages.task.error.approve,
   }, localGatewayClient);
   const { snapshot, events, trajectory, workspaceArtifacts, checkpoints, taskFiles, deliveries, pending, deliveryPending, error: serviceError } = taskExecution;
-  const projectWorkspace = useProjectWorkspace(gatewayAttached, activePage, gatewayErrorText, localProjectClient);
+  const projectWorkspace = useProjectWorkspace(activePage, gatewayErrorText, localProjectClient);
   const providerControl = useProviderControlPlane();
   const directConversations = useDirectConversations();
   const profiles = profileUi(messages);
@@ -175,8 +184,13 @@ export function App() {
     setTaskModelSelection(selection);
     window.localStorage.setItem('awo.direct-provider.selection.v1', JSON.stringify(selection));
   };
+  useEffect(() => {
+    if (taskModelSelection || providerControl.connections.length === 0) return;
+    const connection = providerControl.connections[0];
+    selectTaskModel({ providerId: connection.providerId, ...(connection.defaultModel ? { model: connection.defaultModel } : {}) });
+  }, [providerControl.connections, taskModelSelection]);
   const selectedTaskConnection = providerControl.connections?.find((connection) => connection.providerId === taskModelSelection?.providerId);
-  const taskModelLabel = selectedTaskConnection ? `${selectedTaskConnection.displayName} · ${taskModelSelection?.model ?? selectedTaskConnection.defaultModel}` : undefined;
+  const taskModelLabel = selectedTaskConnection ? `${selectedTaskConnection.displayName} · ${taskModelSelection?.model ?? selectedTaskConnection.defaultModel}` : taskModelSelection?.model;
   const updateCompanion = (change: Parameters<typeof updateCompanionPreferences>[1]): void => setCompanionPreferences((current) => {
     const next = updateCompanionPreferences(current, change);
     saveCompanionPreferences(next);
@@ -222,7 +236,8 @@ export function App() {
     const goal = draft.trim();
     if (!goal) return;
     if (taskModelSelection) {
-      directConversations.send(taskModelSelection, goal);
+      const sent = await directConversations.send(taskModelSelection, goal);
+      if (!sent) return;
       setActiveGoal(goal);
       setComposerAttachments([]);
       setDraft('');
@@ -340,8 +355,8 @@ export function App() {
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
-            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} conversations={directConversations.conversations} activeConversationId={directConversations.activeConversation?.id} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} onSelectConversation={directConversations.select} onNewConversation={() => { if (taskModelSelection) directConversations.create(taskModelSelection); }} profiles={profiles} />}
-            {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} error={projectWorkspace.error} gatewayAttached={gatewayAttached} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={projectWorkspace.create} onSelect={projectWorkspace.select} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
+            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} directError={directConversations.error} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} conversations={directConversations.conversations} activeConversationId={directConversations.activeConversation?.id} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} onSelectConversation={directConversations.select} onNewConversation={() => { if (taskModelSelection) directConversations.create(taskModelSelection); }} profiles={profiles} />}
+            {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} error={projectWorkspace.error} storageReady={true} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={projectWorkspace.create} onSelect={projectWorkspace.select} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
             {isTaskPage && snapshot && <TaskPage
               activeGoal={activeGoal}
               authorityLabel={messages.authority.mode[snapshot.authorityMode ?? authorityMode].label}
@@ -431,8 +446,8 @@ export function App() {
                 </label>
                 <span className="composer-mode" title={messages.authority.mode[authorityMode].description}>{profile.label} · {messages.authority.mode[authorityMode].label}</span>
                 <button className="composer-collapse" onClick={() => setComposerCollapsed(true)} title="一键收起对话编辑器，保留当前草稿。" type="button">收起</button>
-                <button className="composer-submit" disabled={!draft.trim() || pending} onClick={() => void submitIntent()} type="button">
-                  {pending ? messages.task.submitting : messages.task.submit}
+                <button className="composer-submit" disabled={!draft.trim() || pending || directConversations.streaming} onClick={() => void submitIntent()} type="button">
+                  {pending || directConversations.streaming ? messages.task.submitting : messages.task.submit}
                 </button>
               </div>
             </div>

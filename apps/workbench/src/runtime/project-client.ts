@@ -1,58 +1,102 @@
 export interface WorkbenchProject {
-  schemaVersion: 1;
-  projectId: string;
-  title: string;
-  description: string;
-  createdAt: number;
-  updatedAt: number;
-  taskCount: number;
-  lastTaskAt?: number;
+  readonly schemaVersion: 1;
+  readonly projectId: string;
+  readonly title: string;
+  readonly description: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly taskCount: number;
+  readonly lastTaskAt?: number;
 }
 
-export interface WorkbenchProjectTaskRef { projectId: string; taskId: string; runId: string; attachedAt: number; }
-
-function assertProject(value: unknown): asserts value is WorkbenchProject {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('项目摘要无效');
-  const item = value as Record<string, unknown>;
-  if (Object.keys(item).some((key) => !['schemaVersion', 'projectId', 'title', 'description', 'createdAt', 'updatedAt', 'taskCount', 'lastTaskAt'].includes(key))
-    || item.schemaVersion !== 1 || typeof item.projectId !== 'string' || !/^project-[a-f0-9-]{8,80}$/.test(item.projectId)
-    || typeof item.title !== 'string' || typeof item.description !== 'string' || !Number.isSafeInteger(item.createdAt) || !Number.isSafeInteger(item.updatedAt)
-    || !Number.isSafeInteger(item.taskCount) || (item.taskCount as number) < 0 || (item.lastTaskAt !== undefined && !Number.isSafeInteger(item.lastTaskAt))) throw new Error('项目摘要包含未声明或不安全字段');
+export interface WorkbenchProjectTaskRef {
+  readonly projectId: string;
+  readonly taskId: string;
+  readonly runId: string;
+  readonly attachedAt: number;
 }
 
-function assertProjectTaskRef(value: unknown): asserts value is WorkbenchProjectTaskRef {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('项目任务归属无效');
-  const item = value as Record<string, unknown>;
-  if (Object.keys(item).some((key) => !['projectId', 'taskId', 'runId', 'attachedAt'].includes(key))
-    || typeof item.projectId !== 'string' || typeof item.taskId !== 'string' || typeof item.runId !== 'string' || !Number.isSafeInteger(item.attachedAt)) throw new Error('项目任务归属包含未声明字段');
+type ProjectLedger = Readonly<{ schemaVersion: 1; projects: readonly WorkbenchProject[]; taskRefs: readonly WorkbenchProjectTaskRef[] }>;
+type StorageLike = Pick<Storage, 'getItem' | 'setItem'>;
+
+const STORAGE_KEY = 'awo.projects.v1';
+const MAX_PROJECTS = 128;
+const MAX_TASK_REFS = 1_024;
+
+function validProject(value: unknown): value is WorkbenchProject {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const item = value as Partial<WorkbenchProject>;
+  return item.schemaVersion === 1 && typeof item.projectId === 'string' && /^project-[a-f0-9-]{8,80}$/.test(item.projectId)
+    && typeof item.title === 'string' && typeof item.description === 'string'
+    && Number.isSafeInteger(item.createdAt) && Number.isSafeInteger(item.updatedAt)
+    && typeof item.taskCount === 'number' && Number.isSafeInteger(item.taskCount) && item.taskCount >= 0
+    && (item.lastTaskAt === undefined || Number.isSafeInteger(item.lastTaskAt));
 }
 
-/** P28：浏览器仅通过已附着的本机 Gateway 读写项目 metadata；不访问 SQLite、文件、Provider 或凭据。 */
-export function createProjectClient(baseUrl: string) {
-  async function request(path: string, init?: RequestInit): Promise<unknown> {
-    const response = await fetch(`${baseUrl}${path}`, init);
-    const payload = await response.json() as unknown;
-    if (!response.ok) throw new Error(typeof payload === 'object' && payload && 'error' in payload ? String((payload as { error: unknown }).error) : '项目请求失败');
-    return payload;
-  }
+function validTaskRef(value: unknown): value is WorkbenchProjectTaskRef {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const item = value as Partial<WorkbenchProjectTaskRef>;
+  return typeof item.projectId === 'string' && /^project-[a-f0-9-]{8,80}$/.test(item.projectId)
+    && typeof item.taskId === 'string' && typeof item.runId === 'string' && Number.isSafeInteger(item.attachedAt);
+}
+
+function emptyLedger(): ProjectLedger { return { schemaVersion: 1, projects: [], taskRefs: [] }; }
+
+export function parseProjectLedger(raw: string | null): ProjectLedger {
+  try {
+    const parsed = JSON.parse(raw ?? '') as Partial<ProjectLedger>;
+    if (!parsed || parsed.schemaVersion !== 1 || !Array.isArray(parsed.projects) || !Array.isArray(parsed.taskRefs)) return emptyLedger();
+    const projects = parsed.projects.filter(validProject).slice(0, MAX_PROJECTS);
+    const projectIds = new Set(projects.map((project) => project.projectId));
+    const taskRefs = parsed.taskRefs.filter(validTaskRef).filter((ref) => projectIds.has(ref.projectId)).slice(0, MAX_TASK_REFS);
+    return { schemaVersion: 1, projects, taskRefs };
+  } catch { return emptyLedger(); }
+}
+
+/**
+ * AtomCode/OpenWorker-style local workspace metadata: projects persist in the desktop renderer and
+ * never depend on a Provider request, API key, loopback HTTP service, task file, or model response.
+ */
+export function createProjectClient(storage: StorageLike = window.localStorage) {
+  const read = (): ProjectLedger => parseProjectLedger(storage.getItem(STORAGE_KEY));
+  const write = (ledger: ProjectLedger): void => storage.setItem(STORAGE_KEY, JSON.stringify(ledger));
   return {
     async list(): Promise<readonly WorkbenchProject[]> {
-      const payload = await request('/api/projects');
-      if (!Array.isArray(payload)) throw new Error('项目列表无效');
-      payload.forEach(assertProject);
-      return payload;
+      return [...read().projects].sort((left, right) => right.updatedAt - left.updatedAt);
     },
     async create(input: { title: string; description?: string }): Promise<WorkbenchProject> {
-      const payload = await request('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json', 'x-awo-operator-intent': 'project-v1' }, body: JSON.stringify(input) });
-      assertProject(payload); return payload;
+      const title = input.title.trim().slice(0, 120);
+      if (!title) throw new Error('请输入项目名称。');
+      const now = Date.now();
+      const created: WorkbenchProject = {
+        schemaVersion: 1,
+        projectId: `project-${crypto.randomUUID()}`,
+        title,
+        description: (input.description ?? '').trim().slice(0, 500),
+        createdAt: now,
+        updatedAt: now,
+        taskCount: 0,
+      };
+      const ledger = read();
+      write({ ...ledger, projects: [created, ...ledger.projects].slice(0, MAX_PROJECTS) });
+      return created;
     },
     async listTasks(projectId: string): Promise<readonly WorkbenchProjectTaskRef[]> {
-      const payload = await request(`/api/projects/${encodeURIComponent(projectId)}/tasks`);
-      if (!Array.isArray(payload)) throw new Error('项目任务列表无效'); payload.forEach(assertProjectTaskRef); return payload;
+      return read().taskRefs.filter((item) => item.projectId === projectId).sort((left, right) => left.attachedAt - right.attachedAt);
     },
     async attachTask(input: { projectId: string; taskId: string; runId: string }): Promise<WorkbenchProjectTaskRef> {
-      const payload = await request(`/api/projects/${encodeURIComponent(input.projectId)}/tasks`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-awo-operator-intent': 'project-v1' }, body: JSON.stringify({ taskId: input.taskId, runId: input.runId }) });
-      assertProjectTaskRef(payload); return payload;
+      const ledger = read();
+      if (!ledger.projects.some((project) => project.projectId === input.projectId)) throw new Error('项目不存在或已删除。');
+      const existing = ledger.taskRefs.find((item) => item.projectId === input.projectId && item.taskId === input.taskId && item.runId === input.runId);
+      if (existing) return existing;
+      const attachedAt = Date.now();
+      const reference: WorkbenchProjectTaskRef = { ...input, attachedAt };
+      write({
+        ...ledger,
+        projects: ledger.projects.map((project) => project.projectId === input.projectId ? { ...project, taskCount: project.taskCount + 1, updatedAt: attachedAt, lastTaskAt: attachedAt } : project),
+        taskRefs: [...ledger.taskRefs, reference].slice(-MAX_TASK_REFS),
+      });
+      return reference;
     },
   };
 }

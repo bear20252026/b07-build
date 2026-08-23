@@ -16,10 +16,9 @@ export interface ProjectWorkspaceController {
 
 /** 项目只管理本地 metadata 与 task/run 归属；不读取文件、密钥、任务事件正文或执行能力。 */
 export function useProjectWorkspace(
-  gatewayAttached: boolean,
   activePage: WorkbenchPage,
   errorText: (error: unknown) => string,
-  client = createProjectClient('http://127.0.0.1:4318'),
+  client = createProjectClient(),
 ): ProjectWorkspaceController {
   const [projects, setProjects] = useState<readonly WorkbenchProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
@@ -28,25 +27,25 @@ export function useProjectWorkspace(
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    if (!gatewayAttached || activePage !== 'projects') return;
+    if (activePage !== 'projects') return;
     let disposed = false;
     void client.list()
       .then((items) => { if (!disposed) setProjects(items); })
       .catch((nextError: unknown) => { if (!disposed) setError(errorText(nextError)); });
     return () => { disposed = true; };
-  }, [activePage, client, errorText, gatewayAttached]);
+  }, [activePage, client, errorText]);
 
   useEffect(() => {
-    if (!gatewayAttached || !selectedProjectId || activePage !== 'projects') return;
+    if (!selectedProjectId || activePage !== 'projects') return;
     let disposed = false;
     void client.listTasks(selectedProjectId)
       .then((items) => { if (!disposed) setProjectTasks(items); })
       .catch((nextError: unknown) => { if (!disposed) setError(errorText(nextError)); });
     return () => { disposed = true; };
-  }, [activePage, client, errorText, gatewayAttached, selectedProjectId]);
+  }, [activePage, client, errorText, selectedProjectId]);
 
   const create = useCallback((input: { title: string; description?: string }): void => {
-    if (!gatewayAttached || pending) return;
+    if (pending) return;
     setPending(true);
     setError(undefined);
     void client.create(input)
@@ -57,7 +56,7 @@ export function useProjectWorkspace(
       })
       .catch((nextError: unknown) => setError(errorText(nextError)))
       .finally(() => setPending(false));
-  }, [client, errorText, gatewayAttached, pending]);
+  }, [client, errorText, pending]);
 
   const select = useCallback((projectId: string): void => {
     setSelectedProjectId(projectId);
@@ -66,7 +65,7 @@ export function useProjectWorkspace(
   }, []);
 
   const attachCurrentTask = useCallback((task: { taskId: string; runId: string } | undefined): void => {
-    if (!gatewayAttached || !task || !selectedProjectId || pending) return;
+    if (!task || !selectedProjectId || pending) return;
     setPending(true);
     setError(undefined);
     void client.attachTask({ projectId: selectedProjectId, ...task })
@@ -78,7 +77,7 @@ export function useProjectWorkspace(
       })
       .catch((nextError: unknown) => setError(errorText(nextError)))
       .finally(() => setPending(false));
-  }, [client, errorText, gatewayAttached, pending, selectedProjectId]);
+  }, [client, errorText, pending, selectedProjectId]);
 
   const reset = useCallback((): void => {
     setProjects([]);

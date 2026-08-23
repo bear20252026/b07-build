@@ -53,6 +53,19 @@ function streamingAssistantMessage(conversationId: string, text: string, created
   return { id: `${conversationId}-stream`, role: 'assistant', text: text || '…', createdAt, ...(model ? { model } : {}) };
 }
 
+function streamErrorText(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const messages: Record<string, string> = {
+    'provider-not-connected': '当前模型尚未在本次桌面会话中连接。请在“管理 API 连接”中点击“连接并测试”后重试。',
+    'provider-http-401': '第三方服务拒绝了 API key；请检查密钥、账号或套餐。',
+    'provider-http-403': '第三方服务拒绝访问；请检查账号权限、套餐与模型可用性。',
+    'provider-http-429': '第三方服务正在限流，请稍后重试。',
+    'provider-request-failed': '第三方服务未响应；请检查网络、Base URL 与供应商服务状态。',
+    'provider-request-rejected': '第三方服务拒绝了当前协议、地址、模型或请求参数；请按供应商文档核对后重试。',
+  };
+  return messages[message] ?? (message && !/[<{]/.test(message) ? message : '第三方模型请求未完成。');
+}
+
 export interface DirectConversations {
   readonly conversations: readonly DirectConversation[];
   readonly activeConversation?: DirectConversation;
@@ -60,7 +73,7 @@ export interface DirectConversations {
   readonly error?: string;
   create(selection: DirectConversationSelection): string;
   select(id: string): void;
-  send(selection: DirectConversationSelection, prompt: string): void;
+  send(selection: DirectConversationSelection, prompt: string): Promise<boolean>;
 }
 
 /** AtomCode 式“可继续、可切换”的对话历史；保存用户消息和模型文本，不保存密钥、Base URL 或请求头。 */
@@ -84,8 +97,8 @@ export function useDirectConversations(): DirectConversations {
 
   const select = useCallback((id: string): void => { if (/^conversation-[A-Za-z0-9]{20}$/.test(id)) setActiveId(id); }, []);
 
-  const send = useCallback((selection: DirectConversationSelection, prompt: string): void => {
-    const text = prompt.trim(); if (!text || streaming) return;
+  const send = useCallback(async (selection: DirectConversationSelection, prompt: string): Promise<boolean> => {
+    const text = prompt.trim(); if (!text || streaming) return false;
     const now = Date.now(); const existing = activeConversation?.selection.providerId === selection.providerId ? activeConversation : undefined;
     const conversationId = existing?.id ?? nextId('conversation');
     const userMessage: DirectConversationMessage = { id: nextId('message'), role: 'user', text, createdAt: now };
@@ -93,10 +106,15 @@ export function useDirectConversations(): DirectConversations {
     update((current) => [{ ...base, selection, title: base.messages.length === 0 ? titleFor(text) : base.title, messages: [...base.messages, userMessage].slice(-MAX_MESSAGES), updatedAt: now }, ...current.filter((item) => item.id !== conversationId)]);
     setActiveId(conversationId); setStreaming(true); setError(undefined);
     let output = '';
-    void directProviderClient.stream({ providerId: selection.providerId, model: selection.model, prompt: text, onText: (chunk) => { output += chunk; update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: [...conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), streamingAssistantMessage(conversationId, output, now, selection.model)].slice(-MAX_MESSAGES), updatedAt: Date.now() }))); } })
-      .then((completion) => update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== `${conversationId}-stream` ? message : { ...message, ...(completion.model ? { model: completion.model } : {}) }), updatedAt: Date.now() }))))
-      .catch((nextError: unknown) => { setError(nextError instanceof Error ? nextError.message : '第三方模型未完成响应。'); update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), updatedAt: Date.now() }))); })
-      .finally(() => setStreaming(false));
+    try {
+      const completion = await directProviderClient.stream({ providerId: selection.providerId, model: selection.model, prompt: text, onText: (chunk) => { output += chunk; update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: [...conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), streamingAssistantMessage(conversationId, output, now, selection.model)].slice(-MAX_MESSAGES), updatedAt: Date.now() }))); } });
+      update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== `${conversationId}-stream` ? message : { ...message, ...(completion.model ? { model: completion.model } : {}) }), updatedAt: Date.now() })));
+      return true;
+    } catch (nextError: unknown) {
+      setError(streamErrorText(nextError));
+      update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), updatedAt: Date.now() })));
+      return false;
+    } finally { setStreaming(false); }
   }, [activeConversation, streaming, update]);
 
   return { conversations, activeConversation, streaming, error, create, select, send };

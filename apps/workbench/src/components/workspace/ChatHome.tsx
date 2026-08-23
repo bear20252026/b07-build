@@ -11,6 +11,7 @@ export interface ChatHomeProps {
   gatewayAttached: boolean;
   taskModelLabel?: string;
   directResponse?: Readonly<{ output: string; model?: string; complete: boolean }>;
+  directError?: string;
   conversations?: readonly DirectConversation[];
   activeConversationId?: string;
   messages: Translation;
@@ -35,6 +36,7 @@ export function ChatHome({
   gatewayAttached,
   taskModelLabel,
   directResponse,
+  directError,
   conversations = [],
   activeConversationId,
   messages,
@@ -46,10 +48,8 @@ export function ChatHome({
   onNewConversation,
 }: ChatHomeProps) {
   const home = messages.home;
-  const modelTitle = gatewayAttached && connectedProviderCount > 0
-    ? taskModelLabel ?? home.providerReady(connectedProviderCount)
-    : home.providerWaiting;
   const hasTaskModel = Boolean(taskModelLabel);
+  const modelTitle = hasTaskModel ? taskModelLabel! : (gatewayAttached && connectedProviderCount > 0 ? home.providerReady(connectedProviderCount) : home.providerWaiting);
   const workMode = createWorkModeAuditProjection({ profileId: activeProfile, authorityMode, connectedProviderCount });
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId);
   const hasConversationContent = Boolean(directResponse?.output) || Boolean(activeConversation && activeConversation.messages.length > 0);
@@ -74,6 +74,7 @@ export function ChatHome({
             </article>)}
           </section>}
           {directResponse && !activeConversation?.messages.length && <section className="chat-home-direct-response" aria-live="polite"><div><span>DIRECT MODEL RESPONSE</span><strong>{directResponse.model ?? taskModelLabel ?? '已选模型'}</strong><small>{directResponse.complete ? '流式回答完成' : '正在接收第三方文本分块…'}</small></div><pre>{directResponse.output || '正在等待模型返回首个文本分块…'}</pre></section>}
+          {directError && <p className="chat-home-direct-error" role="alert">{directError}</p>}
           {!hasConversationContent && <section className="chat-home-profile" aria-label={home.profileLabel}>
             <div className="chat-home-section-heading"><span>{home.profileLabel}</span><small>{profiles[activeProfile].label}</small></div>
             <div className="chat-home-profile-grid">
@@ -97,13 +98,13 @@ export function ChatHome({
           </section>}
         </div>
         {!hasConversationContent && <aside className={`chat-home-context${hasTaskModel ? ' chat-home-context--connected' : ''}`} aria-label="当前任务上下文">
-          <section className={`chat-home-provider${gatewayAttached && connectedProviderCount > 0 ? ' ready' : ''}`} aria-label="第三方模型连接状态">
+          <section className={`chat-home-provider${hasTaskModel ? ' ready' : ''}`} aria-label="第三方模型连接状态">
             <div>
               <span>MODEL CONNECTION</span>
               <strong>{modelTitle}</strong>
-              <p>{taskModelLabel ? `当前任务模型：${taskModelLabel}。发送任务将只调用此选择。` : `${home.providerDescription} 请在 API 连接中明确选择一个任务模型。`}</p>
+              <p>{taskModelLabel ? `当前任务模型：${taskModelLabel}。发送对话将只调用此选择。` : `${home.providerDescription} 请在 API 连接中明确选择一个任务模型。`}</p>
             </div>
-            <button onClick={onOpenModels} type="button">{home.openModels}</button>
+            <button onClick={onOpenModels} type="button">{taskModelLabel ? '管理 API' : home.openModels}</button>
           </section>
           <section className="chat-home-work-mode" aria-label="工作方式审计摘要"><span>WORK MODE · EXPLICIT</span><strong>{profiles[workMode.profileId].label} · {messages.authority.mode[authorityMode].label}</strong><p>{workMode.connectionSummary}</p><small>{workMode.boundarySummary}</small></section>
           <section className="chat-home-suggestions chat-home-suggestions--context" aria-label={home.suggestionLabel}>
