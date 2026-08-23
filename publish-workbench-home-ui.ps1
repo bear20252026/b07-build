@@ -14,8 +14,8 @@ $manifest = [ordered]@{
   product = 'AI Work OS'
   version = '0.1.1'
   installer = $item.Name
-  sourceCommit = 'e1d39b3'
-  sourceCommitFull = 'e1d39b30109edcd5338c2e1c4328cad607d73d28'
+  sourceCommit = 'cbec990'
+  sourceCommitFull = 'cbec990a7f2e1c5464c266cfa8407f6fa5a2c980'
   bytes = $item.Length
   sha256 = $hash
   signature = $signature
@@ -53,7 +53,13 @@ $manifest = [ordered]@{
     'Text and code attachments are passed as file body context; PDF, Open XML office files and ZIP archives are extracted locally into readable model context with visible status',
     'PNG, JPEG, WebP and GIF attachments are sent as OpenAI-compatible or Anthropic-compatible multimodal content blocks instead of filename-only descriptors',
     'Very long chat input is retained as a virtual TXT context record and remains available in later turns under the 1M-character request budget',
-    'The terminal window executes user-submitted commands under the current Windows user, streams output and supports cancellation; high-impact commands require one final explicit confirmation'
+    'The terminal window executes user-submitted commands under the current Windows user, streams output and supports cancellation; high-impact commands require one final explicit confirmation',
+    'Release metadata, Tauri bundle metadata, desktop package version and installer filename now use semantic version 0.1.1 and a pre-build consistency check rejects mismatches',
+    'AionUi Apache-2.0 chat auto-scroll interaction is adapted with preserved notices: the central timeline scrolls independently, follows streaming only near the bottom and never pulls readers away from history',
+    'The ordinary chat entry is code-split from legacy task, settings and inspector pages; the initial Workbench entry is kept below the 500 KB performance budget',
+    'Hybrid search requests and deduplicates up to 100 sources; raw search bodies are provided only to the current Provider request instead of being persisted or rendered into the chat timeline',
+    'Selected workspaces can contain a visible AI_WORK_OS_MEMORY.md file that owners edit in the app and that is injected as bounded project context for later direct Provider turns',
+    'The GitHub collaboration inspector stores a user-entered personal access token only in local app storage, previews local Git changes, tests the token, and requires an explicit in-app confirmation before commit and push'
   )
 }
 $manifest | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $delivery 'build-manifest.json') -Encoding utf8

@@ -65,9 +65,9 @@
 - [x] 复现并修复 Windows 安装版启动后白屏的问题：WebView2 已捕获 `App.tsx` 的 `useRef is not defined` 启动期异常；补齐 React 导入并通过 Workbench 类型检查与生产构建。
 - [ ] 将此前已提出的核心需求整理为可追溯验收矩阵，区分已实现、待实机验证、尚未实现与不应承诺的项目，避免遗漏或将未完成能力表述为已交付。
 - [ ] 对修复后的桌面端执行真实 Provider 聊天、会话历史、多会话切换、100 来源搜索、文件上下文、终端、固定侧栏、长会话内存和 KaTeX 公式的 Windows 回归测试。
-- [ ] 仅在白屏修复与回归测试通过后，使用 Windows 本机工具链重新构建、核验并交付新的安装器及其来源提交清单。
-- [ ] 停止将 `C:\Users\17296\AppData\Local\AI Work OS\awo-desktop-shell.exe` 的旧 Gateway/任务工作台界面当作当前版本；仅以 `C:\Users\17296\Downloads\AI Work OS_0.1.0_x64-setup (10).exe` 及其安装结果作为白屏诊断对象。
-- [ ] 对目标 Downloads 安装包计算哈希、提取版本与打包资源证据，确认其与哪个源码提交和安装器清单对应，再复现其实际白屏行为。
+- [x] 仅在白屏修复与回归测试通过后，使用 Windows 本机工具链重新构建、核验并交付新的安装器及其来源提交清单（0.1.1，SHA-256 待发布清单核验）。
+- [x] 停止将 `C:\Users\17296\AppData\Local\AI Work OS\awo-desktop-shell.exe` 的旧 Gateway/任务工作台界面当作当前版本；仅以 `C:\Users\17296\Downloads\AI Work OS_0.1.0_x64-setup (10).exe` 及其安装结果作为白屏诊断对象。
+- [x] 对目标 Downloads 安装包计算哈希、提取版本与打包资源证据，确认其与哪个源码提交和安装器清单对应，再复现其实际白屏行为。
 - [ ] 白屏修复后逐项确认首页确为当前直接 Provider 聊天首页，不含淘汰的 Gateway/任务工作台首屏，并将此作为新安装器发布前的阻断性验收项。
 - [x] 修复 Windows PowerShell 下根 `npm test` 使用 Unix `find` 命令而将 `packages`、`apps` 目录错误传入 Node 测试运行器的问题，并在 Windows 本机跑通完整测试（322/322 通过）。
 - [x] 修复 Windows 文件系统不允许 `delivery:<hash>.zip` 冒号路径导致的交付 ZIP 创建失败，并保持现有交付标识与哈希校验语义。
