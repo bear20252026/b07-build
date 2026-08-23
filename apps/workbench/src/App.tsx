@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 /* Unsloth-inspired UI alignment only: preserve direct Provider and streaming behaviour. */
 import './components/observability/GatewayAttachment.css';
 import { invoke } from '@tauri-apps/api/core';
@@ -9,38 +9,9 @@ import { WorkbenchOverlay } from './components/layout/WorkbenchOverlay';
 import { CommandPalette } from './components/layout/CommandPalette';
 import { createWorkbenchCommandCatalog, type WorkbenchCommand } from './components/layout/command-catalog';
 import { resolveWorkbenchSurface } from './components/layout/workbench-surface';
-import { ControlPlaneDiagnosticsBoard } from './components/observability/ControlPlaneDiagnosticsBoard';
-import { ComponentLockBoard } from './components/observability/ComponentLockBoard';
-import { ComponentManagementReceiptBoard } from './components/observability/ComponentManagementReceiptBoard';
-import { ExtensionCenter } from './components/observability/ExtensionCenter';
-import { LocalModelHealthBoard } from './components/observability/LocalModelHealthBoard';
-import { ApiUsageAuditPage, ApiUsageSummaryCard } from './components/observability/ApiUsageBoards';
-import { AgencyRoleCatalogPage } from './components/observability/AgencyRoleCatalogPage';
-import { BrowserSessionControlPage, BrowserSessionSummaryCard } from './components/observability/BrowserSessionControlPanel';
-import { CompanionControlPage, CompanionSummaryCard } from './components/observability/CompanionControlPanel';
-import { CompanionWindow } from './components/observability/CompanionWindow';
-import { CompanionStudioPage, CompanionStudioSummary } from './components/observability/CompanionStudioPanel';
-import { KnowledgeImportPanel } from './components/observability/KnowledgeImportPanel';
-import { ProviderSetupPage } from './components/settings/ProviderSetupPage';
-import { ProviderConnectionCenter } from './components/observability/ProviderConnectionCenter';
-import { NativeHostAuthenticationBoard } from './components/observability/NativeHostAuthenticationBoard';
-import { WindowsNativeReleaseBoard } from './components/observability/WindowsNativeReleaseBoard';
-import { SecurityPostureAuditBoard } from './components/observability/SecurityPostureAuditBoard';
-import { TrajectoryBoard } from './components/observability/TrajectoryBoard';
-import { RunWorkspaceBoard } from './components/observability/RunWorkspaceBoard';
-import { PreviewPanel } from './components/preview/PreviewPanel';
 import { ChatHome } from './components/workspace/ChatHome';
 import { ComposerAttachments, mergeComposerFileAttachments, type ComposerFileAttachment } from './components/workspace/ComposerAttachments';
 import { WORKBENCH_PROFILE_IDS } from './components/workspace/agent-profiles';
-import { LocalDataFlowBoard } from './components/workspace/LocalDataFlowBoard';
-import { TaskStoryboard } from './components/workspace/TaskStoryboard';
-import { TaskOutcomeBoard } from './components/workspace/TaskOutcomeBoard';
-import { TaskPage } from './components/workspace/TaskPage';
-import { HomeFloatingCompanion } from './components/workspace/HomeFloatingCompanion';
-import { DesktopCompanionSurface } from './components/workspace/DesktopCompanionSurface';
-import { WorkspaceFilesPage } from './components/workspace/WorkspaceFilesPage';
-import { TerminalCodingPage } from './components/workspace/TerminalCodingPage';
-import { ProjectBoard } from './components/workspace/ProjectBoard';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
 import {
@@ -69,6 +40,41 @@ import { loadWorkspaceFilePreferences, saveWorkspaceFilePreferences, type Worksp
 
 const localGatewayClient = HttpWorkbenchTaskClient.forLocalGateway();
 const localProjectClient = createProjectClient();
+const ControlPlaneDiagnosticsBoard = lazy(async () => ({ default: (await import('./components/observability/ControlPlaneDiagnosticsBoard')).ControlPlaneDiagnosticsBoard }));
+const ComponentLockBoard = lazy(async () => ({ default: (await import('./components/observability/ComponentLockBoard')).ComponentLockBoard }));
+const ComponentManagementReceiptBoard = lazy(async () => ({ default: (await import('./components/observability/ComponentManagementReceiptBoard')).ComponentManagementReceiptBoard }));
+const ExtensionCenter = lazy(async () => ({ default: (await import('./components/observability/ExtensionCenter')).ExtensionCenter }));
+const LocalModelHealthBoard = lazy(async () => ({ default: (await import('./components/observability/LocalModelHealthBoard')).LocalModelHealthBoard }));
+const ApiUsageAuditPage = lazy(async () => ({ default: (await import('./components/observability/ApiUsageBoards')).ApiUsageAuditPage }));
+const ApiUsageSummaryCard = lazy(async () => ({ default: (await import('./components/observability/ApiUsageBoards')).ApiUsageSummaryCard }));
+const AgencyRoleCatalogPage = lazy(async () => ({ default: (await import('./components/observability/AgencyRoleCatalogPage')).AgencyRoleCatalogPage }));
+const BrowserSessionControlPage = lazy(async () => ({ default: (await import('./components/observability/BrowserSessionControlPanel')).BrowserSessionControlPage }));
+const BrowserSessionSummaryCard = lazy(async () => ({ default: (await import('./components/observability/BrowserSessionControlPanel')).BrowserSessionSummaryCard }));
+const CompanionControlPage = lazy(async () => ({ default: (await import('./components/observability/CompanionControlPanel')).CompanionControlPage }));
+const CompanionSummaryCard = lazy(async () => ({ default: (await import('./components/observability/CompanionControlPanel')).CompanionSummaryCard }));
+const CompanionWindow = lazy(async () => ({ default: (await import('./components/observability/CompanionWindow')).CompanionWindow }));
+const CompanionStudioPage = lazy(async () => ({ default: (await import('./components/observability/CompanionStudioPanel')).CompanionStudioPage }));
+const CompanionStudioSummary = lazy(async () => ({ default: (await import('./components/observability/CompanionStudioPanel')).CompanionStudioSummary }));
+const KnowledgeImportPanel = lazy(async () => ({ default: (await import('./components/observability/KnowledgeImportPanel')).KnowledgeImportPanel }));
+const ProviderSetupPage = lazy(async () => ({ default: (await import('./components/settings/ProviderSetupPage')).ProviderSetupPage }));
+const ProviderConnectionCenter = lazy(async () => ({ default: (await import('./components/observability/ProviderConnectionCenter')).ProviderConnectionCenter }));
+const NativeHostAuthenticationBoard = lazy(async () => ({ default: (await import('./components/observability/NativeHostAuthenticationBoard')).NativeHostAuthenticationBoard }));
+const WindowsNativeReleaseBoard = lazy(async () => ({ default: (await import('./components/observability/WindowsNativeReleaseBoard')).WindowsNativeReleaseBoard }));
+const SecurityPostureAuditBoard = lazy(async () => ({ default: (await import('./components/observability/SecurityPostureAuditBoard')).SecurityPostureAuditBoard }));
+const TrajectoryBoard = lazy(async () => ({ default: (await import('./components/observability/TrajectoryBoard')).TrajectoryBoard }));
+const RunWorkspaceBoard = lazy(async () => ({ default: (await import('./components/observability/RunWorkspaceBoard')).RunWorkspaceBoard }));
+const PreviewPanel = lazy(async () => ({ default: (await import('./components/preview/PreviewPanel')).PreviewPanel }));
+const LocalDataFlowBoard = lazy(async () => ({ default: (await import('./components/workspace/LocalDataFlowBoard')).LocalDataFlowBoard }));
+const TaskStoryboard = lazy(async () => ({ default: (await import('./components/workspace/TaskStoryboard')).TaskStoryboard }));
+const TaskOutcomeBoard = lazy(async () => ({ default: (await import('./components/workspace/TaskOutcomeBoard')).TaskOutcomeBoard }));
+const TaskPage = lazy(async () => ({ default: (await import('./components/workspace/TaskPage')).TaskPage }));
+const HomeFloatingCompanion = lazy(async () => ({ default: (await import('./components/workspace/HomeFloatingCompanion')).HomeFloatingCompanion }));
+const DesktopCompanionSurface = lazy(async () => ({ default: (await import('./components/workspace/DesktopCompanionSurface')).DesktopCompanionSurface }));
+const WorkspaceFilesPage = lazy(async () => ({ default: (await import('./components/workspace/WorkspaceFilesPage')).WorkspaceFilesPage }));
+const TerminalCodingPage = lazy(async () => ({ default: (await import('./components/workspace/TerminalCodingPage')).TerminalCodingPage }));
+const ProjectBoard = lazy(async () => ({ default: (await import('./components/workspace/ProjectBoard')).ProjectBoard }));
+const ProjectMemoryPanel = lazy(async () => ({ default: (await import('./components/workspace/ProjectMemoryPanel')).ProjectMemoryPanel }));
+const GitHubCollaborationPanel = lazy(async () => ({ default: (await import('./components/workspace/GitHubCollaborationPanel')).GitHubCollaborationPanel }));
 
 function loadTaskModelSelection(): Readonly<{ providerId: string; model?: string }> | undefined {
   try {
@@ -160,7 +166,7 @@ export function App() {
   const [researchMode, setResearchMode] = useState<'web-search' | Last30DaysMode | 'hybrid' | 'searxng-local'>('web-search');
   const [composerCollapsed, setComposerCollapsed] = useState(false);
   const [composerAttachments, setComposerAttachments] = useState<readonly ComposerFileAttachment[]>([]);
-  const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding'>();
+  const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding' | 'project-memory' | 'github-collaboration'>();
   const [activeGoal, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
   const [authorityMode, setAuthorityMode] = useState<WorkbenchAuthorityMode>('review');
@@ -333,6 +339,7 @@ export function App() {
   </>;
 
   return (
+    <Suspense fallback={<div className="workbench-async-loading" role="status">正在加载所选工作面…</div>}>
     <div className={`workbench-shell ${isTaskPage ? 'with-preview' : 'focus-page'}${workbenchSurface === 'chat-home' ? ' chat-home-surface' : ''}${isSettings ? ' settings-open' : ''} theme-${theme}`}>
       <Sider
         activePage={isSettings ? 'workspace' : activePage}
@@ -369,6 +376,8 @@ export function App() {
               <button aria-label="打开模型连接设置" className="titlebar-icon-button" onClick={() => setActivePage('models')} title="打开模型连接设置；在原有配置页面中填写地址和密钥。" type="button">⌁</button>
               <button aria-label="打开工作区文件窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('workspace-files')} title="打开受控工作区文件窗口；目录、导入与预览不进入对话。" type="button">▤</button>
               <button aria-label="打开终端与编码窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('terminal-coding')} title="打开本地终端；仅在你明确点击运行后以当前 Windows 用户权限执行命令。" type="button">›_</button>
+              <button aria-label="打开项目持久记忆" className="titlebar-icon-button" onClick={() => setInspectorSurface('project-memory')} title="打开当前工作区的 AI_WORK_OS_MEMORY.md；可由主人编辑，发送时按预算作为项目上下文提供给模型。" type="button">◫</button>
+              <button aria-label="打开 GitHub 代码协作" className="titlebar-icon-button" onClick={() => setInspectorSurface('github-collaboration')} title="查看当前工作区 Git 变更，测试本地令牌，并在明确确认后提交和推送到 GitHub。" type="button">⌘</button>
               <button aria-label="打开项目产物检查器" className="titlebar-icon-button" onClick={() => setInspectorSurface('artifacts')} title="打开当前任务的项目产物检查器；只显示受控文件投影。" type="button">▧</button>
               <button aria-label="打开 Companion 独立窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('companion')} title="打开独立 Companion 角色窗口；不会切换模型或授予权限。" type="button">◉</button>
             </div>
@@ -506,9 +515,12 @@ export function App() {
       {isSettings && <SettingsOverlay onClose={() => setActivePage('workspace')} title={pageTitle[activePage]}>{settingsContent}</SettingsOverlay>}
       {inspectorSurface === 'workspace-files' && <WorkbenchOverlay description="独立工作区文件窗口。目录、导入和预览只在你明确操作时发生；不会扫描、上传或执行文件。" onClose={() => setInspectorSurface(undefined)} title="工作区与文件" tone="api"><WorkspaceFilesPage preferences={workspaceFilePreferences} onChange={updateWorkspaceFiles} /></WorkbenchOverlay>}
       {inspectorSurface === 'terminal-coding' && <WorkbenchOverlay description="独立终端与编码窗口。命令只在你明确点击运行后以当前 Windows 用户权限执行；输出可见并可停止。" onClose={() => setInspectorSurface(undefined)} title="终端与编码" tone="api"><TerminalCodingPage workspace={workspaceFilePreferences} /></WorkbenchOverlay>}
+      {inspectorSurface === 'project-memory' && <WorkbenchOverlay description="项目持久记忆是当前已选择工作区中的可见 Markdown 文件。主人可以直接编辑；模型只在发送时读取其内容作为项目上下文。" onClose={() => setInspectorSurface(undefined)} title="项目记忆" tone="artifacts"><ProjectMemoryPanel /></WorkbenchOverlay>}
+      {inspectorSurface === 'github-collaboration' && <WorkbenchOverlay description="GitHub 协作先展示本地变更，再由主人明确确认提交和推送。个人访问令牌只保存在当前 Windows 用户的本地应用数据中。" onClose={() => setInspectorSurface(undefined)} title="GitHub 代码协作" tone="api"><GitHubCollaborationPanel /></WorkbenchOverlay>}
       {inspectorSurface === 'artifacts' && <WorkbenchOverlay description="当前 task/run 的受控文件检查器。可查看 Markdown、代码、JSON、差异和用户发起的交付包，不读取任意本机目录。" onClose={() => setInspectorSurface(undefined)} title="项目产物" tone="artifacts"><PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} /></WorkbenchOverlay>}
       {inspectorSurface === 'companion' && <WorkbenchOverlay description="独立角色窗口。角色、对话与 API 连接保持分离；高影响能力仍需未来的单独权限设计。" onClose={() => setInspectorSurface(undefined)} title="Companion" tone="companion"><CompanionWindow gatewayAttached={gatewayAttached} preferences={companionPreferences} onOpenApi={() => { setInspectorSurface(undefined); setActivePage('models'); }} onOpenControls={() => { setInspectorSurface(undefined); setActivePage('companion'); }} /></WorkbenchOverlay>}
       {isTaskPage && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} />}
     </div>
+    </Suspense>
   );
 }

@@ -1425,7 +1425,8 @@ body:has(.workbench-shell.chat-home-surface.theme-dark) { background: #000; }
 .chat-home--studio .chat-home-conversations,
 .chat-home--studio .chat-home-direct-response { border-color: #e5e5ea; border-radius: 18px; box-shadow: 0 8px 25px rgba(28, 28, 30, .06); }
 .chat-home--studio .chat-home-direct-response { background: #fff; }
-.chat-home--studio.chat-home--conversation-active .chat-home-workbench { min-height: 0; height: 100%; }
+.chat-home--studio.chat-home--conversation-active { min-height: 0; height: 100%; display: flex; flex: 1 1 auto; flex-direction: column; }
+.chat-home--studio.chat-home--conversation-active .chat-home-workbench { min-height: 0; height: 100%; display: flex; flex: 1 1 auto; flex-direction: column; }
 .chat-home--studio.chat-home--conversation-active .chat-home-canvas { min-height: 0; height: 100%; display: flex; flex: 1; flex-direction: column; }
 .chat-home--studio.chat-home--conversation-active .chat-home-direct-response { min-height: min(50vh, 480px); margin: 0; padding: 18px; }
 .chat-home--studio.chat-home--conversation-active .chat-home-direct-response pre { max-height: none; flex: 1; }
@@ -1495,8 +1496,37 @@ body:has(.workbench-shell.chat-home-surface.theme-dark) { background: #000; }
 .workbench-shell.chat-home-surface .task-composer textarea { min-height: 66px; padding: 9px 8px; font-size: 14px; }
 .chat-home--conversation-active .chat-home-workbench,
 .chat-home--conversation-active .chat-home-canvas { height: 100%; }
-.chat-home--conversation-active .chat-home-message-timeline { flex: 1 1 auto; min-height: 0; max-height: none; height: auto; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 10px; }
+.chat-home--conversation-active .chat-home-message-timeline { flex: 1 1 auto; min-height: 0; max-height: none; height: auto; overflow-y: auto; overscroll-behavior: contain; overscroll-behavior-y: contain; scrollbar-gutter: stable; touch-action: pan-y; -webkit-overflow-scrolling: touch; padding-bottom: 10px; }
 .chat-home-direct-error { margin: 12px auto; max-width: 720px; padding: 10px 12px; border: 1px solid #ffb5ae; border-radius: 12px; background: #fff2f0; color: #b42318; font-size: 12px; line-height: 1.45; }
+.project-memory-panel { display: grid; gap: 14px; min-height: 0; }
+.project-memory-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.project-memory-heading span { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .09em; }
+.project-memory-heading h2 { margin: 4px 0 6px; color: var(--text-strong); font-size: 18px; letter-spacing: -.02em; }
+.project-memory-heading p { max-width: 560px; margin: 0; color: var(--muted-strong); font-size: 12px; line-height: 1.55; }
+.project-memory-heading button, .project-memory-actions button { min-height: 32px; padding: 0 11px; color: var(--text-strong); border: 1px solid var(--border); border-radius: 9px; background: var(--panel); font-size: 11px; font-weight: 700; }
+.project-memory-panel textarea { width: 100%; min-height: min(52vh, 480px); padding: 14px; resize: vertical; color: var(--text-strong); border: 1px solid var(--border-strong); border-radius: 13px; background: var(--panel-subtle); font: 13px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; outline: 0; }
+.project-memory-panel textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.project-memory-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 11px; }
+.project-memory-actions button { color: #fff; border-color: var(--accent-strong); background: var(--accent-strong); }
+.project-memory-actions button:disabled, .project-memory-heading button:disabled { cursor: wait; opacity: .55; }
+.project-memory-error { margin: 0; padding: 9px 10px; color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border)); border-radius: 10px; background: var(--danger-soft); font-size: 12px; }
+.github-collaboration-panel { display: grid; gap: 13px; min-height: 0; }
+.github-collaboration-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.github-collaboration-heading span { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .09em; }
+.github-collaboration-heading h2 { margin: 4px 0 6px; color: var(--text-strong); font-size: 18px; letter-spacing: -.02em; }
+.github-collaboration-heading p { max-width: 600px; margin: 0; color: var(--muted-strong); font-size: 12px; line-height: 1.55; }
+.github-collaboration-heading > button, .github-collaboration-row button { min-height: 32px; padding: 0 11px; color: var(--text-strong); border: 1px solid var(--border); border-radius: 9px; background: var(--panel); font-size: 11px; font-weight: 700; }
+.github-collaboration-panel > label { display: grid; gap: 6px; color: var(--muted-strong); font-size: 11px; font-weight: 650; }
+.github-collaboration-panel input[type='password'], .github-collaboration-panel > label > input:not([type='checkbox']) { min-height: 37px; padding: 0 10px; color: var(--text-strong); border: 1px solid var(--border-strong); border-radius: 9px; background: var(--panel-subtle); outline: 0; }
+.github-collaboration-panel input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.github-collaboration-row { display: flex; align-items: center; gap: 10px; color: var(--success); font-size: 12px; }
+.github-status { display: grid; gap: 6px; padding: 11px; border: 1px solid var(--border); border-radius: 11px; background: var(--panel-subtle); }
+.github-status strong { color: var(--text-strong); font-size: 12px; }.github-status span { color: var(--muted); font-size: 11px; }
+.github-status pre { max-height: 140px; margin: 0; overflow: auto; color: var(--muted-strong); font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.github-confirm { display: flex !important; grid-template-columns: auto minmax(0, 1fr); align-items: flex-start; line-height: 1.5; }.github-confirm input { margin: 3px 0 0; }.github-confirm code { padding: 1px 4px; border-radius: 4px; background: var(--panel-muted); }
+.github-push { min-height: 36px; padding: 0 13px; justify-self: end; color: #fff; border: 1px solid var(--accent-strong); border-radius: 10px; background: var(--accent-strong); font-size: 12px; font-weight: 750; }.github-push:disabled { cursor: not-allowed; opacity: .5; }
+.github-collaboration-error { margin: 0; padding: 9px 10px; color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border)); border-radius: 10px; background: var(--danger-soft); font-size: 12px; }
+.workbench-async-loading { display: grid; min-height: 100dvh; place-items: center; color: var(--muted-strong); background: var(--canvas); font: 650 13px var(--font-ui); }
 .workbench-shell.chat-home-surface .composer-footer { padding-top: 5px; }
 .workbench-shell.chat-home-surface .composer-mode { color: #0066cc; background: #edf6ff; }
 .workbench-shell.chat-home-surface.theme-dark .composer-web-search.active { color: #fff; border-color: #0a84ff; background: #0a84ff; }

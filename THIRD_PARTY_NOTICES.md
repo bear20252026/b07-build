@@ -68,3 +68,12 @@ This repository includes the complete, unmodified source snapshot of [`searxng/s
 - Full unmodified license text: `third_party/searxng-windows/LICENSE` and `third_party/searxng-source-9fea41204fdfa7a5cfa15b0ebd12904c520478ce.tar.gz`.
 - Local modification status: no upstream source-code modifications. The Windows resource mirror is a filesystem-portability projection only; AI Work OS launcher, local HTTP adapter, runtime-bundle scripts and configuration templates remain outside the upstream source mirror.
 - Current distribution status: the source is present in the repository, but no AI Work OS binary has yet shipped an embedded Python runtime, SearXNG dependency payload or SearXNG process. Before any installer includes that payload, the release must include the corresponding source, full notices, exact build/dependency instructions and required license disclosures.
+
+## AionUi interaction adaptation
+
+AI Work OS includes `apps/workbench/src/components/workspace/use-chat-auto-scroll.ts`, an adapted chat auto-scroll interaction pattern from [`iOfficeAI/AionUi`](https://github.com/iOfficeAI/AionUi), upstream path `packages/desktop/src/renderer/hooks/chat/useAutoScroll.ts` on the upstream `main` branch.
+
+- Upstream license: Apache License 2.0.
+- Upstream copyright: Copyright 2025 AionUi (aionui.com).
+- Local modification: this adaptation is rewritten for the AI Work OS virtualized React chat timeline; it uses an explicit scroll handler and immediate animation-frame updates instead of AionUi's content string dependency.
+- Full Apache License 2.0 text: `third_party/aionui/LICENSE`.

@@ -18,6 +18,10 @@ mod searxng_local;
 mod terminal;
 #[cfg(not(mobile))]
 mod file_extract;
+#[cfg(not(mobile))]
+mod project_memory;
+#[cfg(not(mobile))]
+mod github_collaboration;
 
 #[cfg(not(mobile))]
 use std::{
@@ -188,6 +192,11 @@ pub fn run() {
             terminal::start_terminal_command,
             terminal::cancel_terminal_command,
             file_extract::extract_file_content,
+            project_memory::read_project_memory,
+            project_memory::write_project_memory,
+            github_collaboration::github_test_token,
+            github_collaboration::github_workspace_status,
+            github_collaboration::github_commit_and_push,
             choose_workspace_directory,
             show_desktop_companion,
             close_desktop_companion,

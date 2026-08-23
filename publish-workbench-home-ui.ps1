@@ -1,0 +1,64 @@
+$root = 'D:\maanuse\AI-Work-OS-local-build'
+$delivery = 'D:\maanuse\AI-Work-OS-Installer\local-build'
+$source = Join-Path $root 'apps\desktop-shell\src-tauri\target\release\bundle\nsis\AI Work OS_0.1.1_x64-setup.exe'
+$target = Join-Path $delivery 'AI Work OS_0.1.1_x64-setup.exe'
+
+if (-not (Test-Path $source)) { throw "Installer missing: $source" }
+New-Item -ItemType Directory -Path $delivery -Force | Out-Null
+Copy-Item -Path $source -Destination $target -Force
+
+$item = Get-Item $target
+$hash = (Get-FileHash -Path $target -Algorithm SHA256).Hash
+$signature = (Get-AuthenticodeSignature -FilePath $target).Status.ToString()
+$manifest = [ordered]@{
+  product = 'AI Work OS'
+  version = '0.1.1'
+  installer = $item.Name
+  sourceCommit = 'e1d39b3'
+  sourceCommitFull = 'e1d39b30109edcd5338c2e1c4328cad607d73d28'
+  bytes = $item.Length
+  sha256 = $hash
+  signature = $signature
+  gatewayIncluded = $false
+  searxngBundled = $true
+  searxng = [ordered]@{
+    upstreamCommit = '9fea41204fdfa7a5cfa15b0ebd12904c520478ce'
+    license = 'AGPL-3.0'
+    sourceArchive = 'third_party/searxng-source-9fea41204fdfa7a5cfa15b0ebd12904c520478ce.tar.gz'
+    embeddedPython = '3.13.13'
+    windowsTimezoneData = 'tzdata==2026.3'
+    bindAddress = '127.0.0.1'
+    verifiedLocalJsonSearch = $true
+  }
+  changes = @(
+    'Apple white-gray-blue / black-gray-blue homepage without a white outer frame, with the chat surface contained in one desktop screen',
+    'Homepage sends through the direct Provider HTTPS/SSE conversation path, presents errors instead of failing silently, and never falls back to the retired Gateway chain',
+    'Saved Provider accounts locally rebuild the Tauri native in-memory session on desktop startup without an automatic network probe or message request',
+    'Projects are created and restored locally without the retired Gateway or loopback dependency',
+    'The left directory supports project-scoped conversations: create, switch, rename, delete and continue local chat history after reopening',
+    'Each same-conversation turn sends the ordered local user/assistant history to the selected direct Provider; actual SSE reasoning remains collapsed and never fabricated',
+    'Explicit per-turn web search uses the independent Exa MCP path instead of requiring a MiMo plugin, with visible search activity, raw readable page content in the provider context, and clickable returned sources',
+    'The research selector provides Exa web search, local SearXNG, international last30days, Chinese last30days, and explicit hybrid mode; hybrid mode runs Exa, local SearXNG and both last30days sources in parallel, retains per-backend receipts, deduplicates normalized URLs and passes raw results to the selected Provider',
+    'SearXNG 9fea41204fdfa7a5cfa15b0ebd12904c520478ce is bundled with its AGPL-3.0 notice, full source archive, Windows-portable source mirror, embedded CPython 3.13.13, fixed dependencies and tzdata 2026.3; the local service starts only when selected and binds only to 127.0.0.1',
+    'The embedded local SearXNG runtime was verified on this Windows machine through a loopback JSON request and stopped after verification; search engines may independently rate-limit, suspend or return no result',
+    'Provider probe, model listing and actual streamed chat use the same direct HTTPS client with a 15-second connection timeout and a 20-minute request allowance; upstream SSE error frames are returned as redacted provider-sse-error diagnostics instead of being silently treated as success',
+    'After a Provider account is reconfigured, the home page follows its new default model only when the prior default is still selected; an explicit manual model selection remains intact',
+    'Web research requests accept up to 100 sources across Exa, local SearXNG and last30days backends; Exa page extraction runs with up to eight concurrent fetches while the combined readable-page context remains bounded to 1 MB',
+    'Windows local SearXNG and last30days subprocesses are created without a console window and report their progress only inside the application',
+    'The desktop layout fixes the left project and settings sidebar while the chat timeline scrolls independently; recent 60 messages render first and users can load earlier history without deleting the persisted conversation',
+    'Streaming UI refreshes are throttled to roughly 50 milliseconds and mathematical TeX uses lazy-loaded KaTeX rendering for $...$, $$...$$, \\(...\\) and \\[...\\] with plain-text fallback for incomplete formula input',
+    'Windows desktop startup no longer renders a blank page: the current chat-home App entry imports the React useRef hook it invokes, and related React 19 ref initialization and desktop Companion direct-stream request contracts now pass production type checks',
+    'Windows-compatible task delivery maps colon-bearing logical delivery IDs to reversible safe physical filename segments, while retaining original delivery IDs in receipts and hash validation',
+    'The Windows root test command uses a Node-native cross-platform test discovery entrypoint; Gateway shutdown now waits for its listener and SQLite resources before temporary directory cleanup',
+    'Text and code attachments are passed as file body context; PDF, Open XML office files and ZIP archives are extracted locally into readable model context with visible status',
+    'PNG, JPEG, WebP and GIF attachments are sent as OpenAI-compatible or Anthropic-compatible multimodal content blocks instead of filename-only descriptors',
+    'Very long chat input is retained as a virtual TXT context record and remains available in later turns under the 1M-character request budget',
+    'The terminal window executes user-submitted commands under the current Windows user, streams output and supports cancellation; high-impact commands require one final explicit confirmation'
+  )
+}
+$manifest | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $delivery 'build-manifest.json') -Encoding utf8
+Write-Output "INSTALLER=$target"
+Write-Output "BYTES=$($item.Length)"
+Write-Output "SHA256=$hash"
+Write-Output "SIGNATURE=$signature"
+Write-Output "SOURCE_COMMIT=$($manifest.sourceCommit)"

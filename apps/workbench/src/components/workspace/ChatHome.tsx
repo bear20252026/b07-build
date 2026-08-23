@@ -5,6 +5,7 @@ import { WORKBENCH_PROFILE_IDS } from './agent-profiles';
 import { createWorkModeAuditProjection } from './work-mode-projection';
 import { messageWindowStart, MESSAGE_RENDER_WINDOW } from './chat-timeline-window';
 import { parseMathSegments } from './math-text';
+import { useChatAutoScroll } from './use-chat-auto-scroll';
 import type { DirectConversation } from '../../runtime/use-direct-conversations';
 
 export { messageWindowStart } from './chat-timeline-window';
@@ -60,7 +61,6 @@ export function ChatHome({
 }: ChatHomeProps) {
   const timelineRef = useRef<HTMLElement | null>(null);
   const previousMessageCount = useRef(activeConversation?.messages.length ?? 0);
-  const stickToBottom = useRef(true);
   const [windowStart, setWindowStart] = useState(() => messageWindowStart(activeConversation?.messages.length ?? 0));
   const home = messages.home;
   const hasTaskModel = Boolean(taskModelLabel);
@@ -70,12 +70,13 @@ export function ChatHome({
   const messageCount = activeConversation?.messages.length ?? 0;
   const visibleStart = messageWindowStart(messageCount, windowStart);
   const visibleMessages = activeConversation?.messages.slice(visibleStart) ?? [];
+  const latestMessage = activeConversation?.messages.at(-1);
+  const { onScroll } = useChatAutoScroll(timelineRef, `${activeConversation?.id ?? 'none'}:${messageCount}:${latestMessage?.text.length ?? 0}`);
 
   useEffect(() => {
     const previous = previousMessageCount.current;
     if (messageCount > previous) {
       setWindowStart(Math.max(0, messageCount - MESSAGE_RENDER_WINDOW));
-      if (stickToBottom.current) requestAnimationFrame(() => { const timeline = timelineRef.current; if (timeline) timeline.scrollTop = timeline.scrollHeight; });
     } else if (messageCount < previous) {
       setWindowStart(messageWindowStart(messageCount));
     }
@@ -94,7 +95,7 @@ export function ChatHome({
             <h1>{hasTaskModel ? 'What’s on your mind today?' : home.title}</h1>
             <p>{hasTaskModel ? taskModelLabel : home.description}</p>
           </div>}
-          {hasConversationContent && activeConversation && <section className="chat-home-message-timeline" aria-live="polite" aria-label="当前对话消息" onScroll={(event) => { const target = event.currentTarget; stickToBottom.current = target.scrollHeight - target.scrollTop - target.clientHeight < 48; }} ref={timelineRef}>
+          {hasConversationContent && activeConversation && <section className="chat-home-message-timeline" aria-live="polite" aria-label="当前对话消息" onScroll={onScroll} ref={timelineRef}>
             {visibleStart > 0 && <button className="chat-home-load-history" onClick={() => setWindowStart((current) => Math.max(0, current - MESSAGE_RENDER_WINDOW))} type="button">加载更早的 {Math.min(MESSAGE_RENDER_WINDOW, visibleStart)} 条消息</button>}
             {visibleMessages.map((message) => <article className={`chat-home-message chat-home-message--${message.role}`} key={message.id}>
               <span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span>

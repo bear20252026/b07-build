@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use tauri::AppHandle;
 
 const MAX_CONTEXT_CHARS: usize = 1_000_000;
-const MAX_SOURCES: usize = 32;
+const MAX_SOURCES: usize = 100;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,10 +96,10 @@ fn receipt(backend: &str, result: &Result<usize, &'static str>) -> HybridBackend
 #[tauri::command]
 pub async fn search_hybrid(app: AppHandle, state: tauri::State<'_, searxng_local::SearxngState>, request: HybridSearchRequest) -> Result<HybridSearchResponse, &'static str> {
     let query = validate_query(&request.query)?.to_owned();
-    let exa = web_search::search_web(web_search::WebSearchRequest { query: query.clone(), max_results: Some(8) });
+    let exa = web_search::search_web(web_search::WebSearchRequest { query: query.clone(), max_results: Some(MAX_SOURCES) });
     let international = last30days::run_last30days_research(app.clone(), last30days::Last30DaysRequest { query: query.clone(), mode: last30days::Last30DaysMode::Last30days });
     let chinese = last30days::run_last30days_research(app.clone(), last30days::Last30DaysRequest { query: query.clone(), mode: last30days::Last30DaysMode::Last30daysCn });
-    let searxng = searxng_local::search_searxng_local_impl(&app, &state, searxng_local::SearxngSearchRequest { query: query.clone(), max_results: Some(8) });
+    let searxng = searxng_local::search_searxng_local_impl(&app, &state, searxng_local::SearxngSearchRequest { query: query.clone(), max_results: Some(MAX_SOURCES) });
     let (exa_result, international_result, chinese_result, searxng_result) = tokio::join!(exa, international, chinese, searxng);
 
     let mut raw_content = String::new();
@@ -150,7 +150,7 @@ pub async fn search_hybrid(app: AppHandle, state: tauri::State<'_, searxng_local
 
 #[cfg(test)]
 mod tests {
-    use super::{canonical_url, push_sources, BTreeSet};
+    use super::{canonical_url, push_sources, BTreeSet, MAX_SOURCES};
 
     #[test]
     fn removes_tracking_parameters_and_deduplicates_sources() {
@@ -161,5 +161,14 @@ mod tests {
         push_sources(&mut sources, &mut seen, "last30days", [("B".to_owned(), "https://example.com/post".to_owned())]);
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].backend, "exa");
+    }
+
+    #[test]
+    fn retains_up_to_one_hundred_deduplicated_sources() {
+        let mut sources = Vec::new();
+        let mut seen = BTreeSet::new();
+        push_sources(&mut sources, &mut seen, "exa", (0..(MAX_SOURCES + 5)).map(|index| (format!("source-{index}"), format!("https://example.com/{index}"))));
+        assert_eq!(sources.len(), MAX_SOURCES);
+        assert_eq!(sources.last().map(|source| source.url.as_str()), Some("https://example.com/99"));
     }
 }
