@@ -9,6 +9,8 @@ mod direct_provider;
 #[cfg(not(mobile))]
 mod web_search;
 #[cfg(not(mobile))]
+mod last30days;
+#[cfg(not(mobile))]
 mod terminal;
 #[cfg(not(mobile))]
 mod file_extract;
@@ -174,6 +176,7 @@ pub fn run() {
             direct_provider::probe_direct_provider,
             direct_provider::start_direct_provider_stream,
             web_search::search_web,
+            last30days::run_last30days_research,
             terminal::start_terminal_command,
             terminal::cancel_terminal_command,
             file_extract::extract_file_content,

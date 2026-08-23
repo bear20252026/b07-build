@@ -59,6 +59,7 @@ import { createProjectClient } from './runtime/project-client';
 import { useProjectWorkspace } from './runtime/use-project-workspace';
 import { useProviderControlPlane } from './runtime/use-provider-control-plane';
 import { useDirectConversations } from './runtime/use-direct-conversations';
+import type { Last30DaysMode } from './runtime/last30days-client';
 import { readDirectChatAttachments } from './runtime/direct-chat-attachments';
 import { useTaskExecution } from './runtime/use-task-execution';
 import { loadCompanionPreferences, saveCompanionPreferences, updateCompanionPreferences } from './runtime/companion-preferences';
@@ -158,6 +159,7 @@ export function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [researchMode, setResearchMode] = useState<'web-search' | Last30DaysMode>('web-search');
   const [composerCollapsed, setComposerCollapsed] = useState(false);
   const [composerAttachments, setComposerAttachments] = useState<readonly ComposerFileAttachment[]>([]);
   const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding'>();
@@ -249,12 +251,13 @@ export function App() {
     setDirectSetupError(undefined);
     {
       const attachments = await readDirectChatAttachments(composerAttachments);
-      const sent = await directConversations.send(taskModelSelection, goal, projectWorkspace.selectedProjectId, webSearchEnabled, attachments);
+      const sent = await directConversations.send(taskModelSelection, goal, projectWorkspace.selectedProjectId, webSearchEnabled && researchMode === 'web-search', webSearchEnabled && researchMode !== 'web-search' ? researchMode : undefined, attachments);
       if (!sent) return;
       setActiveGoal(goal);
       setComposerAttachments([]);
       setDraft('');
       setWebSearchEnabled(false);
+      setResearchMode('web-search');
       setActivePage('workspace');
       return;
     }
@@ -461,7 +464,15 @@ export function App() {
             <div className="composer-footer">
               <span className="composer-hint">{messages.task.composerHint}</span>
               <div className="composer-actions">
-                <button aria-busy={directConversations.searching} aria-pressed={webSearchEnabled} className={`composer-web-search${webSearchEnabled ? ' active' : ''}${directConversations.searching ? ' loading' : ''}`} disabled={directConversations.searching} onClick={() => setWebSearchEnabled((current) => !current)} title={directConversations.searching ? '正在检索网页原始内容并准备传递给本轮模型。' : webSearchEnabled ? '已开启：发送本轮消息时将检索并传递网页原始内容与来源。' : '点击开启：仅为本轮发送显式执行独立联网检索。'} type="button">{directConversations.searching ? '⌕ 正在检索…' : webSearchEnabled ? '⌕ 联网检索已开启' : '⌕ 联网检索'}</button>
+                <button aria-busy={directConversations.searching} aria-pressed={webSearchEnabled} className={`composer-web-search${webSearchEnabled ? ' active' : ''}${directConversations.searching ? ' loading' : ''}`} disabled={directConversations.searching} onClick={() => setWebSearchEnabled((current) => !current)} title={directConversations.searching ? '正在获取本轮研究原始内容并准备传递给模型。' : webSearchEnabled ? '已开启：发送本轮消息时将执行所选研究后端并传递原始内容与来源。' : '点击开启：仅为本轮发送显式执行所选检索或近 30 天研究。'} type="button">{directConversations.searching ? '⌕ 正在研究…' : webSearchEnabled ? researchMode === 'web-search' ? '⌕ 联网检索已开启' : researchMode === 'last30days-cn' ? '⌕ 中文近 30 天研究已开启' : '⌕ 近 30 天研究已开启' : '⌕ 联网检索'}</button>
+                <label className="authority-select">
+                  <span>研究后端</span>
+                  <select aria-label="选择本轮研究后端" disabled={directConversations.searching} onChange={(event) => setResearchMode(event.target.value as 'web-search' | Last30DaysMode)} value={researchMode}>
+                    <option value="web-search">网页检索 · Exa</option>
+                    <option value="last30days">近 30 天研究 · 国际来源</option>
+                    <option value="last30days-cn">近 30 天研究 · 中文来源</option>
+                  </select>
+                </label>
                 <label className="authority-select">
                   <span>{messages.authority.selectLabel}</span>
                   <select aria-label={messages.authority.selectAria} onChange={(event) => setAuthorityMode(event.target.value as WorkbenchAuthorityMode)} value={authorityMode}>
