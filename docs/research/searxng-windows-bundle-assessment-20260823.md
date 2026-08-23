@@ -57,6 +57,8 @@ The first actual Windows build must run that script before `cargo tauri build`, 
 
 At pinned SearXNG commit `9fea41204fdfa7a5cfa15b0ebd12904c520478ce`, `searx/valkeydb.py` unconditionally imports the Unix standard-library `pwd` module, even though the configured local runtime disables Valkey. Windows CPython has no such module. The runtime preparation script therefore writes a separate `Lib/site-packages/pwd.py` compatibility shim after copying SearXNG into site-packages. It is not a modification to vendored SearXNG source; it only supplies `getpwuid` if optional Valkey connection error logging is reached. The generated runtime manifest names the shim explicitly.
 
+The Windows runtime script also pins `tzdata==2026.3`. SearXNG can return local JSON results without it, but Windows lacks the system zoneinfo database expected by some SearXNG/Babel code paths; the explicit package removes those background import failures from the self-contained runtime.
+
 ## User-facing search choices
 
 | Mode | When it runs | Source of results | Network path |

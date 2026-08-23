@@ -48,6 +48,7 @@ Invoke-WebRequest -UseBasicParsing -Uri $bootstrapUrl -OutFile $getPip
 $coreRequirements = Join-Path $searxngRoot 'requirements.txt'
 Write-Host 'Installing pinned SearXNG core dependencies from Windows wheels only...'
 & $python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: -r $coreRequirements
+& $python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: 'tzdata==2026.3'
 $searxPackage = Join-Path $searxngRoot 'searx'
 $sitePackages = Join-Path $runtimeRoot 'Lib\site-packages'
 if (-not (Test-Path $searxPackage)) { throw "Pinned SearXNG Python package was not found: $searxPackage" }
