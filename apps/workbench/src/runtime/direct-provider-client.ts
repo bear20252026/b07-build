@@ -30,7 +30,7 @@ interface NativeModelDiscovery {
 
 interface NativeStreamEvent {
   requestId: string;
-  kind: 'text' | 'done' | 'error';
+  kind: 'text' | 'reasoning' | 'done' | 'error';
   text?: string;
   model?: string;
   message?: string;
@@ -79,7 +79,7 @@ export class DirectProviderClient {
     return [...new Set(result.models.filter((model): model is string => typeof model === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(model)))].sort().slice(0, 100);
   }
 
-  async stream(input: { providerId: string; prompt: string; model?: string; onText(text: string): void }): Promise<{ model?: string }> {
+  async stream(input: { providerId: string; prompt: string; model?: string; onText(text: string): void; onReasoning?(text: string): void }): Promise<{ model?: string }> {
     const providerId = requireIdentifier(input.providerId, 'providerId');
     const prompt = input.prompt.trim();
     if (!prompt || prompt.length > 24_000) throw new Error('消息必须是 1-24000 个字符');
@@ -95,6 +95,7 @@ export class DirectProviderClient {
         const payload = event.payload;
         if (!payload || payload.requestId !== id) return;
         if (payload.kind === 'text' && typeof payload.text === 'string') { input.onText(payload.text); return; }
+        if (payload.kind === 'reasoning' && typeof payload.text === 'string') { input.onReasoning?.(payload.text); return; }
         if (payload.kind === 'done') { finish(typeof payload.model === 'string' ? { model: payload.model } : {}); return; }
         if (payload.kind === 'error') { finish(new Error(typeof payload.message === 'string' ? payload.message : '第三方模型请求未完成')); }
       }).then((dispose) => {

@@ -161,13 +161,32 @@ fn payload_for(session: &DirectProviderSession, model: &str, prompt: &str) -> se
     }
 }
 
-fn text_from_sse(protocol: DirectProviderProtocol, data: &str) -> Option<String> {
-    if data == "[DONE]" { return None; }
-    let value: serde_json::Value = serde_json::from_str(data).ok()?;
+fn deltas_from_sse(protocol: DirectProviderProtocol, data: &str) -> Vec<(&'static str, String)> {
+    if data == "[DONE]" { return Vec::new(); }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else { return Vec::new(); };
+    let mut deltas = Vec::new();
     match protocol {
-        DirectProviderProtocol::OpenaiCompatible => value.pointer("/choices/0/delta/content").and_then(|value| value.as_str()).map(str::to_owned),
-        DirectProviderProtocol::AnthropicCompatible => value.pointer("/delta/text").and_then(|value| value.as_str()).map(str::to_owned),
+        DirectProviderProtocol::OpenaiCompatible => {
+            if let Some(text) = value.pointer("/choices/0/delta/content").and_then(|value| value.as_str()).filter(|text| !text.is_empty()) {
+                deltas.push(("text", text.to_owned()));
+            }
+            if let Some(reasoning) = value.pointer("/choices/0/delta/reasoning_content")
+                .or_else(|| value.pointer("/choices/0/delta/reasoning"))
+                .and_then(|value| value.as_str())
+                .filter(|text| !text.is_empty()) {
+                deltas.push(("reasoning", reasoning.to_owned()));
+            }
+        }
+        DirectProviderProtocol::AnthropicCompatible => {
+            if let Some(text) = value.pointer("/delta/text").and_then(|value| value.as_str()).filter(|text| !text.is_empty()) {
+                deltas.push(("text", text.to_owned()));
+            }
+            if let Some(reasoning) = value.pointer("/delta/thinking").and_then(|value| value.as_str()).filter(|text| !text.is_empty()) {
+                deltas.push(("reasoning", reasoning.to_owned()));
+            }
+        }
     }
+    deltas
 }
 
 fn emit(app: &AppHandle, event: DirectProviderStreamEvent) {
@@ -263,8 +282,8 @@ pub fn start_direct_provider_stream(
                         let line = buffer[..end].trim_end_matches('\r').to_owned();
                         buffer.drain(..=end);
                         if let Some(data) = line.strip_prefix("data:") {
-                            if let Some(text) = text_from_sse(session.protocol, data.trim()) {
-                                emit(&app, DirectProviderStreamEvent { request_id: request.request_id.clone(), kind: "text", text: Some(text), model: Some(model.clone()), message: None });
+                            for (kind, text) in deltas_from_sse(session.protocol, data.trim()) {
+                                emit(&app, DirectProviderStreamEvent { request_id: request.request_id.clone(), kind, text: Some(text), model: Some(model.clone()), message: None });
                             }
                         }
                     }
@@ -275,4 +294,27 @@ pub fn start_direct_provider_stream(
         }
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{deltas_from_sse, DirectProviderProtocol};
+
+    #[test]
+    fn parses_openai_text_and_actual_reasoning_deltas_without_inventing_content() {
+        let text = deltas_from_sse(DirectProviderProtocol::OpenaiCompatible, r#"{"choices":[{"delta":{"content":"答案"}}]}"#);
+        let reasoning = deltas_from_sse(DirectProviderProtocol::OpenaiCompatible, r#"{"choices":[{"delta":{"reasoning_content":"先核对约束"}}]}"#);
+        let empty = deltas_from_sse(DirectProviderProtocol::OpenaiCompatible, r#"{"choices":[{"delta":{"role":"assistant"}}]}"#);
+        assert_eq!(text, vec![("text", "答案".to_owned())]);
+        assert_eq!(reasoning, vec![("reasoning", "先核对约束".to_owned())]);
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn parses_anthropic_text_and_thinking_deltas() {
+        let text = deltas_from_sse(DirectProviderProtocol::AnthropicCompatible, r#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"答案"}}"#);
+        let reasoning = deltas_from_sse(DirectProviderProtocol::AnthropicCompatible, r#"{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"先分析"}}"#);
+        assert_eq!(text, vec![("text", "答案".to_owned())]);
+        assert_eq!(reasoning, vec![("reasoning", "先分析".to_owned())]);
+    }
 }

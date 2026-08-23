@@ -13,6 +13,7 @@ export interface ChatHomeProps {
   directResponse?: Readonly<{ output: string; model?: string; complete: boolean }>;
   directError?: string;
   restoringProviderSession?: boolean;
+  draftActive?: boolean;
   conversations?: readonly DirectConversation[];
   activeConversationId?: string;
   messages: Translation;
@@ -39,6 +40,7 @@ export function ChatHome({
   directResponse,
   directError,
   restoringProviderSession = false,
+  draftActive = false,
   conversations = [],
   activeConversationId,
   messages,
@@ -57,7 +59,7 @@ export function ChatHome({
   const hasConversationContent = Boolean(directResponse?.output) || Boolean(activeConversation && activeConversation.messages.length > 0);
 
   return (
-    <section className={`chat-home chat-home--studio${hasConversationContent ? ' chat-home--conversation-active' : ' chat-home--conversation-idle'}`} aria-label={messages.task.title}>
+    <section className={`chat-home chat-home--studio${hasConversationContent ? ' chat-home--conversation-active' : ' chat-home--conversation-idle'}${draftActive && !hasConversationContent ? ' chat-home--drafting' : ''}`} aria-label={messages.task.title}>
       <div className="chat-home-workbench">
         <div className="chat-home-canvas">
           {!hasConversationContent && <div className="chat-home-hero">
@@ -72,6 +74,7 @@ export function ChatHome({
           {hasConversationContent && activeConversation && <section className="chat-home-message-timeline" aria-live="polite" aria-label="当前对话消息">
             {activeConversation.messages.map((message) => <article className={`chat-home-message chat-home-message--${message.role}`} key={message.id}>
               <span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span>
+              {message.activities?.map((activity) => <details className="chat-home-message-process" key={`${message.id}-${activity.kind}`}><summary>模型过程（供应商实际返回）</summary><pre>{activity.text}</pre></details>)}
               <p>{message.text}</p>
             </article>)}
           </section>}

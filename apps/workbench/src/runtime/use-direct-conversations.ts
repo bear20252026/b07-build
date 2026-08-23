@@ -2,7 +2,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { directProviderClient } from './direct-provider-client';
 
 export interface DirectConversationSelection { readonly providerId: string; readonly model?: string; }
-export interface DirectConversationMessage { readonly id: string; readonly role: 'user' | 'assistant'; readonly text: string; readonly createdAt: number; readonly model?: string; }
+export interface DirectConversationActivity { readonly kind: 'reasoning'; readonly text: string; readonly createdAt: number; }
+export interface DirectConversationMessage { readonly id: string; readonly role: 'user' | 'assistant'; readonly text: string; readonly createdAt: number; readonly model?: string; readonly activities?: readonly DirectConversationActivity[]; }
 export interface DirectConversation { readonly schemaVersion: 1; readonly id: string; readonly title: string; readonly selection: DirectConversationSelection; readonly messages: readonly DirectConversationMessage[]; readonly createdAt: number; readonly updatedAt: number; }
 
 const STORAGE_KEY = 'awo.direct-conversations.v1';
@@ -17,12 +18,20 @@ function safeSelection(value: unknown): DirectConversationSelection | undefined 
   return { providerId: input.providerId, ...(input.model ? { model: input.model } : {}) };
 }
 
+function safeActivity(value: unknown): DirectConversationActivity | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const input = value as Partial<DirectConversationActivity>;
+  if (input.kind !== 'reasoning' || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 24_000 || typeof input.createdAt !== 'number' || !Number.isSafeInteger(input.createdAt)) return undefined;
+  return { kind: 'reasoning', text: input.text, createdAt: input.createdAt };
+}
+
 function safeMessage(value: unknown): DirectConversationMessage | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const input = value as Partial<DirectConversationMessage>;
   const createdAt = input.createdAt;
   if ((input.role !== 'user' && input.role !== 'assistant') || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 24_000 || typeof input.id !== 'string' || typeof createdAt !== 'number' || !Number.isSafeInteger(createdAt)) return undefined;
-  return { id: input.id, role: input.role, text: input.text, createdAt, ...(typeof input.model === 'string' ? { model: input.model } : {}) };
+  const activities = Array.isArray(input.activities) ? input.activities.map(safeActivity).filter((item): item is DirectConversationActivity => Boolean(item)).slice(-4) : [];
+  return { id: input.id, role: input.role, text: input.text, createdAt, ...(typeof input.model === 'string' ? { model: input.model } : {}), ...(activities.length ? { activities } : {}) };
 }
 
 function safeConversation(value: unknown): DirectConversation | undefined {
@@ -49,8 +58,8 @@ function persist(conversations: readonly DirectConversation[]): void {
 
 function nextId(prefix: string): string { return `${prefix}-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`; }
 function titleFor(prompt: string): string { return prompt.trim().replace(/\s+/g, ' ').slice(0, 48) || '新对话'; }
-function streamingAssistantMessage(conversationId: string, text: string, createdAt: number, model?: string): DirectConversationMessage {
-  return { id: `${conversationId}-stream`, role: 'assistant', text: text || '…', createdAt, ...(model ? { model } : {}) };
+function streamingAssistantMessage(conversationId: string, text: string, createdAt: number, model?: string, reasoning?: string): DirectConversationMessage {
+  return { id: `${conversationId}-stream`, role: 'assistant', text: text || '…', createdAt, ...(model ? { model } : {}), ...(reasoning ? { activities: [{ kind: 'reasoning', text: reasoning.slice(0, 24_000), createdAt }] } : {}) };
 }
 
 function streamErrorText(error: unknown): string {
@@ -106,8 +115,10 @@ export function useDirectConversations(): DirectConversations {
     update((current) => [{ ...base, selection, title: base.messages.length === 0 ? titleFor(text) : base.title, messages: [...base.messages, userMessage].slice(-MAX_MESSAGES), updatedAt: now }, ...current.filter((item) => item.id !== conversationId)]);
     setActiveId(conversationId); setStreaming(true); setError(undefined);
     let output = '';
+    let reasoning = '';
     try {
-      const completion = await directProviderClient.stream({ providerId: selection.providerId, model: selection.model, prompt: text, onText: (chunk) => { output += chunk; update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: [...conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), streamingAssistantMessage(conversationId, output, now, selection.model)].slice(-MAX_MESSAGES), updatedAt: Date.now() }))); } });
+      const refreshStream = () => update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: [...conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), streamingAssistantMessage(conversationId, output, now, selection.model, reasoning)].slice(-MAX_MESSAGES), updatedAt: Date.now() })));
+      const completion = await directProviderClient.stream({ providerId: selection.providerId, model: selection.model, prompt: text, onText: (chunk) => { output += chunk; refreshStream(); }, onReasoning: (chunk) => { reasoning += chunk; refreshStream(); } });
       update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== `${conversationId}-stream` ? message : { ...message, ...(completion.model ? { model: completion.model } : {}) }), updatedAt: Date.now() })));
       return true;
     } catch (nextError: unknown) {
