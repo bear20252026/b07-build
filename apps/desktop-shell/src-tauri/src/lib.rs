@@ -6,6 +6,8 @@
 
 #[cfg(not(mobile))]
 mod direct_provider;
+#[cfg(not(mobile))]
+mod web_search;
 
 #[cfg(not(mobile))]
 use std::{
@@ -166,6 +168,7 @@ pub fn run() {
             direct_provider::discover_direct_provider,
             direct_provider::probe_direct_provider,
             direct_provider::start_direct_provider_stream,
+            web_search::search_web,
             choose_workspace_directory,
             show_desktop_companion,
             close_desktop_companion,

@@ -147,7 +147,7 @@ export function useProviderControlPlane(): ProviderControlPlane {
   const stream = useCallback((providerId: string, prompt: string, model?: string): void => {
     setPendingProviderId(providerId); setError(undefined);
     setStreaming((current) => ({ ...current, [providerId]: { output: '', ...(model ? { model } : {}), complete: false } }));
-    void directProviderClient.stream({ providerId, prompt, model, onText: (text) => setStreaming((current) => {
+    void directProviderClient.stream({ providerId, messages: [{ role: 'user', content: prompt }], model, onText: (text) => setStreaming((current) => {
       const previous = current[providerId] ?? { output: '', complete: false };
       return { ...current, [providerId]: { ...previous, output: previous.output + text } };
     }) })
@@ -163,7 +163,7 @@ export function useProviderControlPlane(): ProviderControlPlane {
     const startedAt = Date.now();
     setPendingProviderId(providerId); setError(undefined);
     const output: string[] = [];
-    void directProviderClient.stream({ providerId, prompt, model, onText: (text) => output.push(text) })
+    void directProviderClient.stream({ providerId, messages: [{ role: 'user', content: prompt }], model, onText: (text) => output.push(text) })
       .then((completion) => setInferences((current) => ({ ...current, [providerId]: { schemaVersion: 1, providerId, profileId: `desktop-direct.${providerId}`, profileRevision: 1, model: completion.model ?? model ?? '', dataBoundary: 'remote-allowed', output: output.join(''), outputDigest: 'desktop-direct', outputCharacters: output.join('').length, latencyMs: Math.max(0, Date.now() - startedAt), canReadSecret: false, canAutoExecuteTools: false, canAutoConnect: false } })))
       .catch((nextError: unknown) => setError(errorMessage(nextError)))
       .finally(() => setPendingProviderId(undefined));

@@ -10,6 +10,7 @@ export interface ProjectWorkspaceController {
   readonly error: string | undefined;
   create(input: { title: string; description?: string }): void;
   select(projectId: string): void;
+  clearSelection(): void;
   attachCurrentTask(task: { taskId: string; runId: string } | undefined): void;
   reset(): void;
 }
@@ -27,7 +28,6 @@ export function useProjectWorkspace(
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    if (activePage !== 'projects') return;
     let disposed = false;
     void client.list()
       .then((items) => { if (!disposed) setProjects(items); })
@@ -64,6 +64,12 @@ export function useProjectWorkspace(
     setError(undefined);
   }, []);
 
+  const clearSelection = useCallback((): void => {
+    setSelectedProjectId(undefined);
+    setProjectTasks([]);
+    setError(undefined);
+  }, []);
+
   const attachCurrentTask = useCallback((task: { taskId: string; runId: string } | undefined): void => {
     if (!task || !selectedProjectId || pending) return;
     setPending(true);
@@ -72,7 +78,7 @@ export function useProjectWorkspace(
       .then((reference) => {
         setProjectTasks((items) => items.some((item) => item.taskId === reference.taskId && item.runId === reference.runId) ? items : [...items, reference]);
         setProjects((items) => items.map((project) => project.projectId === selectedProjectId
-          ? { ...project, taskCount: project.taskCount + 1, lastTaskAt: reference.attachedAt }
+          ? { ...project, taskCount: project.taskCount + 1, updatedAt: reference.attachedAt, lastTaskAt: reference.attachedAt }
           : project));
       })
       .catch((nextError: unknown) => setError(errorText(nextError)))
@@ -87,5 +93,5 @@ export function useProjectWorkspace(
     setError(undefined);
   }, []);
 
-  return { projects, selectedProjectId, projectTasks, pending, error, create, select, attachCurrentTask, reset };
+  return { projects, selectedProjectId, projectTasks, pending, error, create, select, clearSelection, attachCurrentTask, reset };
 }

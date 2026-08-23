@@ -14,15 +14,12 @@ export interface ChatHomeProps {
   directError?: string;
   restoringProviderSession?: boolean;
   draftActive?: boolean;
-  conversations?: readonly DirectConversation[];
-  activeConversationId?: string;
+  activeConversation?: DirectConversation;
   messages: Translation;
   profiles: Readonly<Record<AgentProfileId, { label: string; description: string }>>;
   onOpenModels(): void;
   onProfileChange(profileId: AgentProfileId): void;
   onSuggestion(goal: string): void;
-  onSelectConversation(id: string): void;
-  onNewConversation(): void;
 }
 
 /**
@@ -41,21 +38,17 @@ export function ChatHome({
   directError,
   restoringProviderSession = false,
   draftActive = false,
-  conversations = [],
-  activeConversationId,
+  activeConversation,
   messages,
   profiles,
   onOpenModels,
   onProfileChange,
   onSuggestion,
-  onSelectConversation,
-  onNewConversation,
 }: ChatHomeProps) {
   const home = messages.home;
   const hasTaskModel = Boolean(taskModelLabel);
   const modelTitle = restoringProviderSession ? '正在恢复本地模型会话…' : (hasTaskModel ? taskModelLabel! : (gatewayAttached && connectedProviderCount > 0 ? home.providerReady(connectedProviderCount) : home.providerWaiting));
   const workMode = createWorkModeAuditProjection({ profileId: activeProfile, authorityMode, connectedProviderCount });
-  const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId);
   const hasConversationContent = Boolean(directResponse?.output) || Boolean(activeConversation && activeConversation.messages.length > 0);
 
   return (
@@ -70,11 +63,10 @@ export function ChatHome({
             <h1>{hasTaskModel ? 'What’s on your mind today?' : home.title}</h1>
             <p>{hasTaskModel ? taskModelLabel : home.description}</p>
           </div>}
-          {conversations.length > 0 && <section className="chat-home-conversations" aria-label="可恢复对话历史"><div className="chat-home-section-heading"><span>CONVERSATIONS</span><button type="button" onClick={onNewConversation}>新对话</button></div><div className="chat-home-conversation-list">{conversations.map((conversation) => <button key={conversation.id} type="button" className={conversation.id === activeConversationId ? 'active' : ''} onClick={() => onSelectConversation(conversation.id)}><strong>{conversation.title}</strong><small>{conversation.selection.model ?? conversation.selection.providerId} · {conversation.messages.length} 条消息</small></button>)}</div></section>}
           {hasConversationContent && activeConversation && <section className="chat-home-message-timeline" aria-live="polite" aria-label="当前对话消息">
             {activeConversation.messages.map((message) => <article className={`chat-home-message chat-home-message--${message.role}`} key={message.id}>
               <span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span>
-              {message.activities?.map((activity) => <details className="chat-home-message-process" key={`${message.id}-${activity.kind}`}><summary>模型过程（供应商实际返回）</summary><pre>{activity.text}</pre></details>)}
+              {message.activities?.map((activity) => <details className="chat-home-message-process" key={`${message.id}-${activity.kind}`}><summary>{activity.kind === 'reasoning' ? '模型过程（供应商实际返回）' : '联网检索（本轮明确启用）'}</summary><pre>{activity.text}</pre>{activity.sources && activity.sources.length > 0 && <ol className="chat-home-search-sources">{activity.sources.map((source) => <li key={source.url}><a href={source.url} rel="noreferrer" target="_blank">{source.title}</a></li>)}</ol>}</details>)}
               <p>{message.text}</p>
             </article>)}
           </section>}

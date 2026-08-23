@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export type DirectProviderProtocol = 'openai-compatible' | 'anthropic-compatible';
+export interface DirectProviderMessage { readonly role: 'user' | 'assistant'; readonly content: string; }
 
 export interface DirectProviderConnection {
   readonly schemaVersion: 1;
@@ -79,10 +80,15 @@ export class DirectProviderClient {
     return [...new Set(result.models.filter((model): model is string => typeof model === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(model)))].sort().slice(0, 100);
   }
 
-  async stream(input: { providerId: string; prompt: string; model?: string; onText(text: string): void; onReasoning?(text: string): void }): Promise<{ model?: string }> {
+  async stream(input: { providerId: string; messages: readonly DirectProviderMessage[]; model?: string; onText(text: string): void; onReasoning?(text: string): void }): Promise<{ model?: string }> {
     const providerId = requireIdentifier(input.providerId, 'providerId');
-    const prompt = input.prompt.trim();
-    if (!prompt || prompt.length > 24_000) throw new Error('消息必须是 1-24000 个字符');
+    if (input.messages.length === 0 || input.messages.length > 48) throw new Error('当前会话历史无效或过长');
+    const messages = input.messages.map((message) => {
+      const content = message.content.trim();
+      if (!['user', 'assistant'].includes(message.role) || !content || content.length > 24_000) throw new Error('会话消息无效');
+      return { role: message.role, content };
+    });
+    if (messages.reduce((length, message) => length + message.content.length, 0) > 72_000) throw new Error('当前会话上下文过长，请新建对话后重试');
     if (input.model !== undefined) requireModelIdentifier(input.model);
     const id = requestId();
     let unlisten: UnlistenFn | undefined;
@@ -100,7 +106,7 @@ export class DirectProviderClient {
         if (payload.kind === 'error') { finish(new Error(typeof payload.message === 'string' ? payload.message : '第三方模型请求未完成')); }
       }).then((dispose) => {
         unlisten = dispose;
-        return invoke('start_direct_provider_stream', { request: { providerId, prompt, ...(input.model?.trim() ? { model: input.model.trim() } : {}), requestId: id } });
+        return invoke('start_direct_provider_stream', { request: { providerId, messages, ...(input.model?.trim() ? { model: input.model.trim() } : {}), requestId: id } });
       }).catch((error: unknown) => finish(error instanceof Error ? error : new Error('无法启动第三方模型请求')));
     });
   }

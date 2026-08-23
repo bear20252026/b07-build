@@ -44,3 +44,14 @@
 5. OpenAI Web Search：<https://developers.openai.com/api/docs/guides/tools-web-search>
 6. Anthropic Web Search Tool：<https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool>
 7. MiMo Web Search：<https://mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/tool-calling/web-search>
+
+## AtomCode 联网能力核验：不依赖 MiMo 插件
+
+已直接核验 AtomCode 本地公开镜像的 `crates/atomcode-capabilities/src/tools/web_search.rs`。其内置 `web_search` 是一个独立、只读的 Agent 工具，而非 MiMo Provider 的请求参数：默认经 Exa MCP 服务 `https://mcp.exa.ai/mcp` 调用 `web_search_exa`，可选 API key 仅用于提高 Exa 配额；另有不需要 key 的 DuckDuckGo HTML 路径。该工具用 `reqwest` 发出 JSON-RPC `tools/call` 并从 SSE 结果中解析标题、URL 与摘要文本；失败时建议模型使用浏览器型 Web Access skill。它同时另有 MCP registry、OAuth 与 `web_fetch` 工具实现。
+
+因此，用户无需启用 MiMo Web Search Plugin 也可以在 AtomCode 中联网搜索是合理的：AtomCode 使用的是自己的工具层与独立检索服务，而不是模型供应商的原生搜索。AI Work OS 将保持两条**分离且显式**的路线：
+
+1. **独立搜索工具**：按 AtomCode 的职责模式，搜索服务单独配置并把工具活动、来源、错误和引用记为会话事件；它可服务于任何已连接的聊天模型。
+2. **MiMo 原生搜索**：只在 MiMo OpenAI-compatible 连接且用户明确启用后把 `web_search` 工具字段交给 MiMo；可获取其官方返回的引用与搜索用量。
+
+两条路线不会互相伪装、不会把 MiMo 字段发给普通兼容端点，也不会自动发送用户查询。注意：本项目不复制 AtomCode 的代码；上述结论仅复用其“工具能力独立于模型 Provider”的职责分层。

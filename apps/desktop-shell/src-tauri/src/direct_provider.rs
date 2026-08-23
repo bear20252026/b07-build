@@ -48,9 +48,15 @@ pub struct DirectProviderModelDiscovery {
 #[serde(rename_all = "camelCase")]
 pub struct StartDirectProviderStreamRequest {
     pub provider_id: String,
-    pub prompt: String,
+    pub messages: Vec<DirectProviderMessage>,
     pub model: Option<String>,
     pub request_id: String,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct DirectProviderMessage {
+    pub role: String,
+    pub content: String,
 }
 
 #[derive(Serialize)]
@@ -145,18 +151,31 @@ fn headers_for(session: &DirectProviderSession) -> Result<HeaderMap, &'static st
     Ok(headers)
 }
 
-fn payload_for(session: &DirectProviderSession, model: &str, prompt: &str) -> serde_json::Value {
+fn validate_messages(messages: &[DirectProviderMessage]) -> Result<(), &'static str> {
+    if messages.is_empty() || messages.len() > 48 { return Err("messages-invalid"); }
+    let mut length = 0usize;
+    for message in messages {
+        if !matches!(message.role.as_str(), "user" | "assistant") { return Err("message-role-invalid"); }
+        require_nonempty(&message.content, "message-content-invalid", 24_000)?;
+        length = length.saturating_add(message.content.len());
+        if length > 72_000 { return Err("messages-too-large"); }
+    }
+    Ok(())
+}
+
+fn payload_for(session: &DirectProviderSession, model: &str, messages: &[DirectProviderMessage]) -> serde_json::Value {
+    let messages = messages.iter().map(|message| serde_json::json!({ "role": message.role, "content": message.content })).collect::<Vec<_>>();
     match session.protocol {
         DirectProviderProtocol::OpenaiCompatible => serde_json::json!({
             "model": model,
             "stream": true,
-            "messages": [{ "role": "user", "content": prompt }]
+            "messages": messages
         }),
         DirectProviderProtocol::AnthropicCompatible => serde_json::json!({
             "model": model,
             "stream": true,
             "max_tokens": 4096,
-            "messages": [{ "role": "user", "content": prompt }]
+            "messages": messages
         }),
     }
 }
@@ -246,7 +265,8 @@ pub async fn probe_direct_provider(
 ) -> Result<(), &'static str> {
     require_identifier(&request.provider_id, "provider-id-invalid")?;
     let session = state.0.lock().map_err(|_| "provider-state-unavailable")?.get(&request.provider_id).cloned().ok_or("provider-not-connected")?;
-    let response = Client::new().post(url_for(&session)).headers(headers_for(&session)?).json(&payload_for(&session, &session.model, "Reply with OK.")).send().await.map_err(|_| "provider-request-failed")?;
+    let probe_messages = vec![DirectProviderMessage { role: "user".to_owned(), content: "Reply with OK.".to_owned() }];
+    let response = Client::new().post(url_for(&session)).headers(headers_for(&session)?).json(&payload_for(&session, &session.model, &probe_messages)).send().await.map_err(|_| "provider-request-failed")?;
     if response.status().is_success() { return Ok(()); }
     match response.status().as_u16() {
         401 => Err("provider-http-401"),
@@ -264,13 +284,13 @@ pub fn start_direct_provider_stream(
 ) -> Result<(), &'static str> {
     require_identifier(&request.provider_id, "provider-id-invalid")?;
     require_identifier(&request.request_id, "request-id-invalid")?;
-    require_nonempty(&request.prompt, "prompt-invalid", 24_000)?;
+    validate_messages(&request.messages)?;
     let session = state.0.lock().map_err(|_| "provider-state-unavailable")?.get(&request.provider_id).cloned().ok_or("provider-not-connected")?;
     let model = request.model.unwrap_or(session.model.clone());
     require_nonempty(&model, "model-invalid", 128)?;
     tauri::async_runtime::spawn(async move {
         let client = Client::new();
-        let response = client.post(url_for(&session)).headers(match headers_for(&session) { Ok(headers) => headers, Err(message) => { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some(message.to_owned()) }); return; } }).json(&payload_for(&session, &model, &request.prompt)).send().await;
+        let response = client.post(url_for(&session)).headers(match headers_for(&session) { Ok(headers) => headers, Err(message) => { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some(message.to_owned()) }); return; } }).json(&payload_for(&session, &model, &request.messages)).send().await;
         let Ok(mut response) = response else { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some("provider-request-failed".to_owned()) }); return; };
         if !response.status().is_success() { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some(format!("provider-http-{}", response.status().as_u16())) }); return; }
         let mut buffer = String::new();
@@ -316,5 +336,20 @@ mod tests {
         let reasoning = deltas_from_sse(DirectProviderProtocol::AnthropicCompatible, r#"{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"先分析"}}"#);
         assert_eq!(text, vec![("text", "答案".to_owned())]);
         assert_eq!(reasoning, vec![("reasoning", "先分析".to_owned())]);
+    }
+
+    #[test]
+    fn preserves_ordered_chat_history_in_provider_payload() {
+        let session = super::DirectProviderSession { provider_id: "provider".to_owned(), protocol: DirectProviderProtocol::OpenaiCompatible, base_url: "https://example.test/v1".to_owned(), model: "model".to_owned(), api_key: "key".to_owned() };
+        let messages = vec![
+            super::DirectProviderMessage { role: "user".to_owned(), content: "第一问".to_owned() },
+            super::DirectProviderMessage { role: "assistant".to_owned(), content: "第一答".to_owned() },
+            super::DirectProviderMessage { role: "user".to_owned(), content: "第二问".to_owned() },
+        ];
+        assert!(super::validate_messages(&messages).is_ok());
+        let payload = super::payload_for(&session, "model", &messages);
+        assert_eq!(payload.pointer("/messages/0/content").and_then(|value| value.as_str()), Some("第一问"));
+        assert_eq!(payload.pointer("/messages/1/role").and_then(|value| value.as_str()), Some("assistant"));
+        assert_eq!(payload.pointer("/messages/2/content").and_then(|value| value.as_str()), Some("第二问"));
     }
 }

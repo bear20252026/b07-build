@@ -156,6 +156,7 @@ export function App() {
   const [windowsNativeReleaseReportError, setWindowsNativeReleaseReportError] = useState<string>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [composerCollapsed, setComposerCollapsed] = useState(false);
   const [composerAttachments, setComposerAttachments] = useState<readonly ComposerFileAttachment[]>([]);
   const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding'>();
@@ -246,11 +247,12 @@ export function App() {
     }
     setDirectSetupError(undefined);
     {
-      const sent = await directConversations.send(taskModelSelection, goal);
+      const sent = await directConversations.send(taskModelSelection, goal, projectWorkspace.selectedProjectId, webSearchEnabled);
       if (!sent) return;
       setActiveGoal(goal);
       setComposerAttachments([]);
       setDraft('');
+      setWebSearchEnabled(false);
       setActivePage('workspace');
       return;
     }
@@ -319,7 +321,22 @@ export function App() {
       <Sider
         activePage={isSettings ? 'workspace' : activePage}
         hasActiveTask={Boolean(snapshot)}
+        projects={projectWorkspace.projects}
+        selectedProjectId={projectWorkspace.selectedProjectId}
+        conversations={directConversations.conversations}
+        activeConversationId={directConversations.activeConversation?.id}
         onNavigate={setActivePage}
+        onShowWorkspaceConversations={() => { projectWorkspace.clearSelection(); directConversations.clearSelection(); setActivePage('workspace'); }}
+        onSelectProject={(projectId) => { projectWorkspace.select(projectId); directConversations.clearSelection(); setActivePage('workspace'); }}
+        onSelectConversation={(id) => { directConversations.select(id); setActivePage('workspace'); }}
+        onNewConversation={() => {
+          if (!taskModelSelection) { setDirectSetupError('请先在 API 连接中完成模型连接并选择任务模型，再新建聊天会话。'); setActivePage('models'); return; }
+          directConversations.create(taskModelSelection, projectWorkspace.selectedProjectId);
+          setDirectSetupError(undefined);
+          setActivePage('workspace');
+        }}
+        onRenameConversation={directConversations.rename}
+        onRemoveConversation={directConversations.remove}
         onNewTask={() => { setActivePage('workspace'); focusTaskComposer(); }}
         onThemeToggle={() => setTheme((current) => current === 'light' ? 'dark' : 'light')}
         theme={theme}
@@ -359,8 +376,8 @@ export function App() {
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
-            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} restoringProviderSession={providerControl.restoring} draftActive={Boolean(draft.trim())} directError={directSetupError ?? directConversations.error} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} conversations={directConversations.conversations} activeConversationId={directConversations.activeConversation?.id} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} onSelectConversation={directConversations.select} onNewConversation={() => { if (taskModelSelection) directConversations.create(taskModelSelection); }} profiles={profiles} />}
-            {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} error={projectWorkspace.error} storageReady={true} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={projectWorkspace.create} onSelect={projectWorkspace.select} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
+            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} restoringProviderSession={providerControl.restoring} draftActive={Boolean(draft.trim())} directError={directSetupError ?? directConversations.error} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} activeConversation={directConversations.activeConversation} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} profiles={profiles} />}
+            {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} error={projectWorkspace.error} storageReady={true} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={(input) => { directConversations.clearSelection(); projectWorkspace.create(input); }} onSelect={(projectId) => { directConversations.clearSelection(); projectWorkspace.select(projectId); }} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
             {isTaskPage && snapshot && <TaskPage
               activeGoal={activeGoal}
               authorityLabel={messages.authority.mode[snapshot.authorityMode ?? authorityMode].label}
@@ -442,6 +459,7 @@ export function App() {
             <div className="composer-footer">
               <span className="composer-hint">{messages.task.composerHint}</span>
               <div className="composer-actions">
+                <button aria-pressed={webSearchEnabled} className={`composer-web-search${webSearchEnabled ? ' active' : ''}`} onClick={() => setWebSearchEnabled((current) => !current)} title="仅为本轮发送显式执行独立联网检索；不依赖 MiMo 插件，检索来源会保留在对话中。" type="button">⌕ 联网检索</button>
                 <label className="authority-select">
                   <span>{messages.authority.selectLabel}</span>
                   <select aria-label={messages.authority.selectAria} onChange={(event) => setAuthorityMode(event.target.value as WorkbenchAuthorityMode)} value={authorityMode}>
