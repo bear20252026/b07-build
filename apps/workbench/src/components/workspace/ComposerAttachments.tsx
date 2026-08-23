@@ -18,7 +18,7 @@ export interface ComposerAttachmentsProps {
 /**
  * High-frequency chat attachment affordance. It classifies only user-selected File
  * metadata. It never reads file contents, uploads, unpacks, executes, or sends
- * the attachment to any model by itself. 字节仅在用户点击发送任务时上传到本机 Gateway。
+ * the attachment by itself. 用户点击发送后，首页仅将可读取的文本文件内容传给所选第三方模型；非文本文件会显示未传递原因。
  */
 export function ComposerAttachments({ attachments, onAdd, onRemove }: ComposerAttachmentsProps) {
   const picker = useRef<HTMLInputElement>(null);
@@ -37,7 +37,7 @@ export function ComposerAttachments({ attachments, onAdd, onRemove }: ComposerAt
   return <div className={`composer-attachments${dragActive ? ' is-drag-active' : ''}`} onDragEnter={(event) => { prevent(event); setDragActive(true); }} onDragLeave={(event) => { prevent(event); setDragActive(false); }} onDragOver={prevent} onDrop={drop}>
     <input aria-label="选择待处理附件" className="composer-attachment-picker" multiple onChange={(event) => { onAdd(event.target.files); event.currentTarget.value = ''; }} ref={picker} type="file" />
     <button className="composer-attach-button" onClick={() => picker.current?.click()} title="选择文件加入待处理附件清单；点击发送任务前不会上传、解压、执行或发送给模型。" type="button"><span aria-hidden="true">＋</span> 添加文件</button>
-    <span className="composer-attachment-hint">也可拖放文件；发送时写入本机任务输入区，不会自动发给第三方模型。</span>
+    <span className="composer-attachment-hint">也可拖放文件；发送时读取可支持的文本并传给当前第三方模型，其他类型会显示原因。</span>
     {attachments.length > 0 && <div aria-label={`待处理附件 ${attachments.length} 个`} className="composer-attachment-list" role="list">{attachments.map((item) => <span className="composer-attachment-chip" key={item.id} role="listitem"><span title={`${item.kind} · ${item.byteSize} bytes`}>{item.name}</span><button aria-label={`移除附件 ${item.name}`} onClick={() => onRemove(item.id)} title="从本次待处理清单移除；不会删除本机文件。" type="button">×</button></span>)}</div>}
     {dragActive && <div aria-live="polite" className="composer-drop-hint">松开以登记待处理附件</div>}
   </div>;

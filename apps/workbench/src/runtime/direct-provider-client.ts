@@ -4,6 +4,9 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 export type DirectProviderProtocol = 'openai-compatible' | 'anthropic-compatible';
 export interface DirectProviderMessage { readonly role: 'user' | 'assistant'; readonly content: string; }
 
+export const DIRECT_PROVIDER_MAX_CONTEXT_CHARS = 1_000_000;
+export const DIRECT_PROVIDER_MAX_MESSAGES = 200;
+
 export interface DirectProviderConnection {
   readonly schemaVersion: 1;
   readonly providerId: string;
@@ -82,13 +85,13 @@ export class DirectProviderClient {
 
   async stream(input: { providerId: string; messages: readonly DirectProviderMessage[]; model?: string; onText(text: string): void; onReasoning?(text: string): void }): Promise<{ model?: string }> {
     const providerId = requireIdentifier(input.providerId, 'providerId');
-    if (input.messages.length === 0 || input.messages.length > 48) throw new Error('当前会话历史无效或过长');
+    if (input.messages.length === 0 || input.messages.length > DIRECT_PROVIDER_MAX_MESSAGES) throw new Error('当前会话历史无效或过长');
     const messages = input.messages.map((message) => {
       const content = message.content.trim();
-      if (!['user', 'assistant'].includes(message.role) || !content || content.length > 24_000) throw new Error('会话消息无效');
+      if (!['user', 'assistant'].includes(message.role) || !content || content.length > DIRECT_PROVIDER_MAX_CONTEXT_CHARS) throw new Error('会话消息无效');
       return { role: message.role, content };
     });
-    if (messages.reduce((length, message) => length + message.content.length, 0) > 72_000) throw new Error('当前会话上下文过长，请新建对话后重试');
+    if (messages.reduce((length, message) => length + message.content.length, 0) > DIRECT_PROVIDER_MAX_CONTEXT_CHARS) throw new Error('当前会话上下文超过 1M 字符预算；请缩小附件或新建对话后重试');
     if (input.model !== undefined) requireModelIdentifier(input.model);
     const id = requestId();
     let unlisten: UnlistenFn | undefined;

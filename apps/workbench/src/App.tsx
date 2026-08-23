@@ -59,6 +59,7 @@ import { createProjectClient } from './runtime/project-client';
 import { useProjectWorkspace } from './runtime/use-project-workspace';
 import { useProviderControlPlane } from './runtime/use-provider-control-plane';
 import { useDirectConversations } from './runtime/use-direct-conversations';
+import { readDirectChatAttachments } from './runtime/direct-chat-attachments';
 import { useTaskExecution } from './runtime/use-task-execution';
 import { loadCompanionPreferences, saveCompanionPreferences, updateCompanionPreferences } from './runtime/companion-preferences';
 import { loadFloatingCompanionPreferences, saveFloatingCompanionPreferences, type FloatingCompanionPreferencesV1 } from './runtime/floating-companion-preferences';
@@ -247,7 +248,8 @@ export function App() {
     }
     setDirectSetupError(undefined);
     {
-      const sent = await directConversations.send(taskModelSelection, goal, projectWorkspace.selectedProjectId, webSearchEnabled);
+      const attachments = await readDirectChatAttachments(composerAttachments);
+      const sent = await directConversations.send(taskModelSelection, goal, projectWorkspace.selectedProjectId, webSearchEnabled, attachments);
       if (!sent) return;
       setActiveGoal(goal);
       setComposerAttachments([]);
@@ -352,7 +354,7 @@ export function App() {
             <div aria-label="独立工作面" className="titlebar-surface-actions">
               <button aria-label="打开模型连接设置" className="titlebar-icon-button" onClick={() => setActivePage('models')} title="打开模型连接设置；在原有配置页面中填写地址和密钥。" type="button">⌁</button>
               <button aria-label="打开工作区文件窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('workspace-files')} title="打开受控工作区文件窗口；目录、导入与预览不进入对话。" type="button">▤</button>
-              <button aria-label="打开终端与编码窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('terminal-coding')} title="打开审批式终端与编码窗口；不会直接执行自由命令。" type="button">›_</button>
+              <button aria-label="打开终端与编码窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('terminal-coding')} title="打开本地终端；仅在你明确点击运行后以当前 Windows 用户权限执行命令。" type="button">›_</button>
               <button aria-label="打开项目产物检查器" className="titlebar-icon-button" onClick={() => setInspectorSurface('artifacts')} title="打开当前任务的项目产物检查器；只显示受控文件投影。" type="button">▧</button>
               <button aria-label="打开 Companion 独立窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('companion')} title="打开独立 Companion 角色窗口；不会切换模型或授予权限。" type="button">◉</button>
             </div>
@@ -459,7 +461,7 @@ export function App() {
             <div className="composer-footer">
               <span className="composer-hint">{messages.task.composerHint}</span>
               <div className="composer-actions">
-                <button aria-pressed={webSearchEnabled} className={`composer-web-search${webSearchEnabled ? ' active' : ''}`} onClick={() => setWebSearchEnabled((current) => !current)} title="仅为本轮发送显式执行独立联网检索；不依赖 MiMo 插件，检索来源会保留在对话中。" type="button">⌕ 联网检索</button>
+                <button aria-busy={directConversations.searching} aria-pressed={webSearchEnabled} className={`composer-web-search${webSearchEnabled ? ' active' : ''}${directConversations.searching ? ' loading' : ''}`} disabled={directConversations.searching} onClick={() => setWebSearchEnabled((current) => !current)} title={directConversations.searching ? '正在检索网页原始内容并准备传递给本轮模型。' : webSearchEnabled ? '已开启：发送本轮消息时将检索并传递网页原始内容与来源。' : '点击开启：仅为本轮发送显式执行独立联网检索。'} type="button">{directConversations.searching ? '⌕ 正在检索…' : webSearchEnabled ? '⌕ 联网检索已开启' : '⌕ 联网检索'}</button>
                 <label className="authority-select">
                   <span>{messages.authority.selectLabel}</span>
                   <select aria-label={messages.authority.selectAria} onChange={(event) => setAuthorityMode(event.target.value as WorkbenchAuthorityMode)} value={authorityMode}>
@@ -479,7 +481,7 @@ export function App() {
       {activePage === 'workspace' && <HomeFloatingCompanion desktopCompanionAvailable={companionStudioPreferences.desktopResidencyMode === 'windows-native' && typeof window !== 'undefined' && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)} preferences={companionPreferences} presentation={floatingCompanionPreferences} onOpenDesktopCompanion={openDesktopCompanion} onOpenSettings={() => setActivePage('companion')} onPresentationChange={updateFloatingCompanion} />}
       {isSettings && <SettingsOverlay onClose={() => setActivePage('workspace')} title={pageTitle[activePage]}>{settingsContent}</SettingsOverlay>}
       {inspectorSurface === 'workspace-files' && <WorkbenchOverlay description="独立工作区文件窗口。目录、导入和预览只在你明确操作时发生；不会扫描、上传或执行文件。" onClose={() => setInspectorSurface(undefined)} title="工作区与文件" tone="api"><WorkspaceFilesPage preferences={workspaceFilePreferences} onChange={updateWorkspaceFiles} /></WorkbenchOverlay>}
-      {inspectorSurface === 'terminal-coding' && <WorkbenchOverlay description="独立终端与编码窗口。只创建固定模板的待审批计划，不直接执行系统命令。" onClose={() => setInspectorSurface(undefined)} title="终端与编码" tone="api"><TerminalCodingPage workspace={workspaceFilePreferences} /></WorkbenchOverlay>}
+      {inspectorSurface === 'terminal-coding' && <WorkbenchOverlay description="独立终端与编码窗口。命令只在你明确点击运行后以当前 Windows 用户权限执行；输出可见并可停止。" onClose={() => setInspectorSurface(undefined)} title="终端与编码" tone="api"><TerminalCodingPage workspace={workspaceFilePreferences} /></WorkbenchOverlay>}
       {inspectorSurface === 'artifacts' && <WorkbenchOverlay description="当前 task/run 的受控文件检查器。可查看 Markdown、代码、JSON、差异和用户发起的交付包，不读取任意本机目录。" onClose={() => setInspectorSurface(undefined)} title="项目产物" tone="artifacts"><PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} /></WorkbenchOverlay>}
       {inspectorSurface === 'companion' && <WorkbenchOverlay description="独立角色窗口。角色、对话与 API 连接保持分离；高影响能力仍需未来的单独权限设计。" onClose={() => setInspectorSurface(undefined)} title="Companion" tone="companion"><CompanionWindow gatewayAttached={gatewayAttached} preferences={companionPreferences} onOpenApi={() => { setInspectorSurface(undefined); setActivePage('models'); }} onOpenControls={() => { setInspectorSurface(undefined); setActivePage('companion'); }} /></WorkbenchOverlay>}
       {isTaskPage && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} />}

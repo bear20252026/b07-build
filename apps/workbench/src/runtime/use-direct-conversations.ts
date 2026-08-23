@@ -1,17 +1,18 @@
 import { useCallback, useMemo, useState } from 'react';
 import { directProviderClient, type DirectProviderMessage } from './direct-provider-client';
 import { webSearchClient, type WebSearchSource } from './web-search-client';
+import { attachmentContextText, type DirectChatAttachmentContext } from './direct-chat-attachments';
 
 export interface DirectConversationSelection { readonly providerId: string; readonly model?: string; }
-export interface DirectConversationActivity { readonly kind: 'reasoning' | 'web-search'; readonly text: string; readonly createdAt: number; readonly sources?: readonly WebSearchSource[]; }
-export interface DirectConversationMessage { readonly id: string; readonly role: 'user' | 'assistant'; readonly text: string; readonly createdAt: number; readonly model?: string; readonly activities?: readonly DirectConversationActivity[]; }
+export interface DirectConversationActivity { readonly kind: 'reasoning' | 'web-search' | 'attachment'; readonly text: string; readonly createdAt: number; readonly sources?: readonly WebSearchSource[]; }
+export interface DirectConversationMessage { readonly id: string; readonly role: 'user' | 'assistant'; readonly text: string; readonly context?: string; readonly createdAt: number; readonly model?: string; readonly activities?: readonly DirectConversationActivity[]; }
 export interface DirectConversation { readonly schemaVersion: 1; readonly id: string; readonly title: string; readonly selection: DirectConversationSelection; readonly messages: readonly DirectConversationMessage[]; readonly projectId?: string; readonly createdAt: number; readonly updatedAt: number; }
 
 const STORAGE_KEY = 'awo.direct-conversations.v1';
 const MAX_CONVERSATIONS = 32;
 const MAX_MESSAGES = 200;
-const MAX_PROVIDER_MESSAGES = 48;
-const MAX_PROVIDER_HISTORY_CHARS = 72_000;
+const MAX_PROVIDER_MESSAGES = 200;
+const MAX_PROVIDER_HISTORY_CHARS = 1_000_000;
 
 function validProjectId(value: unknown): value is string { return typeof value === 'string' && /^project-[a-f0-9-]{8,80}$/.test(value); }
 
@@ -26,7 +27,7 @@ function safeSelection(value: unknown): DirectConversationSelection | undefined 
 function safeActivity(value: unknown): DirectConversationActivity | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const input = value as Partial<DirectConversationActivity>;
-  if ((input.kind !== 'reasoning' && input.kind !== 'web-search') || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 24_000 || typeof input.createdAt !== 'number' || !Number.isSafeInteger(input.createdAt)) return undefined;
+  if ((input.kind !== 'reasoning' && input.kind !== 'web-search' && input.kind !== 'attachment') || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 1_000_000 || typeof input.createdAt !== 'number' || !Number.isSafeInteger(input.createdAt)) return undefined;
   const sources = Array.isArray(input.sources) ? input.sources.filter((source): source is WebSearchSource => Boolean(source && typeof source === 'object' && typeof (source as Partial<WebSearchSource>).title === 'string' && typeof (source as Partial<WebSearchSource>).url === 'string' && /^https?:\/\//.test((source as Partial<WebSearchSource>).url ?? ''))).slice(0, 8) : [];
   return { kind: input.kind, text: input.text, createdAt: input.createdAt, ...(sources.length ? { sources } : {}) };
 }
@@ -35,9 +36,10 @@ function safeMessage(value: unknown): DirectConversationMessage | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const input = value as Partial<DirectConversationMessage>;
   const createdAt = input.createdAt;
-  if ((input.role !== 'user' && input.role !== 'assistant') || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 24_000 || typeof input.id !== 'string' || typeof createdAt !== 'number' || !Number.isSafeInteger(createdAt)) return undefined;
+  if ((input.role !== 'user' && input.role !== 'assistant') || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 1_000_000 || typeof input.id !== 'string' || typeof createdAt !== 'number' || !Number.isSafeInteger(createdAt)) return undefined;
+  const context = typeof input.context === 'string' && input.context.trim() && input.context.length <= 1_000_000 ? input.context : undefined;
   const activities = Array.isArray(input.activities) ? input.activities.map(safeActivity).filter((item): item is DirectConversationActivity => Boolean(item)).slice(-4) : [];
-  return { id: input.id, role: input.role, text: input.text, createdAt, ...(typeof input.model === 'string' ? { model: input.model } : {}), ...(activities.length ? { activities } : {}) };
+  return { id: input.id, role: input.role, text: input.text, ...(context ? { context } : {}), createdAt, ...(typeof input.model === 'string' ? { model: input.model } : {}), ...(activities.length ? { activities } : {}) };
 }
 
 function safeConversation(value: unknown): DirectConversation | undefined {
@@ -74,7 +76,7 @@ export function providerHistory(messages: readonly DirectConversationMessage[]):
   let total = tail.reduce((length, message) => length + message.text.length, 0);
   let start = 0;
   while (total > MAX_PROVIDER_HISTORY_CHARS && start < tail.length - 1) { total -= tail[start]!.text.length; start += 1; }
-  return tail.slice(start).filter((message) => message.text !== '…').map((message) => ({ role: message.role, content: message.text }));
+  return tail.slice(start).filter((message) => message.text !== '…').map((message) => ({ role: message.role, content: message.context ?? message.text }));
 }
 
 function streamErrorText(error: unknown): string {
@@ -109,13 +111,14 @@ export interface DirectConversations {
   readonly conversations: readonly DirectConversation[];
   readonly activeConversation?: DirectConversation;
   readonly streaming: boolean;
+  readonly searching: boolean;
   readonly error?: string;
   create(selection: DirectConversationSelection, projectId?: string): string;
   select(id: string): void;
   clearSelection(): void;
   rename(id: string, title: string): void;
   remove(id: string): void;
-  send(selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch?: boolean): Promise<boolean>;
+  send(selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch?: boolean, attachments?: readonly DirectChatAttachmentContext[]): Promise<boolean>;
 }
 
 /** AtomCode 式“可继续、可切换”的对话历史；保存用户消息和模型文本，不保存密钥、Base URL 或请求头。 */
@@ -123,6 +126,7 @@ export function useDirectConversations(): DirectConversations {
   const [conversations, setConversations] = useState<readonly DirectConversation[]>(load);
   const [activeId, setActiveId] = useState<string>();
   const [streaming, setStreaming] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string>();
   const activeConversation = useMemo(() => conversations.find((conversation) => conversation.id === activeId), [activeId, conversations]);
 
@@ -148,22 +152,27 @@ export function useDirectConversations(): DirectConversations {
     setActiveId((current) => current === id ? undefined : current);
   }, [update]);
 
-  const send = useCallback(async (selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch = false): Promise<boolean> => {
+  const send = useCallback(async (selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch = false, attachments: readonly DirectChatAttachmentContext[] = []): Promise<boolean> => {
     const text = prompt.trim(); if (!text || streaming) return false;
     const now = Date.now(); const existing = activeConversation?.selection.providerId === selection.providerId && activeConversation.projectId === projectId ? activeConversation : undefined;
     const conversationId = existing?.id ?? nextId('conversation');
     let searchActivity: DirectConversationActivity | undefined;
     let searchSummary: string | undefined;
     if (useWebSearch) {
+      setSearching(true);
       try {
         const result = await webSearchClient.search(text);
-        searchSummary = result.summary;
-        searchActivity = { kind: 'web-search', text: `已检索“${result.query}”。${result.sources.length ? `找到 ${result.sources.length} 个可见来源。` : '服务未返回可解析来源。'}\n\n${result.summary.slice(0, 24_000)}`, sources: result.sources, createdAt: now };
+        searchSummary = result.rawContent;
+        searchActivity = { kind: 'web-search', text: `已检索“${result.query}”。${result.sources.length ? `已获取 ${result.sources.length} 个来源的原始可读网页内容。` : '服务未返回可解析来源。'}\n\n${result.rawContent}`, sources: result.sources, createdAt: now };
       } catch (searchError: unknown) {
         searchActivity = { kind: 'web-search', text: searchErrorText(searchError), createdAt: now };
+      } finally {
+        setSearching(false);
       }
     }
-    const userMessage: DirectConversationMessage = { id: nextId('message'), role: 'user', text, createdAt: now, ...(searchActivity ? { activities: [searchActivity] } : {}) };
+    const attachmentActivity = attachments.length ? { kind: 'attachment' as const, text: attachments.map((attachment) => attachment.included ? `已传递文件正文：${attachment.name}（${attachment.byteSize} bytes）` : `未传递文件正文：${attachment.name}。${attachment.reason ?? '无法读取。'}`).join('\n'), createdAt: now } : undefined;
+    const context = `${text}${attachmentContextText(attachments)}`;
+    const userMessage: DirectConversationMessage = { id: nextId('message'), role: 'user', text, ...(context !== text ? { context } : {}), createdAt: now, ...(searchActivity || attachmentActivity ? { activities: [searchActivity, attachmentActivity].filter((activity): activity is DirectConversationActivity => Boolean(activity)) } : {}) };
     const base: DirectConversation = existing ?? { schemaVersion: 1, id: conversationId, title: titleFor(text), selection, messages: [], ...(validProjectId(projectId) ? { projectId } : {}), createdAt: now, updatedAt: now };
     const history = providerHistory([...base.messages, userMessage]);
     const messagesForProvider = searchSummary && history.length > 0 ? [...history.slice(0, -1), withSearchReference(history.at(-1)!, searchSummary)] : history;
@@ -183,5 +192,5 @@ export function useDirectConversations(): DirectConversations {
     } finally { setStreaming(false); }
   }, [activeConversation, streaming, update]);
 
-  return { conversations, activeConversation, streaming, error, create, select, clearSelection, rename, remove, send };
+  return { conversations, activeConversation, streaming, searching, error, create, select, clearSelection, rename, remove, send };
 }

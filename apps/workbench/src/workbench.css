@@ -138,6 +138,12 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .composer-hint { color: var(--muted); font-size: 11px; }
 .composer-actions { display: flex; align-items: center; gap: 8px; }
 .composer-mode { padding: 6px 8px; color: var(--muted-strong); font-size: 11px; border-radius: 7px; background: var(--panel-muted); }
+.composer-web-search { min-height: 30px; padding: 0 10px; color: var(--muted-strong); font-size: 11px; font-weight: 680; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); transition: color 160ms ease-out, border-color 160ms ease-out, background 160ms ease-out, box-shadow 160ms ease-out; }
+.composer-web-search:hover { color: var(--text-strong); border-color: var(--border-strong); }
+.composer-web-search.active { color: #fff; border-color: #007aff; background: #007aff; box-shadow: 0 4px 11px rgba(0, 122, 255, .25); }
+.composer-web-search.active::before { content: ''; display: inline-block; width: 6px; height: 6px; margin: 0 5px 1px 0; border-radius: 999px; background: currentColor; }
+.composer-web-search.loading { cursor: wait; opacity: .82; }
+.composer-web-search:disabled { cursor: not-allowed; }
 .composer-submit { min-height: 32px; padding: 0 12px; color: #fff; font-size: 12px; font-weight: 650; border: 1px solid var(--accent-strong); border-radius: 9px; background: var(--accent-strong); box-shadow: 0 4px 11px color-mix(in srgb, var(--accent-strong) 20%, transparent); }
 .composer-submit:disabled { cursor: not-allowed; opacity: 0.46; box-shadow: none; }
 
@@ -1483,6 +1489,7 @@ body:has(.workbench-shell.chat-home-surface.theme-dark) { background: #000; }
 .chat-home-direct-error { margin: 12px auto; max-width: 720px; padding: 10px 12px; border: 1px solid #ffb5ae; border-radius: 12px; background: #fff2f0; color: #b42318; font-size: 12px; line-height: 1.45; }
 .workbench-shell.chat-home-surface .composer-footer { padding-top: 5px; }
 .workbench-shell.chat-home-surface .composer-mode { color: #0066cc; background: #edf6ff; }
+.workbench-shell.chat-home-surface.theme-dark .composer-web-search.active { color: #fff; border-color: #0a84ff; background: #0a84ff; }
 .workbench-shell.chat-home-surface .composer-submit { border-color: #007aff; border-radius: 10px; background: #007aff; box-shadow: 0 4px 10px rgba(0, 122, 255, .24); }
 .workbench-shell.chat-home-surface .sider-item.active { color: #0066cc; background: #eaf3ff; }
 .workbench-shell.chat-home-surface .sider-item.active .sider-icon { color: #007aff; }

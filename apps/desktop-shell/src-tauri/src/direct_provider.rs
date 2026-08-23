@@ -152,13 +152,13 @@ fn headers_for(session: &DirectProviderSession) -> Result<HeaderMap, &'static st
 }
 
 fn validate_messages(messages: &[DirectProviderMessage]) -> Result<(), &'static str> {
-    if messages.is_empty() || messages.len() > 48 { return Err("messages-invalid"); }
+    if messages.is_empty() || messages.len() > 200 { return Err("messages-invalid"); }
     let mut length = 0usize;
     for message in messages {
         if !matches!(message.role.as_str(), "user" | "assistant") { return Err("message-role-invalid"); }
-        require_nonempty(&message.content, "message-content-invalid", 24_000)?;
+        require_nonempty(&message.content, "message-content-invalid", 1_000_000)?;
         length = length.saturating_add(message.content.len());
-        if length > 72_000 { return Err("messages-too-large"); }
+        if length > 1_000_000 { return Err("messages-too-large"); }
     }
     Ok(())
 }

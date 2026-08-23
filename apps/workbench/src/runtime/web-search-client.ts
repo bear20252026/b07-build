@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 export interface WebSearchSource { readonly title: string; readonly url: string; }
-export interface WebSearchResult { readonly query: string; readonly summary: string; readonly sources: readonly WebSearchSource[]; }
+export interface WebSearchResult { readonly query: string; readonly summary: string; readonly rawContent: string; readonly sources: readonly WebSearchSource[]; }
 
 function validSource(value: unknown): value is WebSearchSource {
   if (!value || typeof value !== 'object') return false;
@@ -12,8 +12,8 @@ function validSource(value: unknown): value is WebSearchSource {
 function resultFrom(value: unknown): WebSearchResult {
   if (!value || typeof value !== 'object') throw new Error('web-search-response-invalid');
   const result = value as Partial<WebSearchResult>;
-  if (typeof result.query !== 'string' || typeof result.summary !== 'string' || !result.summary.trim() || result.summary.length > 64_000 || !Array.isArray(result.sources)) throw new Error('web-search-response-invalid');
-  return { query: result.query, summary: result.summary, sources: result.sources.filter(validSource).slice(0, 8) };
+  if (typeof result.query !== 'string' || typeof result.summary !== 'string' || !result.summary.trim() || typeof result.rawContent !== 'string' || !result.rawContent.trim() || result.rawContent.length > 1_000_000 || !Array.isArray(result.sources)) throw new Error('web-search-response-invalid');
+  return { query: result.query, summary: result.summary, rawContent: result.rawContent, sources: result.sources.filter(validSource).slice(0, 8) };
 }
 
 export const webSearchClient = {

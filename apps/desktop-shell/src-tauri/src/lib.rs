@@ -8,6 +8,8 @@
 mod direct_provider;
 #[cfg(not(mobile))]
 mod web_search;
+#[cfg(not(mobile))]
+mod terminal;
 
 #[cfg(not(mobile))]
 use std::{
@@ -162,6 +164,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(direct_provider::DirectProviderState::new())
+        .manage(terminal::TerminalRunState::new())
         .manage(WorkspaceDirectoryState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             direct_provider::configure_direct_provider,
@@ -169,6 +172,8 @@ pub fn run() {
             direct_provider::probe_direct_provider,
             direct_provider::start_direct_provider_stream,
             web_search::search_web,
+            terminal::start_terminal_command,
+            terminal::cancel_terminal_command,
             choose_workspace_directory,
             show_desktop_companion,
             close_desktop_companion,
