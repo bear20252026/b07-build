@@ -51,22 +51,30 @@ export function ChatHome({
     : home.providerWaiting;
   const hasTaskModel = Boolean(taskModelLabel);
   const workMode = createWorkModeAuditProjection({ profileId: activeProfile, authorityMode, connectedProviderCount });
+  const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId);
+  const hasConversationContent = Boolean(directResponse?.output) || Boolean(activeConversation && activeConversation.messages.length > 0);
 
   return (
-    <section className="chat-home chat-home--studio" aria-label={messages.task.title}>
+    <section className={`chat-home chat-home--studio${hasConversationContent ? ' chat-home--conversation-active' : ' chat-home--conversation-idle'}`} aria-label={messages.task.title}>
       <div className="chat-home-workbench">
         <div className="chat-home-canvas">
-          <div className="chat-home-hero">
+          {!hasConversationContent && <div className="chat-home-hero">
             <span className="chat-home-appmark" aria-hidden="true">
               <svg viewBox="0 0 40 40" focusable="false"><rect x="4.5" y="4.5" width="31" height="31" rx="10" fill="currentColor" opacity=".12" /><path d="M12 13.5h16v13H12zM16 18h8M16 22h5M12 27.5h16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </span>
             <span>{home.eyebrow}</span>
             <h1>{hasTaskModel ? 'What’s on your mind today?' : home.title}</h1>
             <p>{hasTaskModel ? taskModelLabel : home.description}</p>
-          </div>
+          </div>}
           {conversations.length > 0 && <section className="chat-home-conversations" aria-label="可恢复对话历史"><div className="chat-home-section-heading"><span>CONVERSATIONS</span><button type="button" onClick={onNewConversation}>新对话</button></div><div className="chat-home-conversation-list">{conversations.map((conversation) => <button key={conversation.id} type="button" className={conversation.id === activeConversationId ? 'active' : ''} onClick={() => onSelectConversation(conversation.id)}><strong>{conversation.title}</strong><small>{conversation.selection.model ?? conversation.selection.providerId} · {conversation.messages.length} 条消息</small></button>)}</div></section>}
-          {directResponse && <section className="chat-home-direct-response" aria-live="polite"><div><span>DIRECT MODEL RESPONSE</span><strong>{directResponse.model ?? taskModelLabel ?? '已选模型'}</strong><small>{directResponse.complete ? '流式回答完成' : '正在接收第三方文本分块…'}</small></div><pre>{directResponse.output || '正在等待模型返回首个文本分块…'}</pre></section>}
-          <section className="chat-home-profile" aria-label={home.profileLabel}>
+          {hasConversationContent && activeConversation && <section className="chat-home-message-timeline" aria-live="polite" aria-label="当前对话消息">
+            {activeConversation.messages.map((message) => <article className={`chat-home-message chat-home-message--${message.role}`} key={message.id}>
+              <span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span>
+              <p>{message.text}</p>
+            </article>)}
+          </section>}
+          {directResponse && !activeConversation?.messages.length && <section className="chat-home-direct-response" aria-live="polite"><div><span>DIRECT MODEL RESPONSE</span><strong>{directResponse.model ?? taskModelLabel ?? '已选模型'}</strong><small>{directResponse.complete ? '流式回答完成' : '正在接收第三方文本分块…'}</small></div><pre>{directResponse.output || '正在等待模型返回首个文本分块…'}</pre></section>}
+          {!hasConversationContent && <section className="chat-home-profile" aria-label={home.profileLabel}>
             <div className="chat-home-section-heading"><span>{home.profileLabel}</span><small>{profiles[activeProfile].label}</small></div>
             <div className="chat-home-profile-grid">
               {WORKBENCH_PROFILE_IDS.map((profileId) => {
@@ -86,9 +94,9 @@ export function ChatHome({
                 );
               })}
             </div>
-          </section>
+          </section>}
         </div>
-        <aside className={`chat-home-context${hasTaskModel ? ' chat-home-context--connected' : ''}`} aria-label="当前任务上下文">
+        {!hasConversationContent && <aside className={`chat-home-context${hasTaskModel ? ' chat-home-context--connected' : ''}`} aria-label="当前任务上下文">
           <section className={`chat-home-provider${gatewayAttached && connectedProviderCount > 0 ? ' ready' : ''}`} aria-label="第三方模型连接状态">
             <div>
               <span>MODEL CONNECTION</span>
@@ -103,7 +111,7 @@ export function ChatHome({
             <div>{home.suggestions.map((suggestion) => <button key={suggestion} onClick={() => onSuggestion(suggestion)} type="button">{suggestion}</button>)}</div>
           </section>
           <p className="chat-home-settings-note">{home.settingsHint}</p>
-        </aside>
+        </aside>}
       </div>
     </section>
   );
