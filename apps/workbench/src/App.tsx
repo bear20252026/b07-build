@@ -159,7 +159,7 @@ export function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
-  const [researchMode, setResearchMode] = useState<'web-search' | Last30DaysMode>('web-search');
+  const [researchMode, setResearchMode] = useState<'web-search' | Last30DaysMode | 'hybrid'>('web-search');
   const [composerCollapsed, setComposerCollapsed] = useState(false);
   const [composerAttachments, setComposerAttachments] = useState<readonly ComposerFileAttachment[]>([]);
   const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding'>();
@@ -464,11 +464,12 @@ export function App() {
             <div className="composer-footer">
               <span className="composer-hint">{messages.task.composerHint}</span>
               <div className="composer-actions">
-                <button aria-busy={directConversations.searching} aria-pressed={webSearchEnabled} className={`composer-web-search${webSearchEnabled ? ' active' : ''}${directConversations.searching ? ' loading' : ''}`} disabled={directConversations.searching} onClick={() => setWebSearchEnabled((current) => !current)} title={directConversations.searching ? '正在获取本轮研究原始内容并准备传递给模型。' : webSearchEnabled ? '已开启：发送本轮消息时将执行所选研究后端并传递原始内容与来源。' : '点击开启：仅为本轮发送显式执行所选检索或近 30 天研究。'} type="button">{directConversations.searching ? '⌕ 正在研究…' : webSearchEnabled ? researchMode === 'web-search' ? '⌕ 联网检索已开启' : researchMode === 'last30days-cn' ? '⌕ 中文近 30 天研究已开启' : '⌕ 近 30 天研究已开启' : '⌕ 联网检索'}</button>
+                <button aria-busy={directConversations.searching} aria-pressed={webSearchEnabled} className={`composer-web-search${webSearchEnabled ? ' active' : ''}${directConversations.searching ? ' loading' : ''}`} disabled={directConversations.searching} onClick={() => setWebSearchEnabled((current) => !current)} title={directConversations.searching ? '正在并行获取本轮检索与研究原始内容。' : webSearchEnabled ? '已开启：发送本轮消息时将执行所选后端并传递原始内容、来源与后端回执。' : '点击开启：仅为本轮发送显式执行所选检索或近 30 天研究。'} type="button">{directConversations.searching ? '⌕ 正在研究…' : webSearchEnabled ? researchMode === 'web-search' ? '⌕ 联网检索已开启' : researchMode === 'hybrid' ? '⌕ 混合检索已开启' : researchMode === 'last30days-cn' ? '⌕ 中文近 30 天研究已开启' : '⌕ 近 30 天研究已开启' : '⌕ 联网检索'}</button>
                 <label className="authority-select">
                   <span>研究后端</span>
-                  <select aria-label="选择本轮研究后端" disabled={directConversations.searching} onChange={(event) => setResearchMode(event.target.value as 'web-search' | Last30DaysMode)} value={researchMode}>
+                  <select aria-label="选择本轮研究后端" disabled={directConversations.searching} onChange={(event) => setResearchMode(event.target.value as 'web-search' | Last30DaysMode | 'hybrid')} value={researchMode}>
                     <option value="web-search">网页检索 · Exa</option>
+                    <option value="hybrid">混合检索 · Exa + 近 30 天来源</option>
                     <option value="last30days">近 30 天研究 · 国际来源</option>
                     <option value="last30days-cn">近 30 天研究 · 中文来源</option>
                   </select>
