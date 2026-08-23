@@ -75,6 +75,7 @@ export function ProviderConnectionCenter({ connections, probes, inferences, stre
         const discovery = discoveredModels[connection.providerId];
         const stream = streaming[connection.providerId];
         const selectedForTask = taskModelSelection?.providerId === connection.providerId;
+        const isMimo = connection.providerId === 'mimo' || connection.providerId.startsWith('mimo-token-plan-') || /mimo/i.test(connection.displayName);
         return (
           <article className="provider-connection-card" key={connection.providerId}>
             <div className="provider-connection-card-heading">
@@ -95,6 +96,8 @@ export function ProviderConnectionCenter({ connections, probes, inferences, stre
               <label htmlFor={`provider-prompt-${connection.providerId}`}>向 {connection.displayName} 发送消息</label>
               <textarea id={`provider-prompt-${connection.providerId}`} value={draft} maxLength={24000} onChange={(event) => setDrafts((current) => ({ ...current, [connection.providerId]: event.target.value }))} placeholder={`使用默认模型 ${connection.defaultModel}。`} />
               <input className="provider-model-input" aria-label={`${connection.displayName} 模型标识`} value={model} maxLength={128} onChange={(event) => setModels((current) => ({ ...current, [connection.providerId]: event.target.value }))} placeholder={`可选：改用模型 ${connection.defaultModel}`} />
+              {isMimo && <div className="provider-model-discovery-options" aria-label="MiMo 官方能力快捷选择"><button type="button" title="使用 MiMo 官方支持图片、音频与视频理解的 mimo-v2.5；不会修改连接地址或密钥。" onClick={() => { setModels((current) => ({ ...current, [connection.providerId]: 'mimo-v2.5' })); onSelectTaskModel({ providerId: connection.providerId, model: 'mimo-v2.5' }); }}>视觉/全模态：mimo-v2.5</button><button type="button" title="使用 MiMo 官方文本、深度推理与联网能力模型 mimo-v2.5-pro；不能接收图片。" onClick={() => { setModels((current) => ({ ...current, [connection.providerId]: 'mimo-v2.5-pro' })); onSelectTaskModel({ providerId: connection.providerId, model: 'mimo-v2.5-pro' }); }}>文本/推理：mimo-v2.5-pro</button></div>}
+              {isMimo && <p className="provider-model-discovery-note">模型可自由手填或从目录选择。MiMo 官方将图片理解列为 `mimo-v2.5` 能力；切换不会改动您的 Provider、Base URL 或密钥。</p>}
               {discovery?.outcome === 'reachable' && discovery.models.length === 0 && <p className="provider-model-discovery-note">该服务未提供标准模型列表；请按供应商文档填写模型标识。</p>}
               {discovery && discovery.models.length > 0 && <div className="provider-model-discovery-options" aria-label={`${connection.displayName} 查询到的模型`}>{discovery.models.map((item) => <button key={item} type="button" title={`使用 ${item} 作为此次对话模型。`} onClick={() => setModels((current) => ({ ...current, [connection.providerId]: item }))}>{item}</button>)}</div>}
               {selectedForTask && <p className="provider-model-discovery-note">后续任务将使用：{taskModelSelection?.model ?? (model || connection.defaultModel)}。</p>}

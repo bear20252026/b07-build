@@ -139,13 +139,20 @@ fn url_for(session: &DirectProviderSession) -> String {
     }
 }
 
+fn is_mimo_session(session: &DirectProviderSession) -> bool {
+    session.provider_id == "mimo"
+        || session.provider_id.starts_with("mimo-token-plan-")
+        || session.api_key.trim_start().starts_with("tp-")
+        || session.base_url.to_ascii_lowercase().contains("xiaomimimo.com")
+}
+
 fn headers_for(session: &DirectProviderSession) -> Result<HeaderMap, &'static str> {
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     headers.insert(ACCEPT, HeaderValue::from_static("text/event-stream"));
     // MiMo Token Plan's official `tp-` keys use `api-key` regardless of whether the
     // user selected the preset or supplied the same official endpoint as a custom Provider.
-    let is_mimo = session.provider_id == "mimo" || session.provider_id.starts_with("mimo-token-plan-") || session.api_key.trim_start().starts_with("tp-");
+    let is_mimo = is_mimo_session(session);
     match session.protocol {
         DirectProviderProtocol::OpenaiCompatible if is_mimo => {
             headers.insert("api-key", HeaderValue::from_str(&session.api_key).map_err(|_| "api-key-invalid")?);
@@ -201,7 +208,7 @@ fn validate_messages(messages: &[DirectProviderMessage]) -> Result<(), &'static 
         require_nonempty(&message.content, "message-content-invalid", 1_000_000)?;
         length = length.saturating_add(message.content.len());
         if length > 1_000_000 { return Err("messages-too-large"); }
-        if message.images.len() > 8 || message.images.iter().any(|image| !matches!(image.media_type.as_str(), "image/png" | "image/jpeg" | "image/webp" | "image/gif") || image.base64_data.is_empty() || image.base64_data.len() > 7_000_000) { return Err("message-images-invalid"); }
+        if message.images.len() > 8 || message.images.iter().any(|image| !matches!(image.media_type.as_str(), "image/png" | "image/jpeg" | "image/webp" | "image/gif" | "image/bmp") || image.base64_data.is_empty() || image.base64_data.len() > 50 * 1024 * 1024) { return Err("message-images-invalid"); }
     }
     Ok(())
 }
@@ -277,8 +284,11 @@ fn error_from_sse(data: &str) -> Option<String> {
     (!compact.is_empty()).then_some(compact)
 }
 
-fn http_error_message(status: reqwest::StatusCode, body: &str, includes_images: bool) -> String {
+fn http_error_message(status: reqwest::StatusCode, body: &str, includes_images: bool, session: &DirectProviderSession, model: &str) -> String {
     if status.as_u16() == 404 && includes_images {
+        if is_mimo_session(session) && model.eq_ignore_ascii_case("mimo-v2.5-pro") {
+            return "provider-http-404-image-mimo-v25-pro".to_owned();
+        }
         return "provider-http-404-image: 当前 Base URL、协议或模型未接受图片内容；请改用供应商支持视觉的模型或核对兼容端点".to_owned();
     }
     let upstream = error_from_sse(body).unwrap_or_default();
@@ -379,7 +389,7 @@ pub fn start_direct_provider_stream(
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             let includes_images = request.messages.iter().any(|message| !message.images.is_empty());
-            emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: Some(model), message: Some(http_error_message(status, &body, includes_images)) });
+            emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: Some(model.clone()), message: Some(http_error_message(status, &body, includes_images, &session, &model)) });
             return;
         }
         let mut buffer = String::new();
@@ -465,8 +475,11 @@ mod tests {
 
     #[test]
     fn identifies_image_specific_not_found_responses_without_claiming_local_blocking() {
-        assert_eq!(super::http_error_message(reqwest::StatusCode::NOT_FOUND, "", true), "provider-http-404-image: 当前 Base URL、协议或模型未接受图片内容；请改用供应商支持视觉的模型或核对兼容端点");
-        assert_eq!(super::http_error_message(reqwest::StatusCode::NOT_FOUND, "", false), "provider-http-404");
+        let generic = super::DirectProviderSession { provider_id: "provider".to_owned(), protocol: DirectProviderProtocol::OpenaiCompatible, base_url: "https://example.test/v1".to_owned(), model: "model".to_owned(), api_key: "key".to_owned() };
+        assert_eq!(super::http_error_message(reqwest::StatusCode::NOT_FOUND, "", true, &generic, "model"), "provider-http-404-image: 当前 Base URL、协议或模型未接受图片内容；请改用供应商支持视觉的模型或核对兼容端点");
+        assert_eq!(super::http_error_message(reqwest::StatusCode::NOT_FOUND, "", false, &generic, "model"), "provider-http-404");
+        let mimo = super::DirectProviderSession { provider_id: "mimo-token-plan-cn".to_owned(), protocol: DirectProviderProtocol::OpenaiCompatible, base_url: "https://token-plan-cn.xiaomimimo.com/v1".to_owned(), model: "mimo-v2.5-pro".to_owned(), api_key: "tp-example".to_owned() };
+        assert_eq!(super::http_error_message(reqwest::StatusCode::NOT_FOUND, "", true, &mimo, "mimo-v2.5-pro"), "provider-http-404-image-mimo-v25-pro");
     }
 
     #[test]
@@ -484,5 +497,14 @@ mod tests {
         let headers = super::headers_for(&session).expect("headers");
         assert_eq!(headers.get("api-key").and_then(|value| value.to_str().ok()), Some("tp-example"));
         assert!(headers.get(reqwest::header::AUTHORIZATION).is_none());
+    }
+
+    #[test]
+    fn custom_mimo_api_endpoint_uses_api_key_and_official_bmp_is_not_rejected() {
+        let session = super::DirectProviderSession { provider_id: "custom-provider".to_owned(), protocol: DirectProviderProtocol::OpenaiCompatible, base_url: "https://api.xiaomimimo.com/v1".to_owned(), model: "mimo-v2.5".to_owned(), api_key: "sk-example".to_owned() };
+        assert!(super::is_mimo_session(&session));
+        assert!(super::headers_for(&session).expect("headers").get("api-key").is_some());
+        let messages = vec![super::DirectProviderMessage { role: "user".to_owned(), content: "看图".to_owned(), images: vec![DirectProviderImage { media_type: "image/bmp".to_owned(), base64_data: "aGVsbG8=".to_owned() }] }];
+        assert!(super::validate_messages(&messages).is_ok());
     }
 }

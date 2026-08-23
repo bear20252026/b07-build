@@ -1,6 +1,6 @@
 {
   "name": "@awo/desktop-shell",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "AI Work OS Windows desktop shell — local static Workbench host with no privileged frontend bridge",
   "private": true,
   "type": "module",

@@ -85,10 +85,14 @@ fn loopback_headers() -> reqwest::header::HeaderMap {
     headers
 }
 
-async fn wait_until_ready(port: u16) -> Result<(), &'static str> {
+async fn wait_until_ready(port: u16, state: &SearxngState) -> Result<(), &'static str> {
     let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build().map_err(|_| "searxng-unavailable")?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(STARTUP_TIMEOUT_SECONDS);
     while tokio::time::Instant::now() < deadline {
+        match running_port(state)? {
+            Some(runtime_port) if runtime_port == port => {}
+            _ => return Err("searxng-python-exited"),
+        }
         if let Ok(response) = client.get(local_url(port, "/")).headers(loopback_headers()).send().await {
             if response.status().is_success() { return Ok(()); }
         }
@@ -145,7 +149,7 @@ async fn ensure_running(app: &AppHandle, state: &SearxngState) -> Result<u16, &'
         let child = command.spawn().map_err(|_| "searxng-python-unavailable")?;
         *current = Some(SearxngRuntime { port, child });
     }
-    if let Err(error) = wait_until_ready(port).await {
+    if let Err(error) = wait_until_ready(port, state).await {
         let _ = stop_runtime(state).await;
         return Err(error);
     }

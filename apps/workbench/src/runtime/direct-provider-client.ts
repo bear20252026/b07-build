@@ -91,7 +91,7 @@ export class DirectProviderClient {
       const content = message.content.trim();
       if (!['user', 'assistant'].includes(message.role) || !content || content.length > DIRECT_PROVIDER_MAX_CONTEXT_CHARS) throw new Error('会话消息无效');
       const images = (message.images ?? []).map((image) => {
-        if (!/^image\/(png|jpeg|webp|gif)$/i.test(image.mediaType) || !/^[A-Za-z0-9+/=]+$/.test(image.base64Data) || image.base64Data.length > 7_000_000) throw new Error('图片附件无效或过大');
+        if (!/^image\/(png|jpeg|webp|gif|bmp)$/i.test(image.mediaType) || !/^[A-Za-z0-9+/=]+$/.test(image.base64Data) || image.base64Data.length > 50 * 1024 * 1024) throw new Error('图片附件无效或超过供应商 Base64 上限');
         return { mediaType: image.mediaType, base64Data: image.base64Data };
       });
       return { role: message.role, content, ...(images.length ? { images } : {}) };

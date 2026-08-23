@@ -7,7 +7,11 @@ export interface DirectChatAttachmentInput { readonly descriptor: WorkspaceFileD
 export interface DirectChatImage { readonly mediaType: string; readonly base64Data: string; }
 export interface DirectChatAttachmentContext { readonly name: string; readonly mimeType: string; readonly byteSize: number; readonly included: boolean; readonly content?: string; readonly image?: DirectChatImage; readonly reason?: string; }
 
-const SUPPORTED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const SUPPORTED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp']);
+const IMAGE_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp' };
+// MiMo documents a 50 MB limit for the Base64 string. Base64 expands raw bytes by about 4/3,
+// so retaining at most 37.5 MB of local binary keeps the outgoing value within that contract.
+const MAX_IMAGE_BYTES_FOR_BASE64 = 37_500_000;
 
 async function base64(file: File): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -22,10 +26,11 @@ async function extractWithNativeReader(file: File): Promise<{ content: string; f
 
 export async function readDirectChatAttachments(inputs: readonly DirectChatAttachmentInput[]): Promise<readonly DirectChatAttachmentContext[]> {
   return Promise.all(inputs.map(async ({ descriptor, file }) => {
-    const mimeType = file.type || `text/x-${descriptor.extension || 'plain'}`;
+    const extension = descriptor.extension.toLowerCase();
+    const mimeType = file.type.toLowerCase() || IMAGE_TYPE_BY_EXTENSION[extension] || `text/x-${descriptor.extension || 'plain'}`;
     if (descriptor.kind === 'media') {
-      if (!SUPPORTED_IMAGE_TYPES.has(mimeType)) return { name: descriptor.name, mimeType, byteSize: descriptor.byteSize, included: false, reason: '当前模型请求仅支持 PNG、JPEG、WebP 或 GIF 图片；该媒体文件没有被伪装为已传递。' };
-      if (file.size > 5 * 1024 * 1024) return { name: descriptor.name, mimeType, byteSize: descriptor.byteSize, included: false, reason: '图片超过当前轮 5 MB 多模态传递上限；未静默压缩或丢弃。' };
+      if (!SUPPORTED_IMAGE_TYPES.has(mimeType)) return { name: descriptor.name, mimeType, byteSize: descriptor.byteSize, included: false, reason: '当前模型请求支持 PNG、JPEG、WebP、GIF 或 BMP 图片；该媒体文件没有被伪装为已传递。' };
+      if (file.size > MAX_IMAGE_BYTES_FOR_BASE64) return { name: descriptor.name, mimeType, byteSize: descriptor.byteSize, included: false, reason: '图片转为 Base64 后会超过供应商 50 MB 上限；未静默压缩或丢弃。' };
       try { return { name: descriptor.name, mimeType, byteSize: descriptor.byteSize, included: true, image: { mediaType: mimeType, base64Data: await base64(file) } }; } catch { return { name: descriptor.name, mimeType, byteSize: descriptor.byteSize, included: false, reason: '无法读取图片的本地二进制内容。' }; }
     }
     if (descriptor.kind !== 'text') {
