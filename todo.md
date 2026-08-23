@@ -98,3 +98,4 @@
 - [x] 通过云端 GitHub Actions Windows runner 构建、来源证明核验并交付新的 0.1.3 安装器；不得使用用户 Windows 本机构建工具链。运行 #32650679277 已成功，来源提交为 8c251051910687441fe4942f7d8d7a09b678167f。
 - [x] 阻断性修复：排查 0.1.3 第三方 Provider 再次显示“无法连接”的恢复、配置、连接测试和首页真实聊天链路；普通聊天必须继续原生直连，禁止通过重新引入 Gateway 规避故障。0.1.4 使预设或自定义 MiMo Token Plan 的 `tp-` 密钥均使用官方 `api-key` 认证头。
 - [x] 将 `provider-request-failed` 从笼统“第三方服务未响应”拆分为 DNS、TLS/证书、连接超时、请求超时和无法建立连接等不含密钥的可操作错误分类，并核验 MiMo Token Plan 中国区直连请求构造。
+- [x] 通过 GitHub Windows runner 构建并核验 0.1.4 直连修复安装器：工作流 #32652865337 成功，来源提交 9e2eba7f52a341ca80c4969f2039f9bdaaf03758，`bundlesExplicitGatewaySidecar=false`。
