@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "typecheck": "tsc -b tsconfig.base.json",
-    "architecture:dependencies": "depcruise apps packages --exclude target --config .dependency-cruiser.cjs --output-type err",
+    "architecture:dependencies": "depcruise apps packages --exclude target --exclude apps/desktop-shell/src-tauri/resources --exclude apps/desktop-shell/src-tauri/target --config .dependency-cruiser.cjs --output-type err",
     "architecture:check": "npm run architecture:dependencies && node tools/architecture-check.mjs",
     "test": "npm run architecture:check && node --experimental-sqlite --import tsx --test $(find packages apps -path '*test/*.test.ts' -print)",
     "benchmark:dag": "node --import tsx packages/agent-runtime/benchmark/dag-scheduler.bench.ts",
