@@ -32,7 +32,7 @@ function safeActivity(value: unknown): DirectConversationActivity | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const input = value as Partial<DirectConversationActivity>;
   if ((input.kind !== 'reasoning' && input.kind !== 'web-search' && input.kind !== 'research' && input.kind !== 'hybrid-search' && input.kind !== 'searxng' && input.kind !== 'attachment') || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 1_000_000 || typeof input.createdAt !== 'number' || !Number.isSafeInteger(input.createdAt)) return undefined;
-  const sources = Array.isArray(input.sources) ? input.sources.filter((source): source is WebSearchSource => Boolean(source && typeof source === 'object' && typeof (source as Partial<WebSearchSource>).title === 'string' && typeof (source as Partial<WebSearchSource>).url === 'string' && /^https?:\/\//.test((source as Partial<WebSearchSource>).url ?? ''))).slice(0, 8) : [];
+  const sources = Array.isArray(input.sources) ? input.sources.filter((source): source is WebSearchSource => Boolean(source && typeof source === 'object' && typeof (source as Partial<WebSearchSource>).title === 'string' && typeof (source as Partial<WebSearchSource>).url === 'string' && /^https?:\/\//.test((source as Partial<WebSearchSource>).url ?? ''))).slice(0, 100) : [];
   return { kind: input.kind, text: input.text, createdAt: input.createdAt, ...(sources.length ? { sources } : {}) };
 }
 
@@ -85,12 +85,15 @@ export function providerHistory(messages: readonly DirectConversationMessage[]):
 
 function streamErrorText(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? '');
+  if (message.startsWith('provider-sse-error: ')) return `第三方模型在流式请求中返回错误：${message.slice('provider-sse-error: '.length)}`;
   const messages: Record<string, string> = {
     'provider-not-connected': '当前模型尚未在本次桌面会话中连接。请在“管理 API 连接”中点击“连接并测试”后重试。',
     'provider-http-401': '第三方服务拒绝了 API key；请检查密钥、账号或套餐。',
     'provider-http-403': '第三方服务拒绝访问；请检查账号权限、套餐与模型可用性。',
     'provider-http-429': '第三方服务正在限流，请稍后重试。',
     'provider-request-failed': '第三方服务未响应；请检查网络、Base URL 与供应商服务状态。',
+    'provider-stream-failed': '第三方服务已建立响应但流式传输中断；请检查模型、上下文长度、网络或供应商状态。',
+    'provider-client-unavailable': '桌面端无法创建第三方模型 HTTP 客户端；请重启应用后重试。',
     'provider-request-rejected': '第三方服务拒绝了当前协议、地址、模型或请求参数；请按供应商文档核对后重试。',
   };
   return messages[message] ?? (message && !/[<{]/.test(message) ? message : '第三方模型请求未完成。');
@@ -257,12 +260,19 @@ export function useDirectConversations(): DirectConversations {
     setActiveId(conversationId); setStreaming(true); setError(undefined);
     let output = '';
     let reasoning = '';
+    let streamRefreshTimer: number | undefined;
     try {
       const refreshStream = () => update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: [...conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), streamingAssistantMessage(conversationId, output, now, selection.model, reasoning)].slice(-MAX_MESSAGES), updatedAt: Date.now() })));
-      const completion = await directProviderClient.stream({ providerId: selection.providerId, model: selection.model, messages: messagesForProvider, onText: (chunk) => { output += chunk; refreshStream(); }, onReasoning: (chunk) => { reasoning += chunk; refreshStream(); } });
+      const scheduleStreamRefresh = (): void => {
+        if (streamRefreshTimer !== undefined) return;
+        streamRefreshTimer = window.setTimeout(() => { streamRefreshTimer = undefined; refreshStream(); }, 50);
+      };
+      const completion = await directProviderClient.stream({ providerId: selection.providerId, model: selection.model, messages: messagesForProvider, onText: (chunk) => { output += chunk; scheduleStreamRefresh(); }, onReasoning: (chunk) => { reasoning += chunk; scheduleStreamRefresh(); } });
+      if (streamRefreshTimer !== undefined) { window.clearTimeout(streamRefreshTimer); streamRefreshTimer = undefined; refreshStream(); }
       update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== `${conversationId}-stream` ? message : { ...message, ...(completion.model ? { model: completion.model } : {}) }), updatedAt: Date.now() })));
       return true;
     } catch (nextError: unknown) {
+      if (streamRefreshTimer !== undefined) window.clearTimeout(streamRefreshTimer);
       setError(streamErrorText(nextError));
       update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), updatedAt: Date.now() })));
       return false;

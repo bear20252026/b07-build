@@ -8,6 +8,7 @@
     "@awo/protocol": "^0.6.0",
     "@lobehub/icons": "^5.16.0",
     "@tauri-apps/api": "2.11.0",
+    "katex": "^0.18.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

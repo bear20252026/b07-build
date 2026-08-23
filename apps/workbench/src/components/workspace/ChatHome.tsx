@@ -1,8 +1,21 @@
 import type { AgentProfileId } from '@awo/protocol';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { Translation } from '../../i18n/catalog';
 import { WORKBENCH_PROFILE_IDS } from './agent-profiles';
 import { createWorkModeAuditProjection } from './work-mode-projection';
+import { messageWindowStart, MESSAGE_RENDER_WINDOW } from './chat-timeline-window';
+import { parseMathSegments } from './math-text';
 import type { DirectConversation } from '../../runtime/use-direct-conversations';
+
+export { messageWindowStart } from './chat-timeline-window';
+
+const LazyMathText = lazy(() => import('./MathText'));
+
+function MessageText({ value }: Readonly<{ value: string }>) {
+  const hasFormula = parseMathSegments(value).some((segment) => segment.kind !== 'text');
+  if (!hasFormula) return <>{value}</>;
+  return <Suspense fallback={<span className="math-text-plain">{value}</span>}><LazyMathText value={value} /></Suspense>;
+}
 
 export interface ChatHomeProps {
   activeProfile: AgentProfileId;
@@ -45,11 +58,29 @@ export function ChatHome({
   onProfileChange,
   onSuggestion,
 }: ChatHomeProps) {
+  const timelineRef = useRef<HTMLElement>();
+  const previousMessageCount = useRef(activeConversation?.messages.length ?? 0);
+  const stickToBottom = useRef(true);
+  const [windowStart, setWindowStart] = useState(() => messageWindowStart(activeConversation?.messages.length ?? 0));
   const home = messages.home;
   const hasTaskModel = Boolean(taskModelLabel);
   const modelTitle = restoringProviderSession ? '正在恢复本地模型会话…' : (hasTaskModel ? taskModelLabel! : (gatewayAttached && connectedProviderCount > 0 ? home.providerReady(connectedProviderCount) : home.providerWaiting));
   const workMode = createWorkModeAuditProjection({ profileId: activeProfile, authorityMode, connectedProviderCount });
   const hasConversationContent = Boolean(directResponse?.output) || Boolean(activeConversation && activeConversation.messages.length > 0);
+  const messageCount = activeConversation?.messages.length ?? 0;
+  const visibleStart = messageWindowStart(messageCount, windowStart);
+  const visibleMessages = activeConversation?.messages.slice(visibleStart) ?? [];
+
+  useEffect(() => {
+    const previous = previousMessageCount.current;
+    if (messageCount > previous) {
+      setWindowStart(Math.max(0, messageCount - MESSAGE_RENDER_WINDOW));
+      if (stickToBottom.current) requestAnimationFrame(() => { const timeline = timelineRef.current; if (timeline) timeline.scrollTop = timeline.scrollHeight; });
+    } else if (messageCount < previous) {
+      setWindowStart(messageWindowStart(messageCount));
+    }
+    previousMessageCount.current = messageCount;
+  }, [messageCount]);
 
   return (
     <section className={`chat-home chat-home--studio${hasConversationContent ? ' chat-home--conversation-active' : ' chat-home--conversation-idle'}${draftActive && !hasConversationContent ? ' chat-home--drafting' : ''}`} aria-label={messages.task.title}>
@@ -63,11 +94,12 @@ export function ChatHome({
             <h1>{hasTaskModel ? 'What’s on your mind today?' : home.title}</h1>
             <p>{hasTaskModel ? taskModelLabel : home.description}</p>
           </div>}
-          {hasConversationContent && activeConversation && <section className="chat-home-message-timeline" aria-live="polite" aria-label="当前对话消息">
-            {activeConversation.messages.map((message) => <article className={`chat-home-message chat-home-message--${message.role}`} key={message.id}>
+          {hasConversationContent && activeConversation && <section className="chat-home-message-timeline" aria-live="polite" aria-label="当前对话消息" onScroll={(event) => { const target = event.currentTarget; stickToBottom.current = target.scrollHeight - target.scrollTop - target.clientHeight < 48; }} ref={timelineRef}>
+            {visibleStart > 0 && <button className="chat-home-load-history" onClick={() => setWindowStart((current) => Math.max(0, current - MESSAGE_RENDER_WINDOW))} type="button">加载更早的 {Math.min(MESSAGE_RENDER_WINDOW, visibleStart)} 条消息</button>}
+            {visibleMessages.map((message) => <article className={`chat-home-message chat-home-message--${message.role}`} key={message.id}>
               <span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span>
               {message.activities?.map((activity) => <details className="chat-home-message-process" key={`${message.id}-${activity.kind}`}><summary>{activity.kind === 'reasoning' ? '模型过程（供应商实际返回）' : activity.kind === 'web-search' ? '联网检索（本轮明确启用）' : activity.kind === 'research' ? '近 30 天研究（本轮明确启用）' : activity.kind === 'hybrid-search' ? '混合检索（并行后端）' : activity.kind === 'searxng' ? '本地 SearXNG（本轮明确启用）' : '附件上下文与图片（本轮传递状态）'}</summary><pre>{activity.text}</pre>{activity.sources && activity.sources.length > 0 && <ol className="chat-home-search-sources">{activity.sources.map((source) => <li key={source.url}><a href={source.url} rel="noreferrer" target="_blank">{source.title}</a></li>)}</ol>}</details>)}
-              <p>{message.text}</p>
+              <div className="chat-home-message-content"><MessageText value={message.text} /></div>
             </article>)}
           </section>}
           {directResponse && !activeConversation?.messages.length && <section className="chat-home-direct-response" aria-live="polite"><div><span>DIRECT MODEL RESPONSE</span><strong>{directResponse.model ?? taskModelLabel ?? '已选模型'}</strong><small>{directResponse.complete ? '流式回答完成' : '正在接收第三方文本分块…'}</small></div><pre>{directResponse.output || '正在等待模型返回首个文本分块…'}</pre></section>}

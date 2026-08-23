@@ -6,7 +6,7 @@ use tokio::process::Command;
 
 const MAX_QUERY_CHARS: usize = 2_000;
 const MAX_RAW_CONTENT_CHARS: usize = 1_000_000;
-const MAX_SOURCES: usize = 24;
+const MAX_SOURCES: usize = 100;
 const RESEARCH_TIMEOUT_SECONDS: u64 = 180;
 
 #[derive(Deserialize)]
@@ -82,13 +82,17 @@ pub async fn run_last30days_research(app: AppHandle, request: Last30DaysRequest)
     let query = validated_query(&request.query)?.to_owned();
     let script = source_script(&app, &request.mode)?;
     let executable = python_executable(&app);
+    let mut command = Command::new(executable);
+    command
+        .arg(script)
+        .arg(&query)
+        .args(["--emit", "json"]);
+    // CREATE_NO_WINDOW：Windows 中运行内嵌研究器不得显示独立 cmd/终端窗口。
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x08000000);
     let output = tokio::time::timeout(
         Duration::from_secs(RESEARCH_TIMEOUT_SECONDS),
-        Command::new(executable)
-            .arg(script)
-            .arg(&query)
-            .args(["--emit", "json"])
-            .output(),
+        command.output(),
     )
     .await
     .map_err(|_| "last30days-timeout")?

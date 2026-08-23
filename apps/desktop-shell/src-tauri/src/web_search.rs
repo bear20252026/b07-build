@@ -3,9 +3,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::time::Duration;
+use tokio::task::JoinSet;
 
 const EXA_MCP_URL: &str = "https://mcp.exa.ai/mcp?tools=web_search_exa";
-const MAX_RESULTS: usize = 8;
+const MAX_RESULTS: usize = 100;
+const MAX_PARALLEL_PAGE_FETCHES: usize = 8;
 const MAX_RAW_CONTENT_BYTES: usize = 1_000_000;
 
 #[derive(Deserialize)]
@@ -102,7 +104,7 @@ fn mcp_initialize_payload() -> Value {
 #[tauri::command]
 pub async fn search_web(request: WebSearchRequest) -> Result<WebSearchResponse, &'static str> {
     let query = validate_query(&request.query)?;
-    let max_results = request.max_results.unwrap_or(5).clamp(1, MAX_RESULTS);
+    let max_results = request.max_results.unwrap_or(MAX_RESULTS).clamp(1, MAX_RESULTS);
     let client = Client::builder().timeout(Duration::from_secs(20)).user_agent("AI-Work-OS/0.1 WebSearch").build().map_err(|_| "web-search-unavailable")?;
     let initialized = client.post(EXA_MCP_URL).header(ACCEPT, "application/json, text/event-stream").header(CONTENT_TYPE, "application/json").header("mcp-protocol-version", "2025-03-26").json(&mcp_initialize_payload()).send().await.map_err(|_| "web-search-network-failed")?;
     if !initialized.status().is_success() { return Err("web-search-request-rejected"); }
@@ -121,11 +123,29 @@ pub async fn search_web(request: WebSearchRequest) -> Result<WebSearchResponse, 
     let tool_text = result_text(&body).ok_or("web-search-no-results")?;
     let sources = sources_from_text(&tool_text);
     let mut raw_content = String::new();
-    for source in &sources {
-        if raw_content.len() >= MAX_RAW_CONTENT_BYTES { break; }
-        if let Some(page_text) = fetch_source_text(&client, source).await {
-            let remaining = MAX_RAW_CONTENT_BYTES.saturating_sub(raw_content.len());
-            raw_content.push_str(&format!("\n\n===== 原始网页：{}\nURL: {}\n=====\n{}", source.title, source.url, truncate_utf8(&page_text, remaining)));
+    let mut pending_sources = sources.iter().cloned();
+    let mut page_fetches = JoinSet::new();
+    for source in pending_sources.by_ref().take(MAX_PARALLEL_PAGE_FETCHES) {
+        let page_client = client.clone();
+        page_fetches.spawn(async move {
+            let page_text = fetch_source_text(&page_client, &source).await;
+            (source, page_text)
+        });
+    }
+    while let Some(result) = page_fetches.join_next().await {
+        if let Ok((source, Some(page_text))) = result {
+            if raw_content.len() < MAX_RAW_CONTENT_BYTES {
+                let remaining = MAX_RAW_CONTENT_BYTES.saturating_sub(raw_content.len());
+                raw_content.push_str(&format!("\n\n===== 原始网页：{}\nURL: {}\n=====\n{}", source.title, source.url, truncate_utf8(&page_text, remaining)));
+            }
+        }
+        if raw_content.len() >= MAX_RAW_CONTENT_BYTES { page_fetches.abort_all(); break; }
+        if let Some(source) = pending_sources.next() {
+            let page_client = client.clone();
+            page_fetches.spawn(async move {
+                let page_text = fetch_source_text(&page_client, &source).await;
+                (source, page_text)
+            });
         }
     }
     if raw_content.trim().is_empty() { raw_content = tool_text.clone(); }
@@ -135,12 +155,17 @@ pub async fn search_web(request: WebSearchRequest) -> Result<WebSearchResponse, 
 
 #[cfg(test)]
 mod tests {
-    use super::{readable_page_text, result_text, sources_from_text, truncate_utf8, validate_query};
+    use super::{readable_page_text, result_text, sources_from_text, truncate_utf8, validate_query, MAX_RESULTS};
     #[test]
     fn parses_mcp_sse_content_without_inventing_sources() {
         let sse = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"A https://example.com/doc\"},{\"type\":\"text\",\"text\":\"B https://example.org\"}]}}\n";
         let text = result_text(sse).expect("MCP content"); let sources = sources_from_text(&text);
         assert_eq!(sources.len(), 2); assert_eq!(sources[0].url, "https://example.com/doc");
+    }
+    #[test]
+    fn keeps_up_to_one_hundred_distinct_sources() {
+        let text = (0..120).map(|index| format!("https://example.com/{index}")).collect::<Vec<_>>().join(" ");
+        assert_eq!(sources_from_text(&text).len(), MAX_RESULTS);
     }
     #[test]
     fn parses_json_rpc_content_when_remote_server_does_not_stream() { assert_eq!(result_text(r#"{"jsonrpc":"2.0","result":{"content":[{"type":"text","text":"内容"}]}}"#), Some("内容".to_owned())); }

@@ -1,13 +1,13 @@
 use crate::web_search::{WebSearchResponse, WebSearchSource};
 use serde::Deserialize;
 use serde_json::Value;
-use std::{fs, net::TcpListener, path::PathBuf, sync::Mutex, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{fs, net::TcpListener, path::PathBuf, process::Stdio, sync::Mutex, time::{Duration, SystemTime, UNIX_EPOCH}};
 use tauri::{path::BaseDirectory, AppHandle, Manager, State};
 use tokio::process::{Child, Command};
 
 const STARTUP_TIMEOUT_SECONDS: u64 = 20;
 const REQUEST_TIMEOUT_SECONDS: u64 = 30;
-const MAX_RESULTS: usize = 16;
+const MAX_RESULTS: usize = 100;
 const MAX_RAW_CONTENT_CHARS: usize = 1_000_000;
 
 pub struct SearxngState(Mutex<Option<SearxngRuntime>>);
@@ -99,15 +99,21 @@ async fn ensure_running(app: &AppHandle, state: &SearxngState) -> Result<u16, &'
         if let Some(runtime_port) = current.as_mut().and_then(|runtime| runtime.child.try_wait().ok().and_then(|status| status.is_none().then_some(runtime.port))) {
             return Ok(runtime_port);
         }
-        let child = Command::new(python)
+        let mut command = Command::new(python);
+        command
             .arg("-m")
             .arg("searx.webapp")
             .current_dir(&source)
             .env("SEARXNG_SETTINGS_PATH", settings)
             .env("PYTHONPATH", &source)
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|_| "searxng-python-unavailable")?;
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        // CREATE_NO_WINDOW：Windows 上运行内嵌 Python 服务不应弹出外部 cmd/终端窗口。
+        #[cfg(target_os = "windows")]
+        command.creation_flags(0x08000000);
+        let child = command.spawn().map_err(|_| "searxng-python-unavailable")?;
         *current = Some(SearxngRuntime { port, child });
     }
     if let Err(error) = wait_until_ready(port).await {
@@ -145,7 +151,7 @@ fn response_from_json(query: String, value: Value, max_results: usize) -> Result
 
 pub async fn search_searxng_local_impl(app: &AppHandle, state: &SearxngState, request: SearxngSearchRequest) -> Result<WebSearchResponse, &'static str> {
     let normalized_query = query(&request)?.to_owned();
-    let max_results = request.max_results.unwrap_or(8).clamp(1, MAX_RESULTS);
+    let max_results = request.max_results.unwrap_or(MAX_RESULTS).clamp(1, MAX_RESULTS);
     let port = ensure_running(app, state).await?;
     let client = reqwest::Client::builder().timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS)).build().map_err(|_| "searxng-unavailable")?;
     let response = client.get(local_url(port, "/search")).query(&[("q", normalized_query.as_str()), ("format", "json")]).send().await.map_err(|_| "searxng-request-failed")?;

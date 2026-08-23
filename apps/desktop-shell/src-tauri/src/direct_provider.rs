@@ -1,5 +1,7 @@
 use std::{collections::HashMap, sync::Mutex};
 
+use std::time::Duration;
+
 use reqwest::{header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE}, Client};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -157,6 +159,16 @@ fn headers_for(session: &DirectProviderSession) -> Result<HeaderMap, &'static st
     Ok(headers)
 }
 
+/// 探测与真实聊天共享同一网络策略。默认 reqwest 总超时会把慢首 token 的
+/// 长上下文流误判为“服务未响应”；使用明确的长请求期限并限制建立连接时间。
+fn provider_http_client() -> Result<Client, &'static str> {
+    Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(20 * 60))
+        .build()
+        .map_err(|_| "provider-client-unavailable")
+}
+
 fn validate_messages(messages: &[DirectProviderMessage]) -> Result<(), &'static str> {
     if messages.is_empty() || messages.len() > 200 { return Err("messages-invalid"); }
     let mut length = 0usize;
@@ -229,6 +241,18 @@ fn deltas_from_sse(protocol: DirectProviderProtocol, data: &str) -> Vec<(&'stati
     deltas
 }
 
+fn error_from_sse(data: &str) -> Option<String> {
+    let value = serde_json::from_str::<serde_json::Value>(data).ok()?;
+    let message = value.pointer("/error/message")
+        .or_else(|| value.pointer("/message"))
+        .and_then(|item| item.as_str())?
+        .trim();
+    if message.is_empty() { return None; }
+    // 不将可能包含 HTML、密钥或超长调试信息的上游负载直接放入聊天时间线。
+    let compact = message.chars().filter(|character| !character.is_control()).take(360).collect::<String>();
+    (!compact.is_empty()).then_some(compact)
+}
+
 fn emit(app: &AppHandle, event: DirectProviderStreamEvent) {
     let _ = app.emit("direct-provider-stream", event);
 }
@@ -263,7 +287,7 @@ pub async fn discover_direct_provider(
     let session = state.0.lock().map_err(|_| "provider-state-unavailable")?.get(&request.provider_id).cloned().ok_or("provider-not-connected")?;
     let mut headers = headers_for(&session)?;
     headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-    let response = Client::new().get(model_list_url_for(&session)).headers(headers).send().await.map_err(|_| "provider-request-failed")?;
+    let response = provider_http_client()?.get(model_list_url_for(&session)).headers(headers).send().await.map_err(|_| "provider-request-failed")?;
     // `/models` is optional in OpenAI-compatible services. A subscription gateway may return an
     // HTML page, a vendor-specific payload, or 404 while normal chat inference remains available.
     // Return an empty catalog so the UI preserves the user's manually supplied model identifier.
@@ -287,7 +311,7 @@ pub async fn probe_direct_provider(
     require_identifier(&request.provider_id, "provider-id-invalid")?;
     let session = state.0.lock().map_err(|_| "provider-state-unavailable")?.get(&request.provider_id).cloned().ok_or("provider-not-connected")?;
     let probe_messages = vec![DirectProviderMessage { role: "user".to_owned(), content: "Reply with OK.".to_owned(), images: Vec::new() }];
-    let response = Client::new().post(url_for(&session)).headers(headers_for(&session)?).json(&payload_for(&session, &session.model, &probe_messages)).send().await.map_err(|_| "provider-request-failed")?;
+    let response = provider_http_client()?.post(url_for(&session)).headers(headers_for(&session)?).json(&payload_for(&session, &session.model, &probe_messages)).send().await.map_err(|_| "provider-request-failed")?;
     if response.status().is_success() { return Ok(()); }
     match response.status().as_u16() {
         401 => Err("provider-http-401"),
@@ -310,7 +334,13 @@ pub fn start_direct_provider_stream(
     let model = request.model.unwrap_or(session.model.clone());
     require_nonempty(&model, "model-invalid", 128)?;
     tauri::async_runtime::spawn(async move {
-        let client = Client::new();
+        let client = match provider_http_client() {
+            Ok(client) => client,
+            Err(message) => {
+                emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some(message.to_owned()) });
+                return;
+            }
+        };
         let response = client.post(url_for(&session)).headers(match headers_for(&session) { Ok(headers) => headers, Err(message) => { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some(message.to_owned()) }); return; } }).json(&payload_for(&session, &model, &request.messages)).send().await;
         let Ok(mut response) = response else { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some("provider-request-failed".to_owned()) }); return; };
         if !response.status().is_success() { emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: None, message: Some(format!("provider-http-{}", response.status().as_u16())) }); return; }
@@ -323,7 +353,12 @@ pub fn start_direct_provider_stream(
                         let line = buffer[..end].trim_end_matches('\r').to_owned();
                         buffer.drain(..=end);
                         if let Some(data) = line.strip_prefix("data:") {
-                            for (kind, text) in deltas_from_sse(session.protocol, data.trim()) {
+                            let data = data.trim();
+                            if let Some(message) = error_from_sse(data) {
+                                emit(&app, DirectProviderStreamEvent { request_id: request.request_id, kind: "error", text: None, model: Some(model.clone()), message: Some(format!("provider-sse-error: {message}")) });
+                                return;
+                            }
+                            for (kind, text) in deltas_from_sse(session.protocol, data) {
                                 emit(&app, DirectProviderStreamEvent { request_id: request.request_id.clone(), kind, text: Some(text), model: Some(model.clone()), message: None });
                             }
                         }
@@ -357,6 +392,13 @@ mod tests {
         let reasoning = deltas_from_sse(DirectProviderProtocol::AnthropicCompatible, r#"{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"先分析"}}"#);
         assert_eq!(text, vec![("text", "答案".to_owned())]);
         assert_eq!(reasoning, vec![("reasoning", "先分析".to_owned())]);
+    }
+
+    #[test]
+    fn exposes_compact_provider_error_events_instead_of_silently_completing() {
+        let error = super::error_from_sse(r#"{"error":{"message":"model is unavailable"}}"#);
+        assert_eq!(error.as_deref(), Some("model is unavailable"));
+        assert_eq!(super::error_from_sse(r#"{"choices":[{"delta":{"content":"ok"}}]}"#), None);
     }
 
     #[test]

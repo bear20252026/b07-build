@@ -185,6 +185,7 @@ export function App() {
   const directConversations = useDirectConversations();
   const profiles = profileUi(messages);
   const profile = profiles[activeProfile];
+  const observedProviderDefaults = useRef<Readonly<Record<string, string>>>({});
   const selectTaskModel = (selection: Readonly<{ providerId: string; model?: string }>): void => {
     setTaskModelSelection(selection);
     window.localStorage.setItem('awo.direct-provider.selection.v1', JSON.stringify(selection));
@@ -194,6 +195,18 @@ export function App() {
     const connection = providerControl.connections[0];
     selectTaskModel({ providerId: connection.providerId, ...(connection.defaultModel ? { model: connection.defaultModel } : {}) });
   }, [providerControl.connections, taskModelSelection]);
+  useEffect(() => {
+    const previous = observedProviderDefaults.current;
+    const next = Object.fromEntries(providerControl.connections.map((connection) => [connection.providerId, connection.defaultModel]));
+    const selectedProvider = taskModelSelection?.providerId;
+    const previousDefault = selectedProvider ? previous[selectedProvider] : undefined;
+    const currentConnection = selectedProvider ? providerControl.connections.find((connection) => connection.providerId === selectedProvider) : undefined;
+    // 仅替换“跟随旧默认值”的选择；用户在模型目录手动挑选的模型不会被覆盖。
+    if (currentConnection && previousDefault && taskModelSelection?.model === previousDefault && currentConnection.defaultModel !== previousDefault) {
+      selectTaskModel({ providerId: currentConnection.providerId, model: currentConnection.defaultModel });
+    }
+    observedProviderDefaults.current = next;
+  }, [providerControl.connections, taskModelSelection?.model, taskModelSelection?.providerId]);
   const selectedTaskConnection = providerControl.connections?.find((connection) => connection.providerId === taskModelSelection?.providerId);
   const taskModelLabel = selectedTaskConnection ? `${selectedTaskConnection.displayName} · ${taskModelSelection?.model ?? selectedTaskConnection.defaultModel}` : undefined;
   const updateCompanion = (change: Parameters<typeof updateCompanionPreferences>[1]): void => setCompanionPreferences((current) => {
