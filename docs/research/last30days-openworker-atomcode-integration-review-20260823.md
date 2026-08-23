@@ -19,6 +19,24 @@
 
 终端能力将由用户在独立的终端工作面显式提交命令，Tauri 在当前 Windows 用户权限下启动子进程并返回 stdout、stderr、退出码及运行状态。普通命令不会被伪造为“待计划”；长运行命令需要能够取消。系统管理员提权、删除/覆盖大量文件、远程副作用和凭据目录触达仍保留一次明确确认，不以普通聊天静默获取系统管理员权限。
 
+## 2026-08-23：用户提供的多后端搜索与工具调用建议核验
+
+用户提供的“模型提出工具调用 → 桌面应用执行 → 将原始结果回传 → 模型完成回答”是可实施的标准代理职责分层。当前版本已实现用户显式点亮后的本地搜索与结果回传；后续工具调度将统一记录为会话活动，而不是要求每个第三方模型都原生具备联网能力。
+
+公开资料确认，`mvanhorn/last30days-skill` 采用 MIT 许可，面向多来源的近期研究，支持零配置的部分来源与按需配置的平台连接；`Jesseovo/last30days-skill-cn` 同样采用 MIT 许可，并公开描述 API、浏览器自动化、公开接口和搜索兜底的分级运行方式。[1] [2] 这些项目适合参考的内容是**诊断、来源状态、分级降级、结构化引用和工具调度职责**。本项目不会直接导入其运行时、浏览器 Cookie、平台爬虫或依赖树；若未来逐文件复用 MIT 许可代码，必须保留对应文件的版权和许可文本。
+
+用户附件中关于 Searchpin、国内多引擎 MCP 和 SearXNG 的具体“零配置/稳定性/覆盖率”描述尚未获得各项目官方仓库与实际 Windows 环境的逐项复核，因此不会作为已实现承诺。SearXNG 官方文档确认其可使用容器、安装脚本或逐步方式部署；MCP 官方规范确认远程工具在 `initialize` 成功后需发送 `notifications/initialized`，这一步已补入当前独立搜索适配器。[3] [4]
+
+## 参考资料
+
+[1] <https://github.com/mvanhorn/last30days-skill>
+
+[2] <https://github.com/Jesseovo/last30days-skill-cn>
+
+[3] <https://docs.searxng.org/admin/installation.html>
+
+[4] <https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle>
+
 ## 来源
 
 1. <https://github.com/mvanhorn/last30days-skill>

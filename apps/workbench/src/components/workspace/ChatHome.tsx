@@ -66,7 +66,7 @@ export function ChatHome({
           {hasConversationContent && activeConversation && <section className="chat-home-message-timeline" aria-live="polite" aria-label="当前对话消息">
             {activeConversation.messages.map((message) => <article className={`chat-home-message chat-home-message--${message.role}`} key={message.id}>
               <span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span>
-              {message.activities?.map((activity) => <details className="chat-home-message-process" key={`${message.id}-${activity.kind}`}><summary>{activity.kind === 'reasoning' ? '模型过程（供应商实际返回）' : activity.kind === 'web-search' ? '联网检索（本轮明确启用）' : '附件上下文（本轮传递状态）'}</summary><pre>{activity.text}</pre>{activity.sources && activity.sources.length > 0 && <ol className="chat-home-search-sources">{activity.sources.map((source) => <li key={source.url}><a href={source.url} rel="noreferrer" target="_blank">{source.title}</a></li>)}</ol>}</details>)}
+              {message.activities?.map((activity) => <details className="chat-home-message-process" key={`${message.id}-${activity.kind}`}><summary>{activity.kind === 'reasoning' ? '模型过程（供应商实际返回）' : activity.kind === 'web-search' ? '联网检索（本轮明确启用）' : '附件上下文与图片（本轮传递状态）'}</summary><pre>{activity.text}</pre>{activity.sources && activity.sources.length > 0 && <ol className="chat-home-search-sources">{activity.sources.map((source) => <li key={source.url}><a href={source.url} rel="noreferrer" target="_blank">{source.title}</a></li>)}</ol>}</details>)}
               <p>{message.text}</p>
             </article>)}
           </section>}

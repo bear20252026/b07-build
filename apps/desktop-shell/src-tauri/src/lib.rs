@@ -10,6 +10,8 @@ mod direct_provider;
 mod web_search;
 #[cfg(not(mobile))]
 mod terminal;
+#[cfg(not(mobile))]
+mod file_extract;
 
 #[cfg(not(mobile))]
 use std::{
@@ -174,6 +176,7 @@ pub fn run() {
             web_search::search_web,
             terminal::start_terminal_command,
             terminal::cancel_terminal_command,
+            file_extract::extract_file_content,
             choose_workspace_directory,
             show_desktop_companion,
             close_desktop_companion,

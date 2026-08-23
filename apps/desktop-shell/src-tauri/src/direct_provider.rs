@@ -57,7 +57,13 @@ pub struct StartDirectProviderStreamRequest {
 pub struct DirectProviderMessage {
     pub role: String,
     pub content: String,
+    #[serde(default)]
+    pub images: Vec<DirectProviderImage>,
 }
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectProviderImage { pub media_type: String, pub base64_data: String }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -159,12 +165,27 @@ fn validate_messages(messages: &[DirectProviderMessage]) -> Result<(), &'static 
         require_nonempty(&message.content, "message-content-invalid", 1_000_000)?;
         length = length.saturating_add(message.content.len());
         if length > 1_000_000 { return Err("messages-too-large"); }
+        if message.images.len() > 8 || message.images.iter().any(|image| !matches!(image.media_type.as_str(), "image/png" | "image/jpeg" | "image/webp" | "image/gif") || image.base64_data.is_empty() || image.base64_data.len() > 7_000_000) { return Err("message-images-invalid"); }
     }
     Ok(())
 }
 
 fn payload_for(session: &DirectProviderSession, model: &str, messages: &[DirectProviderMessage]) -> serde_json::Value {
-    let messages = messages.iter().map(|message| serde_json::json!({ "role": message.role, "content": message.content })).collect::<Vec<_>>();
+    let messages = messages.iter().map(|message| {
+        if message.images.is_empty() { return serde_json::json!({ "role": message.role, "content": message.content }); }
+        match session.protocol {
+            DirectProviderProtocol::OpenaiCompatible => {
+                let mut content = vec![serde_json::json!({ "type": "text", "text": message.content })];
+                content.extend(message.images.iter().map(|image| serde_json::json!({ "type": "image_url", "image_url": { "url": format!("data:{};base64,{}", image.media_type, image.base64_data) } })));
+                serde_json::json!({ "role": message.role, "content": content })
+            }
+            DirectProviderProtocol::AnthropicCompatible => {
+                let mut content = vec![serde_json::json!({ "type": "text", "text": message.content })];
+                content.extend(message.images.iter().map(|image| serde_json::json!({ "type": "image", "source": { "type": "base64", "media_type": image.media_type, "data": image.base64_data } })));
+                serde_json::json!({ "role": message.role, "content": content })
+            }
+        }
+    }).collect::<Vec<_>>();
     match session.protocol {
         DirectProviderProtocol::OpenaiCompatible => serde_json::json!({
             "model": model,
@@ -265,7 +286,7 @@ pub async fn probe_direct_provider(
 ) -> Result<(), &'static str> {
     require_identifier(&request.provider_id, "provider-id-invalid")?;
     let session = state.0.lock().map_err(|_| "provider-state-unavailable")?.get(&request.provider_id).cloned().ok_or("provider-not-connected")?;
-    let probe_messages = vec![DirectProviderMessage { role: "user".to_owned(), content: "Reply with OK.".to_owned() }];
+    let probe_messages = vec![DirectProviderMessage { role: "user".to_owned(), content: "Reply with OK.".to_owned(), images: Vec::new() }];
     let response = Client::new().post(url_for(&session)).headers(headers_for(&session)?).json(&payload_for(&session, &session.model, &probe_messages)).send().await.map_err(|_| "provider-request-failed")?;
     if response.status().is_success() { return Ok(()); }
     match response.status().as_u16() {
@@ -318,7 +339,7 @@ pub fn start_direct_provider_stream(
 
 #[cfg(test)]
 mod tests {
-    use super::{deltas_from_sse, DirectProviderProtocol};
+    use super::{deltas_from_sse, DirectProviderImage, DirectProviderProtocol};
 
     #[test]
     fn parses_openai_text_and_actual_reasoning_deltas_without_inventing_content() {
@@ -342,14 +363,23 @@ mod tests {
     fn preserves_ordered_chat_history_in_provider_payload() {
         let session = super::DirectProviderSession { provider_id: "provider".to_owned(), protocol: DirectProviderProtocol::OpenaiCompatible, base_url: "https://example.test/v1".to_owned(), model: "model".to_owned(), api_key: "key".to_owned() };
         let messages = vec![
-            super::DirectProviderMessage { role: "user".to_owned(), content: "第一问".to_owned() },
-            super::DirectProviderMessage { role: "assistant".to_owned(), content: "第一答".to_owned() },
-            super::DirectProviderMessage { role: "user".to_owned(), content: "第二问".to_owned() },
+            super::DirectProviderMessage { role: "user".to_owned(), content: "第一问".to_owned(), images: Vec::new() },
+            super::DirectProviderMessage { role: "assistant".to_owned(), content: "第一答".to_owned(), images: Vec::new() },
+            super::DirectProviderMessage { role: "user".to_owned(), content: "第二问".to_owned(), images: Vec::new() },
         ];
         assert!(super::validate_messages(&messages).is_ok());
         let payload = super::payload_for(&session, "model", &messages);
         assert_eq!(payload.pointer("/messages/0/content").and_then(|value| value.as_str()), Some("第一问"));
         assert_eq!(payload.pointer("/messages/1/role").and_then(|value| value.as_str()), Some("assistant"));
         assert_eq!(payload.pointer("/messages/2/content").and_then(|value| value.as_str()), Some("第二问"));
+    }
+
+    #[test]
+    fn emits_openai_image_content_blocks_without_discarding_user_image() {
+        let session = super::DirectProviderSession { provider_id: "provider".to_owned(), protocol: DirectProviderProtocol::OpenaiCompatible, base_url: "https://example.test/v1".to_owned(), model: "model".to_owned(), api_key: "key".to_owned() };
+        let messages = vec![super::DirectProviderMessage { role: "user".to_owned(), content: "请看图片".to_owned(), images: vec![DirectProviderImage { media_type: "image/png".to_owned(), base64_data: "aGVsbG8=".to_owned() }] }];
+        let payload = super::payload_for(&session, "model", &messages);
+        assert_eq!(payload.pointer("/messages/0/content/0/text").and_then(|value| value.as_str()), Some("请看图片"));
+        assert_eq!(payload.pointer("/messages/0/content/1/image_url/url").and_then(|value| value.as_str()), Some("data:image/png;base64,aGVsbG8="));
     }
 }

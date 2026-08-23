@@ -14,3 +14,8 @@ test('同一会话历史按原始 user/assistant 顺序传给 Provider，且不�
     { role: 'user', content: '第二问' },
   ]);
 });
+
+test('后续 Provider 请求使用会话保存的长输入 TXT 上下文而非丢失原始文本', () => {
+  const history = providerHistory([{ id: 'm4', role: 'user', text: '摘要', context: '摘要\n--- 自动生成的长输入 TXT：conversation.txt ---\n完整长文本', createdAt: 4 }]);
+  assert.equal(history[0]?.content, '摘要\n--- 自动生成的长输入 TXT：conversation.txt ---\n完整长文本');
+});

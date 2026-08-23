@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { directProviderClient, type DirectProviderMessage } from './direct-provider-client';
 import { webSearchClient, type WebSearchSource } from './web-search-client';
-import { attachmentContextText, type DirectChatAttachmentContext } from './direct-chat-attachments';
+import { attachmentContextText, attachmentImages, type DirectChatAttachmentContext } from './direct-chat-attachments';
 
 export interface DirectConversationSelection { readonly providerId: string; readonly model?: string; }
 export interface DirectConversationActivity { readonly kind: 'reasoning' | 'web-search' | 'attachment'; readonly text: string; readonly createdAt: number; readonly sources?: readonly WebSearchSource[]; }
@@ -13,6 +13,7 @@ const MAX_CONVERSATIONS = 32;
 const MAX_MESSAGES = 200;
 const MAX_PROVIDER_MESSAGES = 200;
 const MAX_PROVIDER_HISTORY_CHARS = 1_000_000;
+const AUTO_TEXT_FILE_THRESHOLD = 12_000;
 
 function validProjectId(value: unknown): value is string { return typeof value === 'string' && /^project-[a-f0-9-]{8,80}$/.test(value); }
 
@@ -171,11 +172,14 @@ export function useDirectConversations(): DirectConversations {
       }
     }
     const attachmentActivity = attachments.length ? { kind: 'attachment' as const, text: attachments.map((attachment) => attachment.included ? `已传递文件正文：${attachment.name}（${attachment.byteSize} bytes）` : `未传递文件正文：${attachment.name}。${attachment.reason ?? '无法读取。'}`).join('\n'), createdAt: now } : undefined;
-    const context = `${text}${attachmentContextText(attachments)}`;
-    const userMessage: DirectConversationMessage = { id: nextId('message'), role: 'user', text, ...(context !== text ? { context } : {}), createdAt: now, ...(searchActivity || attachmentActivity ? { activities: [searchActivity, attachmentActivity].filter((activity): activity is DirectConversationActivity => Boolean(activity)) } : {}) };
+    const autoTextFile = text.length > AUTO_TEXT_FILE_THRESHOLD ? `\n\n--- 自动生成的长输入 TXT：conversation-${now}.txt ---\n${text}\n--- TXT 结束 ---` : '';
+    const autoTextActivity = autoTextFile ? { kind: 'attachment' as const, text: `输入超过 ${AUTO_TEXT_FILE_THRESHOLD.toLocaleString()} 字符，已生成并传递虚拟 TXT 上下文：conversation-${now}.txt（${text.length.toLocaleString()} 字符）。`, createdAt: now } : undefined;
+    const context = `${text}${autoTextFile}${attachmentContextText(attachments)}`;
+    const userMessage: DirectConversationMessage = { id: nextId('message'), role: 'user', text, ...(context !== text ? { context } : {}), createdAt: now, ...(searchActivity || attachmentActivity || autoTextActivity ? { activities: [searchActivity, autoTextActivity, attachmentActivity].filter((activity): activity is DirectConversationActivity => Boolean(activity)) } : {}) };
     const base: DirectConversation = existing ?? { schemaVersion: 1, id: conversationId, title: titleFor(text), selection, messages: [], ...(validProjectId(projectId) ? { projectId } : {}), createdAt: now, updatedAt: now };
     const history = providerHistory([...base.messages, userMessage]);
-    const messagesForProvider = searchSummary && history.length > 0 ? [...history.slice(0, -1), withSearchReference(history.at(-1)!, searchSummary)] : history;
+    const lastMessage = searchSummary && history.length > 0 ? withSearchReference(history.at(-1)!, searchSummary) : history.at(-1);
+    const messagesForProvider = lastMessage ? [...history.slice(0, -1), { ...lastMessage, ...(attachmentImages(attachments).length ? { images: attachmentImages(attachments) } : {}) }] : history;
     update((current) => [{ ...base, selection, title: base.messages.length === 0 ? titleFor(text) : base.title, messages: [...base.messages, userMessage].slice(-MAX_MESSAGES), updatedAt: now }, ...current.filter((item) => item.id !== conversationId)]);
     setActiveId(conversationId); setStreaming(true); setError(undefined);
     let output = '';

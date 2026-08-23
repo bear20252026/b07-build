@@ -2,7 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export type DirectProviderProtocol = 'openai-compatible' | 'anthropic-compatible';
-export interface DirectProviderMessage { readonly role: 'user' | 'assistant'; readonly content: string; }
+export interface DirectProviderImage { readonly mediaType: string; readonly base64Data: string; }
+export interface DirectProviderMessage { readonly role: 'user' | 'assistant'; readonly content: string; readonly images?: readonly DirectProviderImage[]; }
 
 export const DIRECT_PROVIDER_MAX_CONTEXT_CHARS = 1_000_000;
 export const DIRECT_PROVIDER_MAX_MESSAGES = 200;
@@ -89,7 +90,11 @@ export class DirectProviderClient {
     const messages = input.messages.map((message) => {
       const content = message.content.trim();
       if (!['user', 'assistant'].includes(message.role) || !content || content.length > DIRECT_PROVIDER_MAX_CONTEXT_CHARS) throw new Error('会话消息无效');
-      return { role: message.role, content };
+      const images = (message.images ?? []).map((image) => {
+        if (!/^image\/(png|jpeg|webp|gif)$/i.test(image.mediaType) || !/^[A-Za-z0-9+/=]+$/.test(image.base64Data) || image.base64Data.length > 7_000_000) throw new Error('图片附件无效或过大');
+        return { mediaType: image.mediaType, base64Data: image.base64Data };
+      });
+      return { role: message.role, content, ...(images.length ? { images } : {}) };
     });
     if (messages.reduce((length, message) => length + message.content.length, 0) > DIRECT_PROVIDER_MAX_CONTEXT_CHARS) throw new Error('当前会话上下文超过 1M 字符预算；请缩小附件或新建对话后重试');
     if (input.model !== undefined) requireModelIdentifier(input.model);
