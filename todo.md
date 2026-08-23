@@ -88,3 +88,6 @@
 - [x] 云端 Windows 安装器工作流不再构建旧 Gateway sidecar，且从桌面包的唯一版本元数据生成工件清单。
 - [ ] 将本轮修复以新的 0.1.2 云端 Windows 安装器工件构建、核验并交付，明确区别于 0.1.1。
 - [ ] 将图片、SearXNG、历史与聊天交互修复发布为新的 0.1.2 版本，并以云端 Windows 构建工件与 0.1.1 明确区分。
+- [x] 对照已提及的 OpenWorker、AtomCode、AionUi、Chatbox、Cherry Studio、LobeChat、AnythingLLM、Jan、Open WebUI、OpenClaw、ClawCode、UI-TARS Desktop、DeepSeek-Harness 与 MiMo-Code，形成基于一手资料的能力矩阵、许可边界与适配结论。
+- [x] 将 AI Work OS 当前实现映射到成熟项目能力矩阵，区分“已具备”“已实现待 Windows 验证”“尚缺失”“不宜复制或不适合当前 Windows 桌面范围”。
+- [x] 基于用户价值、可靠性、依赖关系、维护成本和许可证风险，形成 P0–P3 改进路线；未经主人确认不将建议性新功能直接纳入实现。
