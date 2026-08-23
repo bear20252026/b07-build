@@ -102,4 +102,4 @@
 - [x] 阻断性修复：依据 MiMo 官方文档核验并实现视觉模型能力路由、OpenAI/Anthropic 图片载荷和自由模型切换；图片不得被静默丢弃，也不得因固定模型名或错误端点误报为本地限制。0.1.5 新增 MiMo `mimo-v2.5` 视觉模型快捷选择和 `mimo-v2.5-pro` 图片专属错误说明。
 - [x] 阻断性修复：隔离 SearXNG、Exa、混合检索与 Provider 聊天错误；检索后端失败必须给出各自可读状态，并继续发送原始用户问题至选中的第三方模型。0.1.5 将嵌入 Python 早退、loopback 请求失败和拒绝状态分别显示为检索活动。
 - [x] 通过 GitHub Windows runner 构建并核验 0.1.5 图片与检索修复安装器：工作流 #32654528364 成功，来源提交 9c52231b6ca2870de8aa4c60183c9b6548fcb516，`bundlesExplicitGatewaySidecar=false`。
-- [ ] 最高优先级阻断性修复：Windows 0.1.5 诊断已确认 Provider 配置成功但原生 HTTPS 在 691–720 ms 内 `provider-connect-failed`；对照 AtomCode 的系统证书、系统代理与 Windows HTTP 客户端实现修复基础直连，不得以 Gateway 取代。
+- [x] 最高优先级阻断性修复：Windows 0.1.5 诊断已确认 Provider 配置成功但原生 HTTPS 在 691–720 ms 内 `provider-connect-failed`；对照 AtomCode 的系统证书、系统代理与 Windows HTTP 客户端实现修复基础直连，不得以 Gateway 取代。0.1.6 在 Windows 启用 SChannel，并只为 Provider 原生 HTTPS 客户端透明使用已启用的系统代理；工作流 #32655908525 已完成来源核验。
