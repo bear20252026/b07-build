@@ -1,4 +1,4 @@
-use crate::{last30days, web_search};
+use crate::{last30days, searxng_local, web_search};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use tauri::AppHandle;
@@ -94,12 +94,13 @@ fn receipt(backend: &str, result: &Result<usize, &'static str>) -> HybridBackend
 }
 
 #[tauri::command]
-pub async fn search_hybrid(app: AppHandle, request: HybridSearchRequest) -> Result<HybridSearchResponse, &'static str> {
+pub async fn search_hybrid(app: AppHandle, state: tauri::State<'_, searxng_local::SearxngState>, request: HybridSearchRequest) -> Result<HybridSearchResponse, &'static str> {
     let query = validate_query(&request.query)?.to_owned();
     let exa = web_search::search_web(web_search::WebSearchRequest { query: query.clone(), max_results: Some(8) });
     let international = last30days::run_last30days_research(app.clone(), last30days::Last30DaysRequest { query: query.clone(), mode: last30days::Last30DaysMode::Last30days });
-    let chinese = last30days::run_last30days_research(app, last30days::Last30DaysRequest { query: query.clone(), mode: last30days::Last30DaysMode::Last30daysCn });
-    let (exa_result, international_result, chinese_result) = tokio::join!(exa, international, chinese);
+    let chinese = last30days::run_last30days_research(app.clone(), last30days::Last30DaysRequest { query: query.clone(), mode: last30days::Last30DaysMode::Last30daysCn });
+    let searxng = searxng_local::search_searxng_local_impl(&app, &state, searxng_local::SearxngSearchRequest { query: query.clone(), max_results: Some(8) });
+    let (exa_result, international_result, chinese_result, searxng_result) = tokio::join!(exa, international, chinese, searxng);
 
     let mut raw_content = String::new();
     let mut sources = Vec::new();
@@ -129,7 +130,15 @@ pub async fn search_hybrid(app: AppHandle, request: HybridSearchRequest) -> Resu
         }
         Err(error) => Err(*error),
     };
-    let receipts = vec![receipt("exa", &exa_count), receipt("last30days", &international_count), receipt("last30days-cn", &chinese_count)];
+    let searxng_count = match &searxng_result {
+        Ok(result) => {
+            append_context(&mut raw_content, "searxng-local", &result.raw_content, &mut omitted_segments);
+            push_sources(&mut sources, &mut seen_urls, "searxng-local", result.sources.iter().map(|source| (source.title.clone(), source.url.clone())));
+            Ok(result.sources.len())
+        }
+        Err(error) => Err(*error),
+    };
+    let receipts = vec![receipt("exa", &exa_count), receipt("last30days", &international_count), receipt("last30days-cn", &chinese_count), receipt("searxng-local", &searxng_count)];
     if raw_content.trim().is_empty() {
         return Err("hybrid-search-no-results");
     }

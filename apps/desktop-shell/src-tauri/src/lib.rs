@@ -13,6 +13,8 @@ mod last30days;
 #[cfg(not(mobile))]
 mod hybrid_search;
 #[cfg(not(mobile))]
+mod searxng_local;
+#[cfg(not(mobile))]
 mod terminal;
 #[cfg(not(mobile))]
 mod file_extract;
@@ -170,6 +172,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(direct_provider::DirectProviderState::new())
+        .manage(searxng_local::SearxngState::new())
         .manage(terminal::TerminalRunState::new())
         .manage(WorkspaceDirectoryState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
@@ -180,6 +183,8 @@ pub fn run() {
             web_search::search_web,
             last30days::run_last30days_research,
             hybrid_search::search_hybrid,
+            searxng_local::search_searxng_local,
+            searxng_local::stop_searxng_local,
             terminal::start_terminal_command,
             terminal::cancel_terminal_command,
             file_extract::extract_file_content,

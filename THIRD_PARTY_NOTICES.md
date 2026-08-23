@@ -57,3 +57,14 @@ This repository includes the complete, unmodified source snapshot of [`Jesseovo/
 - Local modification status: no upstream source-code modifications. AI Work OS integration code, when added, must remain outside this directory.
 
 The vendored paths, immutable upstream commit identifiers and source handling rules are also listed in `third_party/UPSTREAM_SOURCES.md`.
+
+## SearXNG
+
+This repository includes the complete, unmodified source snapshot of [`searxng/searxng`](https://github.com/searxng/searxng) under `third_party/searxng/` for the planned optional local metasearch backend.
+
+- Upstream repository: https://github.com/searxng/searxng
+- Pinned upstream commit: `9fea41204fdfa7a5cfa15b0ebd12904c520478ce`
+- Upstream license: GNU Affero General Public License v3.0 (AGPL-3.0)
+- Full unmodified license text: `third_party/searxng/LICENSE`
+- Local modification status: no upstream source-code modifications. AI Work OS launcher, local HTTP adapter, runtime-bundle scripts and configuration templates must remain outside this directory and document their relationship to this source snapshot.
+- Current distribution status: the source is present in the repository, but no AI Work OS binary has yet shipped an embedded Python runtime, SearXNG dependency payload or SearXNG process. Before any installer includes that payload, the release must include the corresponding source, full notices, exact build/dependency instructions and required license disclosures.

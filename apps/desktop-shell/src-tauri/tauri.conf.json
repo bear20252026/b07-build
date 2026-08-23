@@ -44,7 +44,9 @@
     "longDescription": "A desktop workbench with direct user-configured Provider connections and local project workspaces.",
     "resources": {
       "../../../third_party/last30days-skill/": "research/last30days-skill/",
-      "../../../third_party/last30days-skill-cn/": "research/last30days-skill-cn/"
+      "../../../third_party/last30days-skill-cn/": "research/last30days-skill-cn/",
+      "../../../third_party/searxng/": "research/searxng/",
+      "resources/research/python-runtime/": "research/python-runtime/"
     },
     "windows": {
       "webviewInstallMode": {

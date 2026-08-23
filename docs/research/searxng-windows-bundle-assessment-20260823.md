@@ -47,6 +47,12 @@ First explicit SearXNG search
 
 The install payload must remain immutable. Cache, configuration and generated secret material must be written to the current user's application-data directory, never into the bundled resources directory.
 
+## Reproducible Windows runtime preparation
+
+The repository provides `tools/prepare-searxng-windows-runtime.ps1` for the Windows build machine. It fixes CPython at `3.13.13`, downloads the official x64 embeddable package, enables its local `site-packages`, bootstraps pip, installs the SearXNG pinned core requirements from `third_party/searxng/requirements.txt` using prebuilt Windows wheels only, and writes `runtime-manifest.json` containing the CPython archive SHA-256 and installed package list. The generated runtime is intentionally ignored by Git but mapped as a Tauri resource at build time. The public source repository therefore retains both the source and the reproducible preparation instructions without committing a large opaque binary payload.
+
+The first actual Windows build must run that script before `cargo tauri build`, inspect the manifest, retain third-party dependency licenses, and verify SearXNG starts against the packaged Python payload. A release cannot describe SearXNG as bundled until those Windows checks have completed.
+
 ## User-facing search choices
 
 | Mode | When it runs | Source of results | Network path |

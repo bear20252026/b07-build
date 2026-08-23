@@ -36,5 +36,8 @@ artifacts/
 apps/desktop-shell/src-tauri/binaries/awo-runtime-gateway-*
 apps/desktop-shell/src-tauri/binaries/awo-runtime-gateway-bundle.cjs
 apps/desktop-shell/src-tauri/binaries/awo-runtime-gateway-sea.json
+# 固定脚本可再生成的 SearXNG Windows Python 运行时和依赖，不提交大型二进制资源
+apps/desktop-shell/src-tauri/resources/research/python-runtime/*
+!apps/desktop-shell/src-tauri/resources/research/python-runtime/.gitkeep
 # Tauri CLI 与 Android 初始化可从配置重新生成，绝不提交本机 Gradle/schemas 产物
 apps/desktop-shell/src-tauri/gen/
