@@ -53,6 +53,10 @@ The repository provides `tools/prepare-searxng-windows-runtime.ps1` for the Wind
 
 The first actual Windows build must run that script before `cargo tauri build`, inspect the manifest, retain third-party dependency licenses, and verify SearXNG starts against the packaged Python payload. A release cannot describe SearXNG as bundled until those Windows checks have completed.
 
+### Windows-only compatibility shim
+
+At pinned SearXNG commit `9fea41204fdfa7a5cfa15b0ebd12904c520478ce`, `searx/valkeydb.py` unconditionally imports the Unix standard-library `pwd` module, even though the configured local runtime disables Valkey. Windows CPython has no such module. The runtime preparation script therefore writes a separate `Lib/site-packages/pwd.py` compatibility shim after copying SearXNG into site-packages. It is not a modification to vendored SearXNG source; it only supplies `getpwuid` if optional Valkey connection error logging is reached. The generated runtime manifest names the shim explicitly.
+
 ## User-facing search choices
 
 | Mode | When it runs | Source of results | Network path |
