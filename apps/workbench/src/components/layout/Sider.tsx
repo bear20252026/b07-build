@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import orbitCompanion from '../../assets/companions/orbit.png';
 import moriCompanion from '../../assets/companions/mori.png';
 import pixelCompanion from '../../assets/companions/pixel.png';
@@ -62,6 +62,19 @@ function NavigationItem({ activePage, item, onNavigate }: { activePage: Workbenc
   );
 }
 
+function useFreshListItems(projects: readonly WorkbenchProject[], conversations: readonly DirectConversation[]): ReadonlySet<string> {
+  const signature = useMemo(() => [...projects.map((project) => `p:${project.projectId}`), ...conversations.map((conversation) => `c:${conversation.id}`)].join('|'), [conversations, projects]);
+  const known = useRef<ReadonlySet<string> | undefined>(undefined); const [fresh, setFresh] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    const next = new Set(signature ? signature.split('|') : []);
+    if (!known.current) { known.current = next; return; }
+    const added = new Set([...next].filter((id) => !known.current?.has(id)));
+    known.current = next; if (!added.size) return;
+    setFresh(added); const timer = window.setTimeout(() => setFresh(new Set()), 260); return () => window.clearTimeout(timer);
+  }, [signature]);
+  return fresh;
+}
+
 /**
  * 参考 AionUi 的两态侧栏：主工作区只承载任务入口，设置状态替换为二级设置导航。
  * 这仅改变阅读与跳转层级；所有 Gateway 请求仍必须由用户明确点击的页面动作触发。
@@ -78,6 +91,7 @@ export function Sider({ activePage, hasActiveTask, projects, selectedProjectId, 
   const chooseCompanion = (id: Companion['id']): void => { setCompanionId(id); setCompanionMotion('celebrate'); };
   const visibleConversations = conversations.filter((conversation) => conversation.projectId === selectedProjectId);
   const selectedProject = projects.find((project) => project.projectId === selectedProjectId);
+  const freshListItems = useFreshListItems(projects, conversations);
 
   return (
     <nav className="sider" aria-label={messages.navigation.aria}>
@@ -92,12 +106,12 @@ export function Sider({ activePage, hasActiveTask, projects, selectedProjectId, 
         <div className="sider-browser-heading"><span>项目</span><button onClick={() => onNavigate('projects')} title="新建或管理本地项目。" type="button">＋</button></div>
         <div className="sider-project-list">
           <button className={`sider-project-item${!selectedProjectId ? ' active' : ''}`} onClick={onShowWorkspaceConversations} type="button"><span aria-hidden="true">⌂</span><strong>工作区对话</strong></button>
-          {projects.map((project) => <button className={`sider-project-item${project.projectId === selectedProjectId ? ' active' : ''}`} key={project.projectId} onClick={() => onSelectProject(project.projectId)} title={project.description || `打开项目：${project.title}`} type="button"><span aria-hidden="true">▱</span><strong>{project.title}</strong><small>{project.taskCount} 项任务</small></button>)}
+          {projects.map((project) => <button className={`sider-project-item${project.projectId === selectedProjectId ? ' active' : ''}${freshListItems.has(`p:${project.projectId}`) ? ' sider-list-arrive' : ''}`} key={project.projectId} onClick={() => onSelectProject(project.projectId)} title={project.description || `打开项目：${project.title}`} type="button"><span aria-hidden="true">▱</span><strong>{project.title}</strong><small>{project.taskCount} 项任务</small></button>)}
         </div>
         <div className="sider-browser-heading sider-browser-heading--conversations"><span>{selectedProject ? selectedProject.title : '工作区'} · 聊天</span><button onClick={onNewConversation} title="在当前工作区或项目中新建一个独立聊天会话。" type="button">＋</button></div>
         <div className="sider-conversation-list">
           {visibleConversations.length === 0 && <p>尚无对话。点击 ＋ 新建。</p>}
-          {visibleConversations.map((conversation) => <div className={`sider-conversation-row${conversation.id === activeConversationId ? ' active' : ''}`} key={conversation.id}><button className="sider-conversation-item" onClick={() => onSelectConversation(conversation.id)} title={`${conversation.messages.length} 条消息 · ${conversation.selection.model ?? conversation.selection.providerId}`} type="button"><strong>{conversation.title}</strong><small>{conversation.messages.length} 条消息</small></button><span className="sider-conversation-actions"><button onClick={() => { const title = window.prompt('重命名本地对话', conversation.title); if (title?.trim()) onRenameConversation(conversation.id, title); }} title="重命名此本地对话。" type="button">✎</button><button onClick={() => { if (window.confirm(`删除“${conversation.title}”及其本地聊天记录？`)) onRemoveConversation(conversation.id); }} title="删除此本地对话及其本地聊天记录。" type="button">×</button></span></div>)}
+          {visibleConversations.map((conversation) => <div className={`sider-conversation-row${conversation.id === activeConversationId ? ' active' : ''}${freshListItems.has(`c:${conversation.id}`) ? ' sider-list-arrive' : ''}`} key={conversation.id}><button className="sider-conversation-item" onClick={() => onSelectConversation(conversation.id)} title={`${conversation.messages.length} 条消息 · ${conversation.selection.model ?? conversation.selection.providerId}`} type="button"><strong>{conversation.title}</strong><small>{conversation.messages.length} 条消息</small></button><span className="sider-conversation-actions"><button onClick={() => { const title = window.prompt('重命名本地对话', conversation.title); if (title?.trim()) onRenameConversation(conversation.id, title); }} title="重命名此本地对话。" type="button">✎</button><button onClick={() => { if (window.confirm(`删除“${conversation.title}”及其本地聊天记录？`)) onRemoveConversation(conversation.id); }} title="删除此本地对话及其本地聊天记录。" type="button">×</button></span></div>)}
         </div>
       </section>
       <div className="sider-spacer" />

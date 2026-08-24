@@ -27,6 +27,14 @@ function csp(): string {
   return String((app.security as Record<string, unknown>).csp);
 }
 
+function functionSlice(signature: string, nextSignature: string): string {
+  const start = desktopCore.indexOf(signature);
+  assert.notEqual(start, -1, `未找到函数：${signature}`);
+  const end = desktopCore.indexOf(nextSignature, start + signature.length);
+  assert.notEqual(end, -1, `未找到函数边界：${nextSignature}`);
+  return desktopCore.slice(start, end);
+}
+
 test('桌面壳加载本地 Workbench 静态产物并生成每用户 Windows NSIS 安装器，不打包 Gateway sidecar', () => {
   assert.equal(packageManifest.name, '@awo/desktop-shell');
   assert.equal((packageManifest.scripts as Record<string, unknown>).tauri, 'tauri');
@@ -53,13 +61,31 @@ test('桌面 Rust 核心提供直接 OpenAI/Anthropic Provider、模型查询、
   assert.deepEqual(capability.permissions, ['core:default']);
   assert.deepEqual(companionCapability.windows, ['desktop-companion']);
   assert.deepEqual(companionCapability.permissions, ['core:default']);
-  for (const expected of ['mod direct_provider;', 'DirectProviderState::new()', 'configure_direct_provider', 'discover_direct_provider', 'probe_direct_provider', 'start_direct_provider_stream', 'desktop_diagnostics', 'searxng_local_status', 'install_desktop_tray', 'TrayIconBuilder', 'show_desktop_companion', 'close_desktop_companion', 'WindowEvent::CloseRequested', 'app.exit(0)']) assert.ok(desktopCore.includes(expected), `桌面核心缺少：${expected}`);
+  for (const expected of ['mod direct_provider;', 'DirectProviderState::new()', 'configure_direct_provider', 'discover_direct_provider', 'probe_direct_provider', 'start_direct_provider_stream', 'desktop_diagnostics', 'searxng_local_status', 'install_desktop_tray', 'TrayIconBuilder', 'show_desktop_companion', 'hide_desktop_companion', 'close_desktop_companion', '.transparent(true)', '.always_on_top(true)', '.skip_taskbar(true)', 'WindowEvent::CloseRequested', 'app.exit(0)']) assert.ok(desktopCore.includes(expected), `桌面核心缺少：${expected}`);
   for (const expected of ['OpenaiCompatible', 'AnthropicCompatible', '/v1/chat/completions', '/v1/messages', 'text/event-stream', 'direct-provider-stream', 'api-key', 'x-api-key']) assert.ok(directProvider.includes(expected), `直接 Provider 缺少：${expected}`);
   for (const forbidden of ['start_local_gateway', 'GATEWAY_ADDRESS', 'GATEWAY_SIDECAR', 'tauri_plugin_shell::init()', 'sidecar(']) assert.equal(desktopCore.includes(forbidden), false, `桌面核心不得包含 Gateway 依赖：${forbidden}`);
   assert.ok(cargoManifest.includes('reqwest'), '直接 HTTPS/SSE 请求需要原生 HTTP 客户端');
   assert.ok(cargoManifest.includes('tray-icon'), '桌面常驻入口需要 Tauri tray-icon');
   assert.equal(cargoManifest.includes('tauri-plugin-shell'), false, '不得保留 sidecar shell plugin');
   assert.ok(desktopMain.includes('windows_subsystem = "windows"'));
+});
+
+test('桌面宠物默认由明确动作显示，独立隐藏或关闭不会接管工作台或 Provider 直连聊天', () => {
+  const show = functionSlice('fn show_desktop_companion', 'fn hide_desktop_companion');
+  const hide = functionSlice('fn hide_desktop_companion', 'fn close_desktop_companion');
+  const close = functionSlice('fn close_desktop_companion', 'fn install_desktop_tray');
+  assert.ok(show.includes('.transparent(true)'));
+  assert.ok(show.includes('.always_on_top(true)'));
+  assert.ok(show.includes('.skip_taskbar(true)'));
+  assert.equal(show.includes('MAIN_WINDOW_LABEL'), false, '显示宠物不得读取、隐藏或聚焦主工作台');
+  assert.equal(show.includes('direct_provider'), false, '显示宠物不得发起 Provider 请求');
+  assert.ok(hide.includes('window.hide()'));
+  assert.equal(hide.includes('direct_provider'), false, '隐藏宠物不得发起 Provider 请求');
+  assert.ok(close.includes('hide_desktop_companion(app.clone())'));
+  assert.match(close, /main_window\s*\.show\(\)/);
+  assert.match(close, /main_window\s*\.set_focus\(\)/);
+  assert.ok(desktopCore.includes('window.label() == DESKTOP_COMPANION_WINDOW_LABEL'));
+  assert.ok(desktopCore.includes('api.prevent_close()'));
 });
 
 test('P0 诊断只读取本地状态，不启动 SearXNG、不暴露密钥、聊天正文或文件路径', () => {

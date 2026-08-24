@@ -7,6 +7,7 @@ import { Sider, type WorkbenchPage } from './components/layout/Sider';
 import { SettingsOverlay } from './components/layout/SettingsOverlay';
 import { WorkbenchOverlay } from './components/layout/WorkbenchOverlay';
 import { CommandPalette } from './components/layout/CommandPalette';
+import { HaloSearch } from './components/layout/HaloSearch';
 import { createWorkbenchCommandCatalog, type WorkbenchCommand } from './components/layout/command-catalog';
 import { resolveWorkbenchSurface } from './components/layout/workbench-surface';
 import { ChatHome } from './components/workspace/ChatHome';
@@ -39,6 +40,8 @@ import { loadCompanionPreferences, saveCompanionPreferences, updateCompanionPref
 import { loadFloatingCompanionPreferences, saveFloatingCompanionPreferences, type FloatingCompanionPreferencesV1 } from './runtime/floating-companion-preferences';
 import { loadCompanionStudioPreferences, saveCompanionStudioPreferences, updateCompanionStudioPreferences } from './runtime/companion-studio-preferences';
 import { loadWorkspaceFilePreferences, saveWorkspaceFilePreferences, type WorkspaceFilePreferencesV1 } from './runtime/workspace-file-contract';
+import { assistantArtifactFileName, loadAssistantArtifacts, persistAssistantArtifacts, type AssistantArtifactEntry, type AssistantArtifactTarget } from './runtime/assistant-artifact-ledger';
+import type { DirectConversationMessage } from './runtime/use-direct-conversations';
 
 const localGatewayClient = HttpWorkbenchTaskClient.forLocalGateway();
 const localProjectClient = createProjectClient();
@@ -66,6 +69,7 @@ const SecurityPostureAuditBoard = lazy(async () => ({ default: (await import('./
 const TrajectoryBoard = lazy(async () => ({ default: (await import('./components/observability/TrajectoryBoard')).TrajectoryBoard }));
 const RunWorkspaceBoard = lazy(async () => ({ default: (await import('./components/observability/RunWorkspaceBoard')).RunWorkspaceBoard }));
 const PreviewPanel = lazy(async () => ({ default: (await import('./components/preview/PreviewPanel')).PreviewPanel }));
+const ArtifactExtensionPanel = lazy(async () => ({ default: (await import('./components/preview/ArtifactExtensionPanel')).ArtifactExtensionPanel }));
 const LocalDataFlowBoard = lazy(async () => ({ default: (await import('./components/workspace/LocalDataFlowBoard')).LocalDataFlowBoard }));
 const TaskStoryboard = lazy(async () => ({ default: (await import('./components/workspace/TaskStoryboard')).TaskStoryboard }));
 const TaskOutcomeBoard = lazy(async () => ({ default: (await import('./components/workspace/TaskOutcomeBoard')).TaskOutcomeBoard }));
@@ -80,6 +84,7 @@ const ContextBudgetPanel = lazy(async () => ({ default: (await import('./compone
 const ConversationCheckpointsPanel = lazy(async () => ({ default: (await import('./components/workspace/ConversationCheckpointsPanel')).ConversationCheckpointsPanel }));
 const DirectUsageLedgerPanel = lazy(async () => ({ default: (await import('./components/observability/DirectUsageLedgerPanel')).DirectUsageLedgerPanel }));
 const SessionPerformancePanel = lazy(async () => ({ default: (await import('./components/observability/SessionPerformancePanel')).SessionPerformancePanel }));
+const RealProgressPanel = lazy(async () => ({ default: (await import('./components/observability/RealProgressPanel')).RealProgressPanel }));
 const LocalKnowledgePanel = lazy(async () => ({ default: (await import('./components/workspace/LocalKnowledgePanel')).LocalKnowledgePanel }));
 const GitHubCollaborationPanel = lazy(async () => ({ default: (await import('./components/workspace/GitHubCollaborationPanel')).GitHubCollaborationPanel }));
 
@@ -173,7 +178,7 @@ export function App() {
   const [researchMode, setResearchMode] = useState<'web-search' | Last30DaysMode | 'hybrid' | 'searxng-local'>('web-search');
   const [composerCollapsed, setComposerCollapsed] = useState(false);
   const [composerAttachments, setComposerAttachments] = useState<readonly ComposerFileAttachment[]>([]);
-  const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding' | 'project-memory' | 'context-budget' | 'conversation-checkpoints' | 'usage-ledger' | 'session-performance' | 'local-knowledge' | 'github-collaboration'>();
+  const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding' | 'project-memory' | 'context-budget' | 'conversation-checkpoints' | 'usage-ledger' | 'session-performance' | 'real-progress' | 'local-knowledge' | 'github-collaboration'>();
   const [activeGoal, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
   const [authorityMode, setAuthorityMode] = useState<WorkbenchAuthorityMode>('review');
@@ -184,6 +189,13 @@ export function App() {
   const [floatingCompanionPreferences, setFloatingCompanionPreferences] = useState(() => loadFloatingCompanionPreferences());
   const [companionStudioPreferences, setCompanionStudioPreferences] = useState(() => loadCompanionStudioPreferences());
   const [workspaceFilePreferences, setWorkspaceFilePreferences] = useState(() => loadWorkspaceFilePreferences());
+  const [assistantArtifacts, setAssistantArtifacts] = useState(() => loadAssistantArtifacts());
+  const [artifactRailOpen, setArtifactRailOpen] = useState(false);
+  const [artifactRailWidth, setArtifactRailWidth] = useState(() => {
+    const saved = Number(window.localStorage.getItem('awo.artifact-rail-width.v1'));
+    return Number.isFinite(saved) ? Math.max(300, Math.min(560, saved)) : 380;
+  });
+  const [savingAssistantArtifactId, setSavingAssistantArtifactId] = useState<string>();
   const { messages } = useLocale();
   const taskExecution = useTaskExecution(gatewayAttached, {
     gatewayRequired: '请先显式附着本机 Gateway；桌面应用不会自动启动或连接服务。',
@@ -229,6 +241,29 @@ export function App() {
   const updateCompanionStudio = (change: Parameters<typeof updateCompanionStudioPreferences>[1]): void => setCompanionStudioPreferences((current) => { const next = updateCompanionStudioPreferences(current, change); saveCompanionStudioPreferences(next); return next; });
   const updateFloatingCompanion = (next: FloatingCompanionPreferencesV1): void => { saveFloatingCompanionPreferences(next); setFloatingCompanionPreferences(next); };
   const updateWorkspaceFiles = (next: WorkspaceFilePreferencesV1): void => { saveWorkspaceFilePreferences(next); setWorkspaceFilePreferences(next); };
+  const updateArtifactRailWidth = (next: number): void => {
+    const bounded = Math.max(300, Math.min(560, Math.round(next)));
+    window.localStorage.setItem('awo.artifact-rail-width.v1', String(bounded));
+    setArtifactRailWidth(bounded);
+  };
+  const saveAssistantArtifact = async (message: DirectConversationMessage): Promise<void> => {
+    if (message.role !== 'assistant' || !message.text.trim() || savingAssistantArtifactId) return;
+    const createdAt = Date.now();
+    const target = workspaceFilePreferences.outputTarget as AssistantArtifactTarget;
+    const fileName = assistantArtifactFileName(createdAt);
+    setSavingAssistantArtifactId(message.id);
+    setDirectSetupError(undefined);
+    try {
+      const receipt = await invoke<Readonly<{ logicalPath: string; displayName: string; byteSize: number; createdAt: number; target: AssistantArtifactTarget }>>('save_assistant_markdown_artifact', { target, fileName, content: message.text });
+      const entry: AssistantArtifactEntry = { artifactId: `${message.id}:${receipt.createdAt}`, logicalPath: receipt.logicalPath, displayName: receipt.displayName, byteSize: receipt.byteSize, createdAt: receipt.createdAt, target: receipt.target };
+      setAssistantArtifacts((current) => persistAssistantArtifacts([entry, ...current]));
+      setArtifactRailOpen(true);
+    } catch (error) {
+      setDirectSetupError(error instanceof Error ? error.message : 'AI 回复产物保存未完成。');
+    } finally {
+      setSavingAssistantArtifactId(undefined);
+    }
+  };
   const addComposerAttachments = (files: FileList | null): void => setComposerAttachments((current) => mergeComposerFileAttachments(current, files));
   const removeComposerAttachment = (id: string): void => setComposerAttachments((current) => current.filter((item) => item.descriptor.id !== id));
   const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, projects: '项目', task: '当前任务', models: 'API 连接', connections: '已连接模型', operations: '运行记录', 'api-usage': 'API 使用审计', 'workspace-files': '工作区与文件', 'terminal-coding': '终端与编码', capabilities: '扩展与能力', 'agency-roles': '预置专业角色', 'browser-sessions': '浏览会话控制', companion: 'Companion Agent', 'companion-service-sources': '服务来源', 'companion-body-modules': '机体模块', 'companion-character-models': '角色模型', 'companion-character-cards': 'AIRI 角色卡', 'companion-system': 'Companion 系统', security: '安全与系统' };
@@ -355,6 +390,15 @@ export function App() {
 
   const isDesktopCompanionWindow = typeof window !== 'undefined' && (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } }).__TAURI_INTERNALS__?.metadata?.currentWindow?.label === 'desktop-companion';
   const openDesktopCompanion = (): void => { void invoke('show_desktop_companion').catch((error: unknown) => setDirectSetupError(gatewayErrorText(error))); };
+  const openArtifactExtension = (): void => {
+    if (window.matchMedia('(max-width: 1120px)').matches) {
+      setInspectorSurface('artifacts');
+      return;
+    }
+    setArtifactRailOpen(true);
+  };
+  const previewAssistantArtifact = async (entry: AssistantArtifactEntry): Promise<Readonly<{ content: string; logicalPath: string; byteSize: number; truncated: boolean }>> => invoke('read_assistant_markdown_artifact', { target: entry.target, logicalPath: entry.logicalPath });
+  const showTaskPreview = isTaskPage && !artifactRailOpen;
   if (isDesktopCompanionWindow) return <DesktopCompanionSurface />;
 
   const settingsContent = <>
@@ -378,7 +422,7 @@ export function App() {
 
   return (
     <Suspense fallback={<div className="workbench-async-loading" role="status">正在加载所选工作面…</div>}>
-    <div className={`workbench-shell ${isTaskPage ? 'with-preview' : 'focus-page'}${workbenchSurface === 'chat-home' ? ' chat-home-surface' : ''}${isSettings ? ' settings-open' : ''} theme-${theme}`}>
+    <div className={`workbench-shell ${showTaskPreview ? 'with-preview' : 'focus-page'}${artifactRailOpen ? ' with-artifact-rail' : ''}${workbenchSurface === 'chat-home' ? ' chat-home-surface' : ''}${isSettings ? ' settings-open' : ''} theme-${theme}`}>
       <Sider
         activePage={isSettings ? 'workspace' : activePage}
         hasActiveTask={Boolean(snapshot)}
@@ -409,14 +453,21 @@ export function App() {
             <div className="titlebar-title">{workbenchSurface === 'chat-home' && taskModelLabel ? taskModelLabel : pageTitle[activePage]}</div>
           </div>
           <div className="titlebar-actions">
+            <HaloSearch conversations={directConversations.conversations} onExecute={(action) => {
+              if (action.kind === 'conversation') { directConversations.select(action.id); setActivePage('workspace'); return; }
+              if (action.kind === 'project') { projectWorkspace.select(action.id); directConversations.clearSelection(); setActivePage('workspace'); return; }
+              if (action.kind === 'local-knowledge') { setInspectorSurface('local-knowledge'); return; }
+              setActivePage(action.page);
+            }} projects={projectWorkspace.projects} />
             <CommandPalette commands={commandCatalog} onExecute={executeCommand} />
             <div aria-label="独立工作面" className="titlebar-surface-actions">
               <button aria-label="打开模型连接设置" className="titlebar-icon-button" onClick={() => setActivePage('models')} title="打开模型连接设置；在原有配置页面中填写地址和密钥。" type="button">⌁</button>
+              <button aria-label="打开真实阶段状态" className="titlebar-icon-button" onClick={() => setInspectorSurface('real-progress')} title="查看已有 Provider 回执、本地知识库索引和当前聊天接收状态；打开不会启动任何请求。" type="button">◷</button>
               <button aria-label="打开工作区文件窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('workspace-files')} title="打开受控工作区文件窗口；目录、导入与预览不进入对话。" type="button">▤</button>
               <button aria-label="打开终端与编码窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('terminal-coding')} title="打开本地终端；仅在你明确点击运行后以当前 Windows 用户权限执行命令。" type="button">›_</button>
               <button aria-label="打开项目持久记忆" className="titlebar-icon-button" onClick={() => setInspectorSurface('project-memory')} title="打开当前工作区的 AI_WORK_OS_MEMORY.md；可由主人编辑，发送时按预算作为项目上下文提供给模型。" type="button">◫</button>
               <button aria-label="打开 GitHub 代码协作" className="titlebar-icon-button" onClick={() => setInspectorSurface('github-collaboration')} title="查看当前工作区 Git 变更，测试本地令牌，并在明确确认后提交和推送到 GitHub。" type="button">⌘</button>
-              <button aria-label="打开项目产物检查器" className="titlebar-icon-button" onClick={() => setInspectorSurface('artifacts')} title="打开当前任务的项目产物检查器；只显示受控文件投影。" type="button">▧</button>
+              <button aria-label="打开右侧项目产物扩展框" className="titlebar-icon-button" onClick={openArtifactExtension} title="打开可伸缩右侧项目产物扩展框；只显示受控文件投影与已确认保存的 Markdown 回复。" type="button">▧</button>
               <button aria-label="打开 Companion 独立窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('companion')} title="打开独立 Companion 角色窗口；不会切换模型或授予权限。" type="button">◉</button>
             </div>
             {activePage !== 'models' && <button className="gateway-attach-button attached" type="button" onClick={() => setActivePage('models')}>管理 API 连接</button>}
@@ -439,8 +490,8 @@ export function App() {
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
-            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} restoringProviderSession={providerControl.restoring} draftActive={Boolean(draft.trim())} directError={directSetupError ?? directConversations.error} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} activeConversation={directConversations.activeConversation} connections={providerControl.connections} discoveredModels={providerControl.discoveredModels} taskModelSelection={taskModelSelection} onSelectTaskModel={selectTaskModel} onPrepareSearchRetry={prepareSearchRetry} onOpenContextBudget={() => setInspectorSurface('context-budget')} onOpenCheckpoints={() => setInspectorSurface('conversation-checkpoints')} onOpenUsageLedger={() => setInspectorSurface('usage-ledger')} onOpenSessionPerformance={() => setInspectorSurface('session-performance')} onBranchFromMessage={directConversations.branchFromMessage} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} profiles={profiles} />}
-            {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} conversations={directConversations.conversations} error={projectWorkspace.error} storageReady={true} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={(input) => { directConversations.clearSelection(); projectWorkspace.create(input); }} onOpenArtifacts={() => setInspectorSurface('artifacts')} onOpenFiles={() => setInspectorSurface('workspace-files')} onOpenKnowledge={() => setInspectorSurface('local-knowledge')} onOpenTerminal={() => setInspectorSurface('terminal-coding')} onSelect={(projectId) => { directConversations.clearSelection(); projectWorkspace.select(projectId); }} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
+            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} restoringProviderSession={providerControl.restoring} draftActive={Boolean(draft.trim())} directError={directSetupError ?? directConversations.error} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} activeConversation={directConversations.activeConversation} connections={providerControl.connections} discoveredModels={providerControl.discoveredModels} taskModelSelection={taskModelSelection} onSelectTaskModel={selectTaskModel} onPrepareSearchRetry={prepareSearchRetry} onOpenContextBudget={() => setInspectorSurface('context-budget')} onOpenCheckpoints={() => setInspectorSurface('conversation-checkpoints')} onOpenUsageLedger={() => setInspectorSurface('usage-ledger')} onOpenSessionPerformance={() => setInspectorSurface('session-performance')} onBranchFromMessage={directConversations.branchFromMessage} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSaveAssistantArtifact={(message) => void saveAssistantArtifact(message)} savingAssistantArtifactId={savingAssistantArtifactId} onSuggestion={useSuggestedGoal} profiles={profiles} />}
+            {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} conversations={directConversations.conversations} error={projectWorkspace.error} storageReady={true} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={(input) => { directConversations.clearSelection(); projectWorkspace.create(input); }} onOpenArtifacts={openArtifactExtension} onOpenFiles={() => setInspectorSurface('workspace-files')} onOpenKnowledge={() => setInspectorSurface('local-knowledge')} onOpenTerminal={() => setInspectorSurface('terminal-coding')} onSelect={(projectId) => { directConversations.clearSelection(); projectWorkspace.select(projectId); }} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
             {isTaskPage && snapshot && <TaskPage
               activeGoal={activeGoal}
               authorityLabel={messages.authority.mode[snapshot.authorityMode ?? authorityMode].label}
@@ -558,11 +609,13 @@ export function App() {
       {inspectorSurface === 'conversation-checkpoints' && <WorkbenchOverlay description="检查点、分支和导出只操作当前 Windows WebView 的本地会话账本。恢复检查点创建新分支；原会话不会被改写。" onClose={() => setInspectorSurface(undefined)} title="会话检查点" tone="artifacts"><ConversationCheckpointsPanel activeConversation={directConversations.activeConversation} checkpoints={directConversations.checkpoints.filter((checkpoint) => checkpoint.conversationId === directConversations.activeConversation?.id)} onCreate={directConversations.createCheckpoint} onExport={exportConversation} onRestore={directConversations.restoreCheckpoint} /></WorkbenchOverlay>}
       {inspectorSurface === 'usage-ledger' && <WorkbenchOverlay description="本地 Provider 运行账本仅聚合脱敏诊断元数据、延迟、错误类别与可见输出字符。它不是供应商 token、费用或账单。" onClose={() => setInspectorSurface(undefined)} title="本地用量账本" tone="artifacts"><DirectUsageLedgerPanel /></WorkbenchOverlay>}
       {inspectorSurface === 'session-performance' && <WorkbenchOverlay description="性能观察仅记录本地会话数量、消息数量、可见窗口数量和耗时数值；不读取或保存正文、图片、密钥、模型、地址、代理、文件名或路径。" onClose={() => setInspectorSurface(undefined)} title="长会话性能观察" tone="artifacts"><SessionPerformancePanel /></WorkbenchOverlay>}
+      {inspectorSurface === 'real-progress' && <WorkbenchOverlay description="真实阶段状态只汇总已有原生连接回执、显式本地知识库索引与当前聊天接收状态；打开不会启动连接、上传、检索或自动推进步骤。" onClose={() => setInspectorSurface(undefined)} title="真实阶段状态" tone="artifacts"><RealProgressPanel chatError={directSetupError ?? directConversations.error} connectionCount={providerControl.connections.length} messageCount={directConversations.activeConversation?.messages.length ?? 0} pendingProviderId={providerControl.pendingProviderId} streaming={directConversations.streaming} /></WorkbenchOverlay>}
       {inspectorSurface === 'local-knowledge' && <WorkbenchOverlay description="本地知识库只处理主人明确粘贴或选择的资料；仅保存有界术语索引和来源预览，不自动扫描、上传或加入 Provider 上下文。" onClose={() => setInspectorSurface(undefined)} title="本地知识库" tone="artifacts"><LocalKnowledgePanel projectId={projectWorkspace.selectedProjectId} /></WorkbenchOverlay>}
       {inspectorSurface === 'github-collaboration' && <WorkbenchOverlay description="GitHub 协作先展示本地变更，再由主人明确确认提交和推送。个人访问令牌只保存在当前 Windows 用户的本地应用数据中。" onClose={() => setInspectorSurface(undefined)} title="GitHub 代码协作" tone="api"><GitHubCollaborationPanel /></WorkbenchOverlay>}
       {inspectorSurface === 'artifacts' && <WorkbenchOverlay description="当前 task/run 的受控文件检查器。可查看 Markdown、代码、JSON、差异和用户发起的交付包，不读取任意本机目录。" onClose={() => setInspectorSurface(undefined)} title="项目产物" tone="artifacts"><PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} /></WorkbenchOverlay>}
       {inspectorSurface === 'companion' && <WorkbenchOverlay description="独立角色窗口。角色、对话与 API 连接保持分离；高影响能力仍需未来的单独权限设计。" onClose={() => setInspectorSurface(undefined)} title="Companion" tone="companion"><CompanionWindow gatewayAttached={gatewayAttached} preferences={companionPreferences} onOpenApi={() => { setInspectorSurface(undefined); setActivePage('models'); }} onOpenControls={() => { setInspectorSurface(undefined); setActivePage('companion'); }} /></WorkbenchOverlay>}
-      {isTaskPage && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} />}
+      {artifactRailOpen && <ArtifactExtensionPanel assistantArtifacts={assistantArtifacts} onClose={() => setArtifactRailOpen(false)} onPreviewAssistantArtifact={previewAssistantArtifact} onPreviewTaskFile={taskExecution.loadFilePreview} onResize={updateArtifactRailWidth} taskFiles={taskFiles} width={artifactRailWidth} />}
+      {showTaskPreview && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} />}
     </div>
     </Suspense>
   );

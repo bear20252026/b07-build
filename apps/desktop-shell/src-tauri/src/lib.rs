@@ -5,29 +5,28 @@
 //! from explicit user configuration; Companion commands only create, restore, or destroy the fixed local desktop window.
 
 #[cfg(not(mobile))]
+mod assistant_artifacts;
+#[cfg(not(mobile))]
 mod direct_provider;
 #[cfg(not(mobile))]
-mod web_search;
+mod file_extract;
+#[cfg(not(mobile))]
+mod github_collaboration;
+#[cfg(not(mobile))]
+mod hybrid_search;
 #[cfg(not(mobile))]
 mod last30days;
 #[cfg(not(mobile))]
-mod hybrid_search;
+mod project_memory;
 #[cfg(not(mobile))]
 mod searxng_local;
 #[cfg(not(mobile))]
 mod terminal;
 #[cfg(not(mobile))]
-mod file_extract;
-#[cfg(not(mobile))]
-mod project_memory;
-#[cfg(not(mobile))]
-mod github_collaboration;
+mod web_search;
 
 #[cfg(not(mobile))]
-use std::{
-    path::PathBuf,
-    sync::Mutex,
-};
+use std::{path::PathBuf, sync::Mutex};
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -39,7 +38,6 @@ use tauri::{State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 #[cfg(not(mobile))]
 use tauri_plugin_dialog::DialogExt;
 #[cfg(not(mobile))]
-
 #[cfg(not(mobile))]
 const MAIN_WINDOW_LABEL: &str = "main";
 #[cfg(not(mobile))]
@@ -104,7 +102,11 @@ fn desktop_diagnostics(
     providers: State<'_, direct_provider::DirectProviderState>,
     searxng: State<'_, searxng_local::SearxngState>,
 ) -> Result<DesktopDiagnosticsSnapshot, &'static str> {
-    let workspace_selected = workspace.0.lock().map_err(|_| "workspace-directory-unavailable")?.is_some();
+    let workspace_selected = workspace
+        .0
+        .lock()
+        .map_err(|_| "workspace-directory-unavailable")?
+        .is_some();
     Ok(DesktopDiagnosticsSnapshot {
         schema_version: 1,
         desktop_version: env!("CARGO_PKG_VERSION"),
@@ -115,16 +117,13 @@ fn desktop_diagnostics(
     })
 }
 
-/// Creates only the fixed, local Companion surface and hides the main workbench after success.
+/// Creates only the fixed, local Companion surface without hiding or changing the main workbench.
 /// It neither starts a model/Gateway nor grants the new WebView Shell, file, capture, or autostart access.
 #[cfg(not(mobile))]
 #[tauri::command]
 fn show_desktop_companion(app: AppHandle) -> Result<(), &'static str> {
     if let Some(window) = app.get_webview_window(DESKTOP_COMPANION_WINDOW_LABEL) {
         window.show().map_err(|_| "desktop-companion-unavailable")?;
-        window
-            .set_focus()
-            .map_err(|_| "desktop-companion-unavailable")?;
     } else {
         WebviewWindowBuilder::new(
             &app,
@@ -132,8 +131,8 @@ fn show_desktop_companion(app: AppHandle) -> Result<(), &'static str> {
             WebviewUrl::App("index.html".into()),
         )
         .title("AI Work OS · Orbit")
-        .inner_size(278.0, 330.0)
-        .min_inner_size(220.0, 260.0)
+        .inner_size(228.0, 270.0)
+        .min_inner_size(188.0, 222.0)
         .resizable(false)
         .decorations(false)
         .transparent(true)
@@ -143,24 +142,24 @@ fn show_desktop_companion(app: AppHandle) -> Result<(), &'static str> {
         .map_err(|_| "desktop-companion-unavailable")?;
     }
 
-    let main_window = app
-        .get_webview_window(MAIN_WINDOW_LABEL)
-        .ok_or("desktop configuration must define the main window")?;
-    main_window
-        .hide()
-        .map_err(|_| "desktop-companion-unavailable")?;
     Ok(())
 }
 
-/// Destroys only the fixed Companion window and returns to the main workbench.
+/// Hides the fixed Companion window without changing the main workbench.
+#[cfg(not(mobile))]
+#[tauri::command]
+fn hide_desktop_companion(app: AppHandle) -> Result<(), &'static str> {
+    if let Some(window) = app.get_webview_window(DESKTOP_COMPANION_WINDOW_LABEL) {
+        window.hide().map_err(|_| "desktop-companion-unavailable")?;
+    }
+    Ok(())
+}
+
+/// Hides only the fixed Companion window, then explicitly restores the main workbench.
 #[cfg(not(mobile))]
 #[tauri::command]
 fn close_desktop_companion(app: AppHandle) -> Result<(), &'static str> {
-    if let Some(window) = app.get_webview_window(DESKTOP_COMPANION_WINDOW_LABEL) {
-        window
-            .close()
-            .map_err(|_| "desktop-companion-unavailable")?;
-    }
+    hide_desktop_companion(app.clone())?;
     let main_window = app
         .get_webview_window(MAIN_WINDOW_LABEL)
         .ok_or("desktop configuration must define the main window")?;
@@ -176,8 +175,15 @@ fn close_desktop_companion(app: AppHandle) -> Result<(), &'static str> {
 /// Keeps the application discoverable after the main window is minimized or hidden by the Companion surface.
 #[cfg(not(mobile))]
 fn install_desktop_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show_workbench = MenuItem::with_id(app, "tray-show-workbench", "打开工作台", true, None::<&str>)?;
-    let show_companion = MenuItem::with_id(app, "tray-show-companion", "显示桌面助手", true, None::<&str>)?;
+    let show_workbench =
+        MenuItem::with_id(app, "tray-show-workbench", "打开工作台", true, None::<&str>)?;
+    let show_companion = MenuItem::with_id(
+        app,
+        "tray-show-companion",
+        "显示桌面助手",
+        true,
+        None::<&str>,
+    )?;
     let exit = MenuItem::with_id(app, "tray-exit", "退出 AI Work OS", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_workbench, &show_companion, &exit])?;
     let mut builder = TrayIconBuilder::with_id("ai-work-os-tray")
@@ -188,8 +194,12 @@ fn install_desktop_tray(app: &AppHandle) -> tauri::Result<()> {
     }
     builder
         .on_menu_event(|app, event| match event.id().0.as_str() {
-            "tray-show-workbench" => { let _ = close_desktop_companion(app.clone()); }
-            "tray-show-companion" => { let _ = show_desktop_companion(app.clone()); }
+            "tray-show-workbench" => {
+                let _ = close_desktop_companion(app.clone());
+            }
+            "tray-show-companion" => {
+                let _ = show_desktop_companion(app.clone());
+            }
             "tray-exit" => app.exit(0),
             _ => {}
         })
@@ -228,12 +238,15 @@ pub fn run() {
             file_extract::extract_file_content,
             project_memory::read_project_memory,
             project_memory::write_project_memory,
+            assistant_artifacts::save_assistant_markdown_artifact,
+            assistant_artifacts::read_assistant_markdown_artifact,
             github_collaboration::github_test_token,
             github_collaboration::github_workspace_status,
             github_collaboration::github_workspace_preflight,
             github_collaboration::github_commit_and_push,
             choose_workspace_directory,
             show_desktop_companion,
+            hide_desktop_companion,
             close_desktop_companion,
             exit_ai_work_os
         ])
@@ -246,6 +259,13 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == DESKTOP_COMPANION_WINDOW_LABEL {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                return;
+            }
             if window.label() != MAIN_WINDOW_LABEL {
                 return;
             }
