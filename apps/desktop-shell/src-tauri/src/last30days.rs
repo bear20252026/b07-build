@@ -47,24 +47,47 @@ fn validated_query(query: &str) -> Result<&str, &'static str> {
     Ok(value)
 }
 
-fn source_script(app: &AppHandle, mode: &Last30DaysMode) -> Result<std::path::PathBuf, &'static str> {
+fn source_script(
+    app: &AppHandle,
+    mode: &Last30DaysMode,
+) -> Result<std::path::PathBuf, &'static str> {
     let path = match mode {
-        Last30DaysMode::Last30days => "research/last30days-skill/skills/last30days/scripts/last30days.py",
+        Last30DaysMode::Last30days => {
+            "research/last30days-skill/skills/last30days/scripts/last30days.py"
+        }
         Last30DaysMode::Last30daysCn => "research/last30days-skill-cn/scripts/last30days.py",
     };
-    let resolved = app.path().resolve(path, BaseDirectory::Resource).map_err(|_| "last30days-resource-unavailable")?;
-    resolved.is_file().then_some(resolved).ok_or("last30days-resource-unavailable")
+    let resolved = app
+        .path()
+        .resolve(path, BaseDirectory::Resource)
+        .map_err(|_| "last30days-resource-unavailable")?;
+    resolved
+        .is_file()
+        .then_some(resolved)
+        .ok_or("last30days-resource-unavailable")
 }
 
 fn source_urls(raw: &str) -> Vec<Last30DaysSource> {
     let mut urls = BTreeSet::new();
     for token in raw.split_whitespace() {
-        let url = token.trim_matches(|character: char| matches!(character, '<' | '>' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | '.' | ';' | '"' | '\''));
+        let url = token.trim_matches(|character: char| {
+            matches!(
+                character,
+                '<' | '>' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | '.' | ';' | '"' | '\''
+            )
+        });
         if url.starts_with("https://") || url.starts_with("http://") {
             urls.insert(url.to_owned());
         }
     }
-    urls.into_iter().take(MAX_SOURCES).enumerate().map(|(index, url)| Last30DaysSource { title: format!("近 30 天研究来源 {}", index + 1), url }).collect()
+    urls.into_iter()
+        .take(MAX_SOURCES)
+        .enumerate()
+        .map(|(index, url)| Last30DaysSource {
+            title: format!("近 30 天研究来源 {}", index + 1),
+            url,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -73,20 +96,32 @@ fn truncate_chars(value: &str, limit: usize) -> String {
 }
 
 fn python_executable(app: &AppHandle) -> std::path::PathBuf {
-    let bundled = app.path().resolve("research/python-runtime/python.exe", BaseDirectory::Resource).ok();
-    bundled.filter(|path| path.is_file()).unwrap_or_else(|| std::path::PathBuf::from(if cfg!(target_os = "windows") { "python.exe" } else { "python3" }))
+    let bundled = app
+        .path()
+        .resolve(
+            "research/python-runtime/python.exe",
+            BaseDirectory::Resource,
+        )
+        .ok();
+    bundled.filter(|path| path.is_file()).unwrap_or_else(|| {
+        std::path::PathBuf::from(if cfg!(target_os = "windows") {
+            "python.exe"
+        } else {
+            "python3"
+        })
+    })
 }
 
 #[tauri::command]
-pub async fn run_last30days_research(app: AppHandle, request: Last30DaysRequest) -> Result<Last30DaysResponse, &'static str> {
+pub async fn run_last30days_research(
+    app: AppHandle,
+    request: Last30DaysRequest,
+) -> Result<Last30DaysResponse, &'static str> {
     let query = validated_query(&request.query)?.to_owned();
     let script = source_script(&app, &request.mode)?;
     let executable = python_executable(&app);
     let mut command = Command::new(executable);
-    command
-        .arg(script)
-        .arg(&query)
-        .args(["--emit", "json"]);
+    command.arg(script).arg(&query).args(["--emit", "json"]);
     // CREATE_NO_WINDOW：Windows 中运行内嵌研究器不得显示独立 cmd/终端窗口。
     #[cfg(target_os = "windows")]
     command.creation_flags(0x08000000);
@@ -108,7 +143,12 @@ pub async fn run_last30days_research(app: AppHandle, request: Last30DaysRequest)
         return Err("last30days-output-exceeds-context-budget");
     }
     let sources = source_urls(&raw_content);
-    Ok(Last30DaysResponse { query, mode: request.mode, raw_content, sources })
+    Ok(Last30DaysResponse {
+        query,
+        mode: request.mode,
+        raw_content,
+        sources,
+    })
 }
 
 #[cfg(test)]

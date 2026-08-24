@@ -4,7 +4,7 @@
  * Copyright 2025 AionUi (aionui.com)
  * SPDX-License-Identifier: Apache-2.0
  *
- * AI Work OS changes: keeps state local to this virtualized timeline, uses an
+ * NOVA changes: keeps state local to this virtualized timeline, uses an
  * immediate rAF update for streaming performance, and exposes a scroll handler
  * instead of accepting an opaque content string.
  */

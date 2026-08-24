@@ -1,7 +1,7 @@
 $root = 'D:\maanuse\AI-Work-OS-local-build'
 $delivery = 'D:\maanuse\AI-Work-OS-Installer\local-build'
-$source = Join-Path $root 'apps\desktop-shell\src-tauri\target\release\bundle\nsis\AI Work OS_0.1.14_x64-setup.exe'
-$target = Join-Path $delivery 'AI Work OS_0.1.14_x64-setup.exe'
+$source = Join-Path $root 'apps\desktop-shell\src-tauri\target\release\bundle\nsis\NOVA_0.1.15_x64-setup.exe'
+$target = Join-Path $delivery 'NOVA_0.1.15_x64-setup.exe'
 
 if (-not (Test-Path $source)) { throw "Installer missing: $source" }
 New-Item -ItemType Directory -Path $delivery -Force | Out-Null
@@ -11,8 +11,8 @@ $item = Get-Item $target
 $hash = (Get-FileHash -Path $target -Algorithm SHA256).Hash
 $signature = (Get-AuthenticodeSignature -FilePath $target).Status.ToString()
 $manifest = [ordered]@{
-  product = 'AI Work OS'
-  version = '0.1.14'
+  product = 'NOVA'
+  version = '0.1.15'
   installer = $item.Name
   sourceCommit = 'generated-by-github-actions'
   sourceCommitFull = 'generated-by-github-actions'
@@ -54,7 +54,7 @@ $manifest = [ordered]@{
     'PNG, JPEG, WebP and GIF attachments are sent as OpenAI-compatible or Anthropic-compatible multimodal content blocks instead of filename-only descriptors',
     'Very long chat input is retained as a virtual TXT context record and remains available in later turns under the 1M-character request budget',
     'The terminal window executes user-submitted commands under the current Windows user, streams output and supports cancellation; high-impact commands require one final explicit confirmation',
-    'Release metadata, Tauri bundle metadata, desktop package version and installer filename use semantic version 0.1.14 and a pre-build consistency check rejects mismatches',
+    'Release metadata, Tauri bundle metadata, desktop package version and installer filename use semantic version 0.1.15 and a pre-build consistency check rejects mismatches',
     'AionUi Apache-2.0 chat auto-scroll interaction is adapted with preserved notices: the central timeline scrolls independently, follows streaming only near the bottom and never pulls readers away from history',
     'The ordinary chat entry is code-split from legacy task, settings and inspector pages; the initial Workbench entry is kept below the 500 KB performance budget',
     'Hybrid search requests and deduplicates up to 100 sources; raw search bodies are provided only to the current Provider request instead of being persisted or rendered into the chat timeline',
@@ -64,7 +64,9 @@ $manifest = [ordered]@{
     'Context budget, checkpoints, branches and safe Markdown/JSON export are local transparent inspector tools; exports exclude hidden Provider context and activity details',
     'The direct Provider usage ledger stores a bounded local projection of diagnostic metadata, latency, first-token time, visible output characters and error category without storing Base URLs, keys, chat content, images, vendor token counts or billing data',
     'Halo Search, the event-driven real-progress Inspector, a resizable controlled artifact rail and explicit assistant Markdown saving remain local user-driven surfaces and do not replace direct Provider HTTPS/SSE chat',
-    'The Windows native desktop pet is default-off and explicitly shown: its transparent borderless always-on-top window can hide independently without hiding the workbench, chat, search, artifacts or Provider configuration'
+    'The Windows native desktop pet is default-off and explicitly shown: its transparent borderless always-on-top window can hide independently without hiding the workbench, chat, search, artifacts or Provider configuration',
+    'NOVA replaces the previous application display name across the Windows window, tray, installer, Workbench and local diagnostics while keeping the stable app identifier and existing user data locations',
+    'The Workbench provides official starter directories for current direct Provider models, including Kimi and DeepSeek V4 Flash, without replacing user-entered Base URLs, model identifiers, protocol choices or native HTTPS/SSE direct chat'
   )
 }
 $manifest | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $delivery 'build-manifest.json') -Encoding utf8

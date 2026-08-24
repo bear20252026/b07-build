@@ -117,7 +117,7 @@ export function providerDiagnosticReport(input: Readonly<{
   workspaceSelected?: boolean;
 }>): string {
   const lines = [
-    'AI Work OS 本地诊断报告',
+    'NOVA 本地诊断报告',
     `生成时间：${new Date().toISOString()}`,
     `桌面版本：${input.desktopVersion ?? '未知'}`,
     `来源提交：${input.sourceRevision ?? '未嵌入'}`,

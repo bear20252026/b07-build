@@ -1,8 +1,8 @@
 [package]
 name = "awo-desktop-shell"
-version = "0.1.14"
-description = "AI Work OS Windows desktop shell"
-authors = ["AI Work OS Development"]
+version = "0.1.15"
+description = "NOVA Windows desktop shell"
+authors = ["NOVA Development"]
 edition = "2021"
 rust-version = "1.77"
 publish = false

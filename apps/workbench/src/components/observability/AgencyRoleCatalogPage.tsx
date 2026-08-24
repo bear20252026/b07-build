@@ -30,7 +30,7 @@ export function AgencyRoleCatalogPage({ gatewayAttached, onBack }: { gatewayAtta
     void client.createCandidate(selected.id).then((result) => setCandidateMessage(result.alreadyExists ? `“${selected.displayName}” 已在本机 Skill Pack 账本中，状态为 ${result.pack.status}。` : `已创建“${selected.displayName}”候选（${result.pack.id}）。它尚未审查、发布或注入任何任务。`)).catch((nextError: unknown) => setError(nextError instanceof Error ? nextError.message : '未能创建角色候选。')).finally(() => setPending(false));
   };
   return <section className="page-stack agency-role-page"><div className="page-heading agency-role-heading"><div><span>EXTENSIONS & CAPABILITIES / AGENCY ROLES</span><h1>预置专业角色</h1><p>源自 agency-agents 的少量 MIT 许可角色。它们是可审查的上下文候选，而不是可自动执行、授权或安装的插件。</p></div><div><button title="返回二级“扩展与能力”页面。" onClick={onBack} type="button">← 返回扩展与能力</button><button title="读取本机 Gateway 的静态角色目录；不请求网络、不扫描文件、不安装任何外部工具。" disabled={!gatewayAttached || pending} onClick={load} type="button">{pending ? '读取中…' : '刷新目录'}</button></div></div>
-    <section className="design-foundation-card" aria-label="AI Work OS Apple-first design foundation">
+    <section className="design-foundation-card" aria-label="NOVA Apple-first design foundation">
       <div><span>PROJECT DESIGN FOUNDATION</span><h2>UI Designer · Apple-first 设计简报</h2><p>项目根 <code>DESIGN.md</code> 与 Apple-first 设计契约是 UI Designer、Frontend Developer、UX Researcher 和 Code Reviewer 的共同依据。它优先保护可读性、系统字体、层级、行动清晰度与受控状态表达。</p></div>
       <dl><div><dt>主基线</dt><dd>Apple HIG、系统字体、行动蓝、克制材料层级</dd></div><div><dt>辅助模式</dt><dd>Linear 的表面阶梯；Raycast 的命令与键帽提示</dd></div><div><dt>安全边界</dt><dd>设计文本不会自动注入、授权、读取密钥或改变工具能力</dd></div></dl>
       <small>详细契约：<code>docs/design/apple-first-workbench-contract.md</code>。选择并添加 UI Designer 后，它仍只是待审查的 Skill Pack 候选。</small>

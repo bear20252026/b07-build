@@ -20,7 +20,7 @@ export function GitHubCollaborationPanel() {
   const [identity, setIdentity] = useState<GithubIdentity>();
   const [status, setStatus] = useState<GithubWorkspaceStatus>();
   const [preflight, setPreflight] = useState<GithubWorkspacePreflight>();
-  const [message, setMessage] = useState('chore: update AI Work OS workspace');
+  const [message, setMessage] = useState('chore: update NOVA workspace');
   const [confirmed, setConfirmed] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();

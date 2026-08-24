@@ -106,7 +106,9 @@ test('明确 /github 命令只在本地打开确认式 GitHub 协作面板，不
 
 test('首页可明确选择任意已连接厂商与模型，并提供无敏感 Provider 时间线和搜索重试预填', () => {
   for (const expected of ['MODEL CONNECTION · DIRECT', '首页厂商连接', '首页模型标识', 'onSelectTaskModel', '不会修改地址、密钥或自动改用其他厂商']) assert.ok(chatHome.includes(expected), `首页缺少模型切换契约：${expected}`);
-  for (const expected of ['homeModelChoices', 'isSelectableHomeModel', 'mimo-v2.5', 'mimo-v2.5-pro']) assert.ok(homeModelSwitching.includes(expected), `首页模型选择缺少：${expected}`);
+  for (const expected of ['homeModelChoices', 'isSelectableHomeModel', 'officialModelsForProvider', 'mimo-v2.5', 'mimo-v2.5-pro']) assert.ok(homeModelSwitching.includes(expected), `首页模型选择缺少：${expected}`);
+  const officialCatalog = readFileSync(resolve(root, 'apps/workbench/src/runtime/official-provider-catalog.ts'), 'utf8');
+  for (const expected of ['deepseek-v4-flash', 'deepseek-v4-flash-vision-exp', "id: 'kimi'", 'kimi-k2.7-code', "id: 'baidu-qianfan'", 'ernie-5.1', "id: 'baichuan'", 'Baichuan4-Turbo', "id: 'sensenova'", 'SenseChat-5', "id: 'doubao-ark'", "id: 'minimax'", "id: 'stepfun'", "id: 'iflytek-spark'"]) assert.ok(officialCatalog.includes(expected), `官方 Provider 目录缺少：${expected}`);
   for (const expected of ['createProviderTraceId', 'traceId', '不包含 API key、提示词、回复、图片数据或代理地址']) assert.ok(providerDiagnostics.includes(expected), `Provider 时间线缺少：${expected}`);
   for (const expected of ['SearchRunCard', 'onPrepareSearchRetry', '准备以同一后端重试']) assert.ok(chatHome.includes(expected), `搜索运行卡缺少：${expected}`);
   assert.ok(searchRunCard.includes('searchRunMode'));
@@ -117,13 +119,14 @@ test('首页可明确选择任意已连接厂商与模型，并提供无敏感 P
 test('模型目录仅作为可选辅助能力，连接测试必须调用已配置模型的真实聊天端点', () => {
   assert.ok(directProvider.includes('headers.insert(ACCEPT, HeaderValue::from_static("application/json"))'));
   assert.ok(directProvider.includes('subscription gateway may return an'));
-  assert.ok(directProvider.includes('return Ok(DirectProviderModelDiscovery { schema_version: 1, provider_id: request.provider_id, models: Vec::new() })'));
+  assert.match(directProvider, /return Ok\(DirectProviderModelDiscovery\s*\{\s*schema_version: 1,\s*provider_id: request\.provider_id,\s*models: Vec::new\(\),\s*\}\)/);
   assert.ok(directProvider.includes('pub async fn probe_direct_provider'));
   assert.ok(directProvider.includes('post(url_for(&session))'));
   assert.ok(directProvider.includes('Reply with OK.'));
 });
 
-test('桌面 Workbench 使用静态 AW 标记而不引入要求 unsafe-eval 的图标运行时代码', () => {
-  assert.ok(workbenchSider.includes('sider-brand-initials'));
+test('桌面 Workbench 使用静态 NOVA 图标而不引入要求 unsafe-eval 的图标运行时代码', () => {
+  assert.ok(workbenchSider.includes("import novaIcon from '../../assets/nova-icon.png'"));
+  assert.ok(workbenchSider.includes('src={novaIcon}'));
   assert.equal(workbenchSider.includes('@lobehub/icons'), false);
 });

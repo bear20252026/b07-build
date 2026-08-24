@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Query = 'AI Work OS'
+  [string]$Query = 'NOVA'
 )
 
 $ErrorActionPreference = 'Stop'

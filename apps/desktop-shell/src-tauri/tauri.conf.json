@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AI Work OS",
-  "version": "0.1.14",
+  "productName": "NOVA",
+  "version": "0.1.15",
   "identifier": "com.bear20252026.aiworkos",
   "build": {
     "beforeDevCommand": "npm run dev --workspace=@awo/workbench -- --host 127.0.0.1",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "AI Work OS",
+        "title": "NOVA",
         "width": 1440,
         "height": 960,
         "minWidth": 1040,
@@ -40,8 +40,8 @@
       "nsis"
     ],
     "category": "DeveloperTool",
-    "shortDescription": "AI Work OS local-first desktop workbench",
-    "longDescription": "A desktop workbench with direct user-configured Provider connections and local project workspaces.",
+    "shortDescription": "NOVA local-first desktop workbench",
+    "longDescription": "NOVA is a desktop workbench with direct user-configured Provider connections and local project workspaces.",
     "resources": {
       "../../../third_party/last30days-skill/": "research/last30days-skill/",
       "../../../third_party/last30days-skill-cn/": "research/last30days-skill-cn/",

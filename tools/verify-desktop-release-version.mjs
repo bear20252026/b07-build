@@ -16,7 +16,7 @@ if (versions.some((version) => typeof version !== 'string') || new Set(versions)
 
 const [version] = versions;
 if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`desktop-release-version-invalid: ${version}`);
-if (!publishScript.includes(`AI Work OS_${version}_x64-setup.exe`) || !publishScript.includes(`version = '${version}'`)) {
+if (!publishScript.includes(`NOVA_${version}_x64-setup.exe`) || !publishScript.includes(`version = '${version}'`) || !publishScript.includes("product = 'NOVA'")) {
   throw new Error(`desktop-release-publish-script-mismatch: ${version}`);
 }
 

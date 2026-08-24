@@ -171,3 +171,9 @@
 - [x] 实施 A. 原生宠物窗口：保留现有 Companion 设置页；将“留在桌面”改为默认关闭、无边框、透明、置顶、可隐藏的独立 Tauri 窗口；仅由用户显式显示／隐藏，不覆盖聊天、搜索、产物树或 Provider 配置，且不介入普通聊天 SSE。
 - [x] 为原生宠物窗口补充窗口生命周期、默认隐藏、显式显示／隐藏、Provider 隔离和减少动态降级测试；通过 GitHub hosted Windows runner 构建契约验证后才交付安装器。
 - [x] 将 Halo Search、真实阶段 Inspector、受控产物扩展框、显式保存回复为 Markdown 与 A. 原生宠物窗口作为 0.1.14 候选版本提交、推送，并由 GitHub hosted Windows runner 构建、核验 SHA-256 与 SLSA 证明；安装器须明确为 unsigned candidate。
+- [x] 以中国大模型厂商的官方技术文档为来源，建立当前已接入 Provider、Kimi 及其他主流厂商的模型目录、Base URL、OpenAI／Anthropic 兼容协议、认证方式、流式与多模态能力矩阵；不根据非官方名称或营销材料猜测模型。
+- [x] 核对首页与 Provider 设置现有的预设目录、自由手填模型和 Tauri 原生直连请求构造，找出当前只显示单一 DeepSeek 预设等目录缺口；用户手填任意模型、地址和兼容协议必须继续可用且不回退 Gateway。
+- [ ] 在官方目录与协议差异核验完成后，提出 Kimi 与其他中国厂商的分阶段直连接入方案、版本化刷新策略、测试矩阵和许可证／品牌名称边界；未经核验不得把“所有模型”写成可用承诺。
+- [x] 新增首批官方 Provider 目录：为 DeepSeek V4、Kimi、智谱 GLM、阿里百炼、腾讯混元／TokenHub、火山方舟／豆包、MiniMax、阶跃星辰、讯飞星火、MiMo 与 LongCat 写入可编辑的直连模板和当前官方常用模型候选；首页候选合并静态目录、用户点击后的账户模型发现和任意有效手填模型。
+- [x] 将产品显示名称统一改为全大写 NOVA，并将用户提供的蓝色图标转换为 Tauri/Windows 所需的多尺寸图标资源；同步工作台、窗口、安装器和发布清单显示，但不更改 app identifier、用户数据目录或 Provider 配置存储键。
+- [ ] 将官方 Provider 目录更新、NOVA 品牌与图标作为 0.1.15 unsigned candidate 提交、推送，并由 GitHub hosted Windows runner 构建、核验 SHA-256 和 SLSA provenance；不得使用用户 Windows 本机工具链。

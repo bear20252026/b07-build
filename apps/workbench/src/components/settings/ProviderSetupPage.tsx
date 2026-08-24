@@ -1,32 +1,11 @@
 import { useMemo, useState } from 'react';
 import type { WorkbenchProviderConnection, WorkbenchProviderModelDiscovery } from '../../runtime/task-client';
+import { OFFICIAL_PROVIDER_PRESETS, type OfficialProviderPreset } from '../../runtime/official-provider-catalog';
 import './ProviderSetupPage.css';
 
 type Protocol = 'openai-compatible' | 'anthropic-compatible';
 
-type ProviderPreset = {
-  id: string;
-  title: string;
-  description: string;
-  defaultModel: string;
-  defaultBaseUrls: Partial<Record<Protocol, string>>;
-};
-
-const PRESETS: readonly ProviderPreset[] = [
-  { id: 'deepseek', title: 'DeepSeek', description: '默认推荐', defaultModel: 'deepseek-v4-pro', defaultBaseUrls: { 'openai-compatible': 'https://api.deepseek.com' } },
-  { id: 'mimo', title: 'Xiaomi MiMo（按量）', description: 'sk- 密钥', defaultModel: 'mimo-v2.5-pro', defaultBaseUrls: { 'openai-compatible': 'https://api.xiaomimimo.com/v1', 'anthropic-compatible': 'https://api.xiaomimimo.com/anthropic' } },
-  { id: 'mimo-token-plan-cn', title: 'MiMo Token Plan（中国）', description: 'tp- 订阅密钥', defaultModel: 'mimo-v2.5-pro', defaultBaseUrls: { 'openai-compatible': 'https://token-plan-cn.xiaomimimo.com/v1', 'anthropic-compatible': 'https://token-plan-cn.xiaomimimo.com/anthropic' } },
-  { id: 'longcat', title: 'LongCat', description: '美团龙猫', defaultModel: 'LongCat-2.0', defaultBaseUrls: { 'openai-compatible': 'https://api.longcat.chat/openai/v1' } },
-  { id: 'kimi', title: 'Kimi', description: 'Moonshot AI', defaultModel: 'kimi-k3', defaultBaseUrls: { 'openai-compatible': 'https://api.moonshot.cn/v1' } },
-  { id: 'zhipu', title: '智谱 GLM', description: 'GLM 系列', defaultModel: 'glm-5.3', defaultBaseUrls: { 'openai-compatible': 'https://open.bigmodel.cn/api/paas/v4' } },
-  { id: 'openai', title: 'OpenAI', description: 'Chat Completions', defaultModel: 'gpt-5.6', defaultBaseUrls: { 'openai-compatible': 'https://api.openai.com/v1' } },
-  { id: 'google-gemini', title: 'Google Gemini', description: 'OpenAI-compatible', defaultModel: 'gemini-3.7-flash', defaultBaseUrls: { 'openai-compatible': 'https://generativelanguage.googleapis.com/v1beta/openai' } },
-  { id: 'mistral', title: 'Mistral AI', description: 'OpenAI-compatible', defaultModel: 'mistral-large-latest', defaultBaseUrls: { 'openai-compatible': 'https://api.mistral.ai/v1' } },
-  { id: 'openrouter', title: 'OpenRouter', description: '多模型路由', defaultModel: 'openrouter/auto', defaultBaseUrls: { 'openai-compatible': 'https://openrouter.ai/api/v1' } },
-  { id: 'anthropic', title: 'Anthropic Claude', description: 'Messages API', defaultModel: 'claude-opus-5', defaultBaseUrls: { 'anthropic-compatible': 'https://api.anthropic.com' } },
-];
-
-function baseUrlFor(preset: ProviderPreset, protocol: Protocol): string {
+function baseUrlFor(preset: OfficialProviderPreset, protocol: Protocol): string {
   return preset.defaultBaseUrls[protocol] ?? '';
 }
 
@@ -64,7 +43,7 @@ export interface ProviderSetupPageProps {
 
 /** 原模型设置页：协议、地址、密钥和模型都在同一个表单内明确呈现。 */
 export function ProviderSetupPage({ error, pendingProviderId, discoveredModels = {}, onConfigure, onConfigureCustom, onDiscoverModels, onManageConnections }: ProviderSetupPageProps) {
-  const firstPreset = PRESETS[0]!;
+  const firstPreset = OFFICIAL_PROVIDER_PRESETS[0]!;
   const [providerId, setProviderId] = useState(firstPreset.id);
   const [customMode, setCustomMode] = useState(false);
   const [protocol, setProtocol] = useState<Protocol>('openai-compatible');
@@ -75,12 +54,12 @@ export function ProviderSetupPage({ error, pendingProviderId, discoveredModels =
   const [apiKey, setApiKey] = useState(() => savedApiKey(firstPreset.id));
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const selected = useMemo(() => PRESETS.find((item) => item.id === providerId) ?? firstPreset, [providerId, firstPreset]);
+  const selected = useMemo(() => OFFICIAL_PROVIDER_PRESETS.find((item) => item.id === providerId) ?? firstPreset, [providerId, firstPreset]);
   const isSubmitting = pendingProviderId === (customMode ? 'custom' : providerId);
   const discovery = !customMode ? discoveredModels[providerId] : undefined;
 
   const choosePreset = (nextProviderId: string) => {
-    const next = PRESETS.find((item) => item.id === nextProviderId) ?? firstPreset;
+    const next = OFFICIAL_PROVIDER_PRESETS.find((item) => item.id === nextProviderId) ?? firstPreset;
     const nextProtocol: Protocol = next.defaultBaseUrls['openai-compatible'] ? 'openai-compatible' : 'anthropic-compatible';
     setCustomMode(false);
     setProviderId(next.id);
@@ -133,7 +112,7 @@ export function ProviderSetupPage({ error, pendingProviderId, discoveredModels =
       <section className="provider-onboarding provider-onboarding--compact provider-three-step" aria-label="Third-party API setup">
         <div className="onboarding-step"><span>1</span><div><strong>选择服务</strong><p>选择预置服务，或连接自己的兼容模型。</p></div></div>
         <div className="provider-preset-grid provider-preset-grid--compact provider-preset-grid--simple">
-          {PRESETS.map((item) => <button key={item.id} type="button" title={`选择 ${item.title}；协议、地址和模型名称均可修改。`} className={`provider-preset${!customMode && providerId === item.id ? ' active' : ''}`} onClick={() => choosePreset(item.id)}><strong>{item.title}</strong><small>{item.description}</small></button>)}
+          {OFFICIAL_PROVIDER_PRESETS.map((item) => <button key={item.id} type="button" title={`选择 ${item.title}；协议、地址和模型名称均可修改。`} className={`provider-preset${!customMode && providerId === item.id ? ' active' : ''}`} onClick={() => choosePreset(item.id)}><strong>{item.title}</strong><small>{item.description}</small></button>)}
           <button type="button" title="连接符合 OpenAI 或 Anthropic 标准的自有 HTTPS 服务。" className={`provider-preset provider-preset--custom${customMode ? ' active' : ''}`} onClick={chooseCustom}><strong>自定义 API</strong><small>OpenAI 或 Anthropic-compatible</small></button>
         </div>
         <div className="onboarding-step"><span>2</span><div><strong>填写连接</strong><p>协议选择、连接地址、密钥和模型名共同决定真实请求格式。</p></div></div>
@@ -142,7 +121,7 @@ export function ProviderSetupPage({ error, pendingProviderId, discoveredModels =
           {!customMode && providerId.startsWith('mimo') && <p className="provider-compatibility-note">MiMo 中国区按协议使用不同基础地址：OpenAI 为 `/v1`，Anthropic 为 `/anthropic`；`sk-` 与 `tp-` 密钥不可混用。</p>}
           {customMode && <><label><span>显示名称</span><input value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} placeholder="我的兼容模型" /></label><label><span>模型名称</span><input value={model} maxLength={128} onChange={(event) => setModel(event.target.value)} placeholder="my-compatible-model" /></label></>}
           {!customMode && <button className="provider-model-adjust" title="可选地修改默认模型标识或本地显示名称；不会改变已选择协议。" type="button" onClick={() => setAdvancedOpen((open) => !open)}>{advancedOpen ? '收起模型调整' : '调整模型或名称（可选）'}</button>}
-          {!customMode && advancedOpen && <div className="provider-advanced-fields"><label><span>模型名称</span><input value={model} maxLength={128} onChange={(event) => setModel(event.target.value)} placeholder={selected.defaultModel} /></label><label><span>显示名称</span><input value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} placeholder={`我的 ${selected.title}`} /></label></div>}
+          {!customMode && advancedOpen && <div className="provider-advanced-fields"><label><span>模型名称</span><input value={model} list={`official-models-${selected.id}`} maxLength={128} onChange={(event) => setModel(event.target.value)} placeholder={selected.defaultModel} /><datalist id={`official-models-${selected.id}`}>{selected.officialModels.map((item) => <option key={item} value={item} />)}</datalist></label><label><span>显示名称</span><input value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} placeholder={`我的 ${selected.title}`} /></label></div>}
           <label className="provider-base-url-field"><span>连接地址 / Base URL（{protocol === 'openai-compatible' ? 'OpenAI' : 'Anthropic'}）</span><input value={baseUrl} inputMode="url" maxLength={512} onChange={(event) => { setBaseUrl(event.target.value); setBaseUrlDirty(true); }} placeholder={customMode ? 'https://api.example.com/v1' : baseUrlFor(selected, protocol) || '按供应商文档填写 HTTPS Base URL'} /><small>填写供应商控制台给出的协议对应基础地址；不要输入完整 chat completion 或 messages 操作路径。</small></label>
           {!customMode && baseUrlFor(selected, protocol) && <button type="button" className="provider-default-url" title="用该供应商当前所选协议的官方默认 Base URL 覆盖本框内容。" onClick={restoreOfficialBaseUrl}>使用当前协议的官方默认地址</button>}
           <label className="provider-key-field"><span>API key</span><div className="provider-key-input-row"><input value={apiKey} type={apiKeyVisible ? 'text' : 'password'} autoComplete="off" onChange={(event) => { const next = event.target.value; setApiKey(next); saveApiKey(customMode ? 'custom' : providerId, next); }} placeholder="粘贴 API key" /><button type="button" onClick={() => setApiKeyVisible((visible) => !visible)}>{apiKeyVisible ? '隐藏' : '显示'}</button><button type="button" onClick={() => { setApiKey(''); saveApiKey(customMode ? 'custom' : providerId, ''); }}>清除</button></div><small>按你的要求，密钥保存在此 Windows 用户的本地应用存储中，可随时显示；预置和自定义连接使用同一保存方式。</small></label>

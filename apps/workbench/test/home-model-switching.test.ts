@@ -16,7 +16,7 @@ const mimo = {
   canAutoConnect: false,
 };
 
-test('首页模型选择器保留默认、MiMo 已知模型和第三方发现模型', () => {
+test('首页模型选择器保留默认、官方 MiMo 目录和第三方发现模型', () => {
   assert.deepEqual(homeModelChoices(mimo, {
     schemaVersion: 1,
     providerId: mimo.providerId,
@@ -26,6 +26,14 @@ test('首页模型选择器保留默认、MiMo 已知模型和第三方发现模
     canReadSecret: false,
     canAutoConnect: false,
   }), ['mimo-v2.5-pro', 'mimo-v2.5', 'mimo-v2.5-vision-preview']);
+});
+
+test('首页模型选择器提供 DeepSeek V4 Flash 与 Kimi 官方目录，但不阻止用户手填其它有效模型', () => {
+  const deepseek = { ...mimo, providerId: 'deepseek', displayName: '我的 DeepSeek', defaultModel: 'deepseek-v4-pro' };
+  assert.deepEqual(homeModelChoices(deepseek, undefined), ['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp']);
+  const kimi = { ...mimo, providerId: 'kimi', displayName: '我的 Kimi', defaultModel: 'kimi-k3' };
+  assert.deepEqual(homeModelChoices(kimi, undefined), ['kimi-k3', 'kimi-k2.7-code', 'kimi-k2.7-code-highspeed', 'kimi-k2.6']);
+  assert.deepEqual(explicitHomeModelSelection('kimi', 'kimi-user-enabled-preview'), { providerId: 'kimi', model: 'kimi-user-enabled-preview' });
 });
 
 test('首页模型选择器接受标准模型标识但拒绝不安全的空白或空格值', () => {

@@ -3,6 +3,7 @@ import orbitCompanion from '../../assets/companions/orbit.png';
 import moriCompanion from '../../assets/companions/mori.png';
 import pixelCompanion from '../../assets/companions/pixel.png';
 import sageCompanion from '../../assets/companions/sage.png';
+import novaIcon from '../../assets/nova-icon.png';
 import { useLocale } from '../../i18n/LocaleProvider';
 import type { WorkbenchPage } from './workbench-page';
 import type { WorkbenchProject } from '../../runtime/project-client';
@@ -96,8 +97,8 @@ export function Sider({ activePage, hasActiveTask, projects, selectedProjectId, 
   return (
     <nav className="sider" aria-label={messages.navigation.aria}>
       <div className="sider-brand">
-        <div className="sider-brand-mark" aria-hidden="true"><span className="sider-brand-initials">AW</span></div>
-        <div className="sider-brand-copy"><div className="sider-brand-name">AI Work OS</div><div className="sider-brand-subtitle">{messages.navigation.brandSubtitle}</div></div>
+        <div className="sider-brand-mark" aria-hidden="true"><img alt="" src={novaIcon} /></div>
+        <div className="sider-brand-copy"><div className="sider-brand-name">NOVA</div><div className="sider-brand-subtitle">{messages.navigation.brandSubtitle}</div></div>
       </div>
       <button className="sider-new-task" onClick={onNewTask} type="button"><span aria-hidden="true">＋</span> {messages.navigation.newTask}</button>
       <div className="sider-section-label">{messages.common.workspace}</div>

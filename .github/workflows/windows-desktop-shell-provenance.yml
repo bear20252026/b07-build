@@ -50,13 +50,13 @@ jobs:
           $env:AI_WORK_OS_SOURCE_REVISION = '${{ github.sha }}'
           npm run desktop:build
           if (-not $?) { throw 'Desktop shell Setup.exe packaging failed.' }
-          $installer = Get-ChildItem -LiteralPath .\apps\desktop-shell\src-tauri\target\release\bundle\nsis -File -Filter 'AI Work OS_*_x64-setup.exe' | Select-Object -First 1
+          $installer = Get-ChildItem -LiteralPath .\apps\desktop-shell\src-tauri\target\release\bundle\nsis -File -Filter 'NOVA_*_x64-setup.exe' | Select-Object -First 1
           if ($null -eq $installer) { throw 'Expected desktop Setup.exe output was not generated.' }
           $hash = Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256
           $version = node -p "require('./apps/desktop-shell/package.json').version"
           $manifest = [ordered]@{
             schemaVersion = 1
-            product = 'AI Work OS'
+            product = 'NOVA'
             version = $version
             platform = 'windows-x64'
             artifactKind = 'desktop-shell-setup-candidate'
@@ -78,7 +78,7 @@ jobs:
       - name: Upload desktop Setup.exe candidate
         uses: actions/upload-artifact@v7
         with:
-          name: ai-work-os-windows-x64-desktop-shell-candidate
+          name: nova-windows-x64-desktop-shell-candidate
           if-no-files-found: error
           path: |
             ${{ steps.package.outputs.installer }}

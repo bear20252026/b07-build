@@ -1,4 +1,4 @@
-//! AI Work OS desktop shell.
+//! NOVA desktop shell.
 //!
 //! The WebView receives no filesystem, shell, database, environment, updater, deep-link, or
 //! native-helper API. Third-party model requests are issued by the fixed native Provider client
@@ -130,7 +130,7 @@ fn show_desktop_companion(app: AppHandle) -> Result<(), &'static str> {
             DESKTOP_COMPANION_WINDOW_LABEL,
             WebviewUrl::App("index.html".into()),
         )
-        .title("AI Work OS · Orbit")
+        .title("NOVA · Orbit")
         .inner_size(228.0, 270.0)
         .min_inner_size(188.0, 222.0)
         .resizable(false)
@@ -184,10 +184,10 @@ fn install_desktop_tray(app: &AppHandle) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
-    let exit = MenuItem::with_id(app, "tray-exit", "退出 AI Work OS", true, None::<&str>)?;
+    let exit = MenuItem::with_id(app, "tray-exit", "退出 NOVA", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_workbench, &show_companion, &exit])?;
     let mut builder = TrayIconBuilder::with_id("ai-work-os-tray")
-        .tooltip("AI Work OS · 直接模型连接")
+        .tooltip("NOVA · 直接模型连接")
         .menu(&menu);
     if let Some(icon) = app.default_window_icon().cloned() {
         builder = builder.icon(icon);
@@ -281,7 +281,7 @@ pub fn run() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("AI Work OS desktop shell failed to run");
+        .expect("NOVA desktop shell failed to run");
 }
 
 /// Android/iOS 不继承 Windows sidecar、目录选择或桌面 Companion 命令。
@@ -300,5 +300,5 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("AI Work OS mobile shell failed to run");
+        .expect("NOVA mobile shell failed to run");
 }

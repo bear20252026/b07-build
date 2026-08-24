@@ -23,7 +23,7 @@ export function CompanionControlPage({ gatewayAttached, preferences, onBack, onU
   onBack: () => void;
   onUpdate(change: Partial<Pick<CompanionPreferencesV1, 'visualEnabled' | 'visualMode' | 'voiceEnabled' | 'proactiveSpeechEnabled'>>): void;
 }) {
-  const [ttsText, setTtsText] = useState('你好，我是你的 AI Work OS Companion。');
+  const [ttsText, setTtsText] = useState('你好，我是你的 NOVA Companion。');
   const [ttsVoice, setTtsVoice] = useState('mimo_default');
   const [ttsPending, setTtsPending] = useState(false);
   const [ttsStatus, setTtsStatus] = useState<string>();

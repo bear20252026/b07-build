@@ -152,10 +152,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 
 .sider { min-height: 0; height: 100dvh; overflow: hidden; padding: 18px 13px 13px; display: flex; flex-direction: column; gap: 13px; border-right: 1px solid var(--border); background: var(--sidebar); }
 .sider-brand { display: flex; align-items: center; gap: 10px; padding: 5px 8px 10px; }
-.sider-brand-mark { width: 32px; height: 32px; display: grid; place-items: center; overflow: hidden; border-radius: 12px; background: #19191c; box-shadow: 0 3px 10px rgba(20, 20, 24, 0.14); }
-.sider-brand-initials { color: #fff; font-size: 10px; font-weight: 760; letter-spacing: -0.08em; }
-.theme-dark .sider-brand-mark { background: #ededf0; }
-.theme-dark .sider-brand-initials { color: #202024; }
+.sider-brand-mark { width: 32px; height: 32px; display: grid; place-items: center; overflow: hidden; border-radius: 12px; background: #10111b; box-shadow: 0 3px 10px rgba(20, 20, 24, 0.14); }
+.sider-brand-mark img { width: 100%; height: 100%; object-fit: cover; }
 .sider-brand-name { color: var(--text-strong); font-size: 14px; font-weight: 720; letter-spacing: -0.02em; white-space: nowrap; }
 .sider-brand-subtitle { margin-top: 2px; color: var(--muted); font-size: 10px; white-space: nowrap; }
 .sider-new-task { width: 100%; min-height: 38px; padding: 0 11px; display: flex; align-items: center; gap: 8px; color: var(--text-strong); font-size: 13px; font-weight: 600; text-align: left; border: 1px solid var(--border); border-radius: 13px; background: var(--panel); box-shadow: 0 1px 1px rgba(20, 20, 24, 0.04); }

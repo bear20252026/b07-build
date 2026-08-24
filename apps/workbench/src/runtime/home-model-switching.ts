@@ -1,4 +1,5 @@
 import type { WorkbenchProviderConnection, WorkbenchProviderModelDiscovery } from './task-client';
+import { officialModelsForProvider } from './official-provider-catalog';
 
 const modelIdentifier = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
 
@@ -17,10 +18,7 @@ export function homeModelChoices(
   discovery: WorkbenchProviderModelDiscovery | undefined,
 ): readonly string[] {
   if (!connection) return [];
-  const knownMimo = /mimo/i.test(connection.displayName) || connection.providerId === 'mimo' || connection.providerId.startsWith('mimo-token-plan-')
-    ? ['mimo-v2.5', 'mimo-v2.5-pro']
-    : [];
-  return [connection.defaultModel, ...knownMimo, ...(discovery?.outcome === 'reachable' ? discovery.models : [])]
+  return [connection.defaultModel, ...officialModelsForProvider(connection.providerId), ...(discovery?.outcome === 'reachable' ? discovery.models : [])]
     .filter((model, index, all) => Boolean(model) && all.indexOf(model) === index)
     .slice(0, 100);
 }
