@@ -176,4 +176,4 @@
 - [ ] 在官方目录与协议差异核验完成后，提出 Kimi 与其他中国厂商的分阶段直连接入方案、版本化刷新策略、测试矩阵和许可证／品牌名称边界；未经核验不得把“所有模型”写成可用承诺。
 - [x] 新增首批官方 Provider 目录：为 DeepSeek V4、Kimi、智谱 GLM、阿里百炼、腾讯混元／TokenHub、火山方舟／豆包、MiniMax、阶跃星辰、讯飞星火、MiMo 与 LongCat 写入可编辑的直连模板和当前官方常用模型候选；首页候选合并静态目录、用户点击后的账户模型发现和任意有效手填模型。
 - [x] 将产品显示名称统一改为全大写 NOVA，并将用户提供的蓝色图标转换为 Tauri/Windows 所需的多尺寸图标资源；同步工作台、窗口、安装器和发布清单显示，但不更改 app identifier、用户数据目录或 Provider 配置存储键。
-- [ ] 将官方 Provider 目录更新、NOVA 品牌与图标作为 0.1.15 unsigned candidate 提交、推送，并由 GitHub hosted Windows runner 构建、核验 SHA-256 和 SLSA provenance；不得使用用户 Windows 本机工具链。
+- [x] 将官方 Provider 目录更新、NOVA 品牌与图标作为 0.1.15 unsigned candidate 提交、推送，并由 GitHub hosted Windows runner 构建、核验 SHA-256 和 SLSA provenance；不得使用用户 Windows 本机工具链。
