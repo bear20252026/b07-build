@@ -169,5 +169,5 @@
 - [x] 调研公开桌面宠物与 Tauri Companion 实现：比较鼠标／触控跟随、拖拽、预设路线、静止模式、透明置顶窗口、失焦／最小化行为、资源与许可证；保留准确版权和修改说明，禁止将开源误解为无许可证义务。
 - [x] 提出小机器人替换路线：保留现有 Companion 设置页，使用独立、可关闭、可降级的桌面窗口；普通聊天、Provider、搜索和产物工作面不得依赖或被其遮挡。
 - [x] 实施 A. 原生宠物窗口：保留现有 Companion 设置页；将“留在桌面”改为默认关闭、无边框、透明、置顶、可隐藏的独立 Tauri 窗口；仅由用户显式显示／隐藏，不覆盖聊天、搜索、产物树或 Provider 配置，且不介入普通聊天 SSE。
-- [ ] 为原生宠物窗口补充窗口生命周期、默认隐藏、显式显示／隐藏、Provider 隔离和减少动态降级测试；通过 GitHub hosted Windows runner 构建契约验证后才交付安装器。
-- [ ] 将 Halo Search、真实阶段 Inspector、受控产物扩展框、显式保存回复为 Markdown 与 A. 原生宠物窗口作为 0.1.14 候选版本提交、推送，并由 GitHub hosted Windows runner 构建、核验 SHA-256 与 SLSA 证明；安装器须明确为 unsigned candidate。
+- [x] 为原生宠物窗口补充窗口生命周期、默认隐藏、显式显示／隐藏、Provider 隔离和减少动态降级测试；通过 GitHub hosted Windows runner 构建契约验证后才交付安装器。
+- [x] 将 Halo Search、真实阶段 Inspector、受控产物扩展框、显式保存回复为 Markdown 与 A. 原生宠物窗口作为 0.1.14 候选版本提交、推送，并由 GitHub hosted Windows runner 构建、核验 SHA-256 与 SLSA 证明；安装器须明确为 unsigned candidate。
