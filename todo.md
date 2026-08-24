@@ -103,3 +103,6 @@
 - [x] 阻断性修复：隔离 SearXNG、Exa、混合检索与 Provider 聊天错误；检索后端失败必须给出各自可读状态，并继续发送原始用户问题至选中的第三方模型。0.1.5 将嵌入 Python 早退、loopback 请求失败和拒绝状态分别显示为检索活动。
 - [x] 通过 GitHub Windows runner 构建并核验 0.1.5 图片与检索修复安装器：工作流 #32654528364 成功，来源提交 9c52231b6ca2870de8aa4c60183c9b6548fcb516，`bundlesExplicitGatewaySidecar=false`。
 - [x] 最高优先级阻断性修复：Windows 0.1.5 诊断已确认 Provider 配置成功但原生 HTTPS 在 691–720 ms 内 `provider-connect-failed`；对照 AtomCode 的系统证书、系统代理与 Windows HTTP 客户端实现修复基础直连，不得以 Gateway 取代。0.1.6 在 Windows 启用 SChannel，并只为 Provider 原生 HTTPS 客户端透明使用已启用的系统代理；工作流 #32655908525 已完成来源核验。
+- [x] 调研成熟 AI 产品在 Provider 可靠性、模型能力管理、搜索/RAG、项目记忆、代码协作、可观测性、桌面体验与跨端演进方面的近期实践，并形成一手资料记录。
+- [x] 将 AI Work OS 当前能力映射至成熟产品矩阵，区分已具备、已实现待 Windows 实测、阻断性缺口、可选增强及不适合当前范围的方向。
+- [x] 形成 P0–P3 后续路线图，说明每项用户价值、工程依赖、验收标准和许可证边界；未经主人确认不自动实施建议性新功能。
