@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 /* Unsloth-inspired UI alignment only: preserve direct Provider and streaming behaviour. */
 import './components/observability/GatewayAttachment.css';
 import { invoke } from '@tauri-apps/api/core';
@@ -319,14 +319,14 @@ export function App() {
     setDraft(goal);
     focusTaskComposer();
   };
-  const prepareSearchRetry = (query: string, mode: 'web-search' | Last30DaysMode | 'hybrid' | 'searxng-local'): void => {
+  const prepareSearchRetry = useCallback((query: string, mode: 'web-search' | Last30DaysMode | 'hybrid' | 'searxng-local'): void => {
     setDraft(query);
     setResearchMode(mode);
     setWebSearchEnabled(true);
     setComposerCollapsed(false);
     setActivePage('workspace');
     focusTaskComposer();
-  };
+  }, []);
   const exportConversation = (format: 'markdown' | 'json'): void => {
     const content = directConversations.exportActive(format);
     if (!content) return;

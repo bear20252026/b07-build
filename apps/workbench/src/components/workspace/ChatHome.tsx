@@ -6,7 +6,7 @@ import { createWorkModeAuditProjection } from './work-mode-projection';
 import { messageWindowStart, MESSAGE_RENDER_WINDOW } from './chat-timeline-window';
 import { parseMathSegments } from './math-text';
 import { useChatAutoScroll } from './use-chat-auto-scroll';
-import type { DirectConversation, DirectConversationActivity } from '../../runtime/use-direct-conversations';
+import type { DirectConversation, DirectConversationActivity, DirectConversationMessage } from '../../runtime/use-direct-conversations';
 import type { WorkbenchProviderConnection, WorkbenchProviderModelDiscovery } from '../../runtime/task-client';
 import { explicitHomeModelSelection, homeModelCapabilityHint, homeModelChoices, isSelectableHomeModel } from '../../runtime/home-model-switching';
 import { isSearchRunKind, searchRunLabel, searchRunMode, searchRunStatus, type SearchRunMode } from '../../runtime/search-run-card';
@@ -127,6 +127,24 @@ function SearchRunCard({ activity, query, onPrepareSearchRetry }: Readonly<{ act
   </section>;
 }
 
+const ConversationMessageCard = memo(function ConversationMessageCard({
+  message,
+  taskModelLabel,
+  onBranchFromMessage,
+  onPrepareSearchRetry,
+}: Readonly<{
+  message: DirectConversationMessage;
+  taskModelLabel?: string;
+  onBranchFromMessage(messageId: string): void;
+  onPrepareSearchRetry(query: string, mode: SearchRunMode): void;
+}>) {
+  return <article className={`chat-home-message chat-home-message--${message.role}`}>
+    <div className="chat-home-message-meta"><span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span><div><button className="chat-home-message-copy" onClick={() => onBranchFromMessage(message.id)} title="从此条消息创建一个新的本地会话分支，原会话不变" type="button">分支</button><button className="chat-home-message-copy" onClick={() => { void copyMessageText(message.text); }} title="复制这一条对话的完整文本" type="button">复制</button></div></div>
+    {message.activities?.map((activity) => isSearchRunKind(activity.kind) ? <SearchRunCard activity={activity} key={`${message.id}-${activity.kind}`} onPrepareSearchRetry={onPrepareSearchRetry} query={message.text} /> : <details className="chat-home-message-process" key={`${message.id}-${activity.kind}`}><summary>{activity.kind === 'reasoning' ? '模型过程（供应商实际返回）' : '附件上下文与图片（本轮传递状态）'}</summary><pre>{activity.text}</pre></details>)}
+    <div className="chat-home-message-content"><MessageText value={message.text} /></div>
+  </article>;
+});
+
 /**
  * 原创聊天首页视觉层。
  *
@@ -206,11 +224,7 @@ export function ChatHome({
           {hasConversationContent && activeConversation && <section className="chat-home-message-timeline" aria-live="polite" aria-label="当前对话消息" onScroll={onScroll} ref={timelineRef}>
             <div className="chat-home-timeline-tools"><span>当前会话 · {activeConversation.messages.length} 条消息</span><div><ConversationModelControl connections={connections} discoveredModels={discoveredModels} onSelectTaskModel={onSelectTaskModel} selection={taskModelSelection} /><button onClick={onOpenContextBudget} type="button">上下文预算</button><button onClick={onOpenUsageLedger} type="button">用量账本</button><button onClick={onOpenSessionPerformance} type="button">性能观察</button><button onClick={onOpenCheckpoints} type="button">检查点</button></div></div>
             {visibleStart > 0 && <button className="chat-home-load-history" onClick={() => setWindowStart((current) => Math.max(0, current - MESSAGE_RENDER_WINDOW))} type="button">加载更早的 {Math.min(MESSAGE_RENDER_WINDOW, visibleStart)} 条消息</button>}
-            {visibleMessages.map((message) => <article className={`chat-home-message chat-home-message--${message.role}`} key={message.id}>
-              <div className="chat-home-message-meta"><span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span><div><button className="chat-home-message-copy" onClick={() => onBranchFromMessage(message.id)} title="从此条消息创建一个新的本地会话分支，原会话不变" type="button">分支</button><button className="chat-home-message-copy" onClick={() => { void copyMessageText(message.text); }} title="复制这一条对话的完整文本" type="button">复制</button></div></div>
-              {message.activities?.map((activity) => isSearchRunKind(activity.kind) ? <SearchRunCard activity={activity} key={`${message.id}-${activity.kind}`} onPrepareSearchRetry={onPrepareSearchRetry} query={message.text} /> : <details className="chat-home-message-process" key={`${message.id}-${activity.kind}`}><summary>{activity.kind === 'reasoning' ? '模型过程（供应商实际返回）' : '附件上下文与图片（本轮传递状态）'}</summary><pre>{activity.text}</pre></details>)}
-              <div className="chat-home-message-content"><MessageText value={message.text} /></div>
-            </article>)}
+            {visibleMessages.map((message) => <ConversationMessageCard key={message.id} message={message} onBranchFromMessage={onBranchFromMessage} onPrepareSearchRetry={onPrepareSearchRetry} taskModelLabel={taskModelLabel} />)}
             {showJumpToLatest && <button aria-label="跳到最新消息" className="chat-home-jump-latest" onClick={jumpToLatest} title="跳到最新消息" type="button">↓</button>}
           </section>}
           {directResponse && !activeConversation?.messages.length && <section className="chat-home-direct-response" aria-live="polite"><div><span>DIRECT MODEL RESPONSE</span><strong>{directResponse.model ?? taskModelLabel ?? '已选模型'}</strong><small>{directResponse.complete ? '流式回答完成' : '正在接收第三方文本分块…'}</small></div><pre>{directResponse.output || '正在等待模型返回首个文本分块…'}</pre></section>}

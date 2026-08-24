@@ -10,6 +10,14 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+export function latestScrollTop(scrollHeight: number, clientHeight: number): number {
+  return Math.max(0, scrollHeight - clientHeight);
+}
+
+export function shouldScrollToLatest(scrollTop: number, scrollHeight: number, clientHeight: number): boolean {
+  return Math.abs(scrollTop - latestScrollTop(scrollHeight, clientHeight)) > 1;
+}
+
 export function useChatAutoScroll(
   containerRef: React.RefObject<HTMLElement | null>,
   contentVersion: string,
@@ -51,7 +59,8 @@ export function useChatAutoScroll(
     const element = containerRef.current;
     if (!element) return;
     const frame = requestAnimationFrame(() => {
-      if (nearBottomRef.current) element.scrollTo({ top: element.scrollHeight, behavior: 'auto' });
+      if (!nearBottomRef.current || !shouldScrollToLatest(element.scrollTop, element.scrollHeight, element.clientHeight)) return;
+      element.scrollTo({ top: latestScrollTop(element.scrollHeight, element.clientHeight), behavior: 'auto' });
     });
     return () => cancelAnimationFrame(frame);
   }, [containerRef, contentVersion]);
