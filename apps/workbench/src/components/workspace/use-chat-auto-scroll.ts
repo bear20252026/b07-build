@@ -17,27 +17,34 @@ export function useChatAutoScroll(
   threshold = 160,
 ): { onScroll(event: React.UIEvent<HTMLElement>): void; jumpToLatest(): void; showJumpToLatest: boolean } {
   const nearBottomRef = useRef(true);
+  const jumpVisibleRef = useRef(false);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+
+  const setJumpVisible = useCallback((next: boolean): void => {
+    if (jumpVisibleRef.current === next) return;
+    jumpVisibleRef.current = next;
+    setShowJumpToLatest(next);
+  }, []);
 
   const onScroll = useCallback((event: React.UIEvent<HTMLElement>): void => {
     const element = event.currentTarget;
     const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight <= threshold;
     nearBottomRef.current = nearBottom;
-    setShowJumpToLatest(!nearBottom);
-  }, [threshold]);
+    setJumpVisible(!nearBottom);
+  }, [setJumpVisible, threshold]);
 
   const jumpToLatest = useCallback((): void => {
     const element = containerRef.current;
     if (!element) return;
     nearBottomRef.current = true;
-    setShowJumpToLatest(false);
+    setJumpVisible(false);
     element.scrollTo({ top: element.scrollHeight, behavior: 'auto' });
-  }, [containerRef]);
+  }, [containerRef, setJumpVisible]);
 
   useEffect(() => {
     nearBottomRef.current = true;
-    setShowJumpToLatest(false);
-  }, [conversationId]);
+    setJumpVisible(false);
+  }, [conversationId, setJumpVisible]);
 
   useEffect(() => {
     if (!nearBottomRef.current) return;

@@ -8,6 +8,7 @@ import { projectMemoryClient } from './project-memory-client';
 import { createProviderTraceId, recordProviderDiagnostic } from './provider-diagnostics';
 import { attachmentContextText, attachmentImages, type DirectChatAttachmentContext } from './direct-chat-attachments';
 import { branchConversation, checkpointConversation, conversationJson, conversationMarkdown } from './conversation-workflow';
+import { recordSessionPerformance } from './session-performance-ledger';
 
 export interface DirectConversationSelection { readonly providerId: string; readonly model?: string; }
 export interface DirectConversationActivity { readonly kind: 'reasoning' | 'web-search' | 'research' | 'hybrid-search' | 'searxng' | 'attachment'; readonly text: string; readonly createdAt: number; readonly sources?: readonly WebSearchSource[]; }
@@ -71,7 +72,12 @@ function load(): readonly DirectConversation[] {
 }
 
 function persist(conversations: readonly DirectConversation[]): void {
+  const startedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
   try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations.slice(0, MAX_CONVERSATIONS))); } catch { /* Keep the live conversation usable when storage quota or WebView storage fails. */ }
+  finally {
+    const endedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
+    recordSessionPerformance({ kind: 'conversation-persist', elapsedMs: endedAt - startedAt, conversationCount: conversations.length, messageCount: conversations.reduce((total, conversation) => total + conversation.messages.length, 0) });
+  }
 }
 
 function safeCheckpoint(value: unknown): DirectConversationCheckpoint | undefined {
@@ -328,7 +334,12 @@ export function useDirectConversations(): DirectConversations {
     let providerStartedAt = Date.now();
     let firstByteAt: number | undefined;
     try {
-      const refreshStream = () => update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: [...conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), streamingAssistantMessage(conversationId, output, now, selection.model, reasoning)].slice(-MAX_MESSAGES), updatedAt: Date.now() })));
+      const refreshStream = () => {
+        const startedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
+        update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: [...conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), streamingAssistantMessage(conversationId, output, now, selection.model, reasoning)].slice(-MAX_MESSAGES), updatedAt: Date.now() })));
+        const endedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
+        recordSessionPerformance({ kind: 'stream-refresh', elapsedMs: endedAt - startedAt, conversationCount: conversations.length, messageCount: Math.min(MAX_MESSAGES, (base.messages.length + 2)), renderedMessageCount: Math.min(60, base.messages.length + 2) });
+      };
       const scheduleStreamRefresh = (): void => {
         if (streamRefreshTimer !== undefined) return;
         streamRefreshTimer = window.setTimeout(() => { streamRefreshTimer = undefined; refreshStream(); }, 50);

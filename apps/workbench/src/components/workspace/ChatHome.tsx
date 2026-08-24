@@ -10,6 +10,7 @@ import type { DirectConversation, DirectConversationActivity } from '../../runti
 import type { WorkbenchProviderConnection, WorkbenchProviderModelDiscovery } from '../../runtime/task-client';
 import { homeModelCapabilityHint, homeModelChoices, isSelectableHomeModel } from '../../runtime/home-model-switching';
 import { isSearchRunKind, searchRunLabel, searchRunMode, searchRunStatus, type SearchRunMode } from '../../runtime/search-run-card';
+import { recordSessionPerformance } from '../../runtime/session-performance-ledger';
 
 export { messageWindowStart } from './chat-timeline-window';
 
@@ -58,6 +59,7 @@ export interface ChatHomeProps {
   onOpenContextBudget(): void;
   onOpenCheckpoints(): void;
   onOpenUsageLedger(): void;
+  onOpenSessionPerformance(): void;
   onBranchFromMessage(messageId: string): void;
   onOpenModels(): void;
   onProfileChange(profileId: AgentProfileId): void;
@@ -152,6 +154,7 @@ export function ChatHome({
   onOpenContextBudget,
   onOpenCheckpoints,
   onOpenUsageLedger,
+  onOpenSessionPerformance,
   onBranchFromMessage,
   onOpenModels,
   onProfileChange,
@@ -181,6 +184,13 @@ export function ChatHome({
     previousMessageCount.current = messageCount;
   }, [activeConversation?.id]);
 
+  useEffect(() => {
+    if (!hasConversationContent || typeof window === 'undefined') return;
+    const startedAt = performance.now();
+    const frame = window.requestAnimationFrame(() => recordSessionPerformance({ kind: 'timeline-frame', elapsedMs: performance.now() - startedAt, conversationCount: 1, messageCount, renderedMessageCount: visibleMessages.length }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeConversation?.id, hasConversationContent, messageCount, visibleMessages.length]);
+
   return (
     <section className={`chat-home chat-home--studio${hasConversationContent ? ' chat-home--conversation-active' : ' chat-home--conversation-idle'}${draftActive && !hasConversationContent ? ' chat-home--drafting' : ''}`} aria-label={messages.task.title}>
       <div className="chat-home-workbench">
@@ -194,7 +204,7 @@ export function ChatHome({
             <p>{hasTaskModel ? taskModelLabel : home.description}</p>
           </div>}
           {hasConversationContent && activeConversation && <section className="chat-home-message-timeline" aria-live="polite" aria-label="当前对话消息" onScroll={onScroll} ref={timelineRef}>
-            <div className="chat-home-timeline-tools"><span>当前会话 · {activeConversation.messages.length} 条消息</span><div><ConversationModelControl connections={connections} discoveredModels={discoveredModels} onSelectTaskModel={onSelectTaskModel} selection={taskModelSelection} /><button onClick={onOpenContextBudget} type="button">上下文预算</button><button onClick={onOpenUsageLedger} type="button">用量账本</button><button onClick={onOpenCheckpoints} type="button">检查点</button></div></div>
+            <div className="chat-home-timeline-tools"><span>当前会话 · {activeConversation.messages.length} 条消息</span><div><ConversationModelControl connections={connections} discoveredModels={discoveredModels} onSelectTaskModel={onSelectTaskModel} selection={taskModelSelection} /><button onClick={onOpenContextBudget} type="button">上下文预算</button><button onClick={onOpenUsageLedger} type="button">用量账本</button><button onClick={onOpenSessionPerformance} type="button">性能观察</button><button onClick={onOpenCheckpoints} type="button">检查点</button></div></div>
             {visibleStart > 0 && <button className="chat-home-load-history" onClick={() => setWindowStart((current) => Math.max(0, current - MESSAGE_RENDER_WINDOW))} type="button">加载更早的 {Math.min(MESSAGE_RENDER_WINDOW, visibleStart)} 条消息</button>}
             {visibleMessages.map((message) => <article className={`chat-home-message chat-home-message--${message.role}`} key={message.id}>
               <div className="chat-home-message-meta"><span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span><div><button className="chat-home-message-copy" onClick={() => onBranchFromMessage(message.id)} title="从此条消息创建一个新的本地会话分支，原会话不变" type="button">分支</button><button className="chat-home-message-copy" onClick={() => { void copyMessageText(message.text); }} title="复制这一条对话的完整文本" type="button">复制</button></div></div>
