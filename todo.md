@@ -109,4 +109,4 @@
 - [x] 在首页聊天区实现跨厂商 Provider 连接与模型自由切换：显示当前连接、协议和已知能力，保留任意手填模型，不自动替换用户选择，不经过 Gateway。
 - [x] 实现 Connection Center v2：以同一 trace 关联连接测试、流式测试与真实聊天，展示无密钥的网络/认证/模型/图片/首 token/流中断时间线。
 - [x] 实现 Search Run Card：按轮显示 SearXNG、Exa、抓取和重排状态、来源数、失败后端、重试入口和发送给模型的来源清单；检索失败仍续发普通聊天。
-- [ ] 新建 0.1.7 Windows 实机回归矩阵，覆盖跨厂商/模型切换、图片、系统代理、SearXNG 与检索失败隔离；通过云端 Windows runner 构建及来源核验交付安装器。
+- [x] 新建 0.1.7 Windows 实机回归矩阵，覆盖跨厂商/模型切换、图片、系统代理、SearXNG 与检索失败隔离；通过云端 Windows runner 构建及来源核验交付安装器。工作流 #32714330735 成功，来源提交 237b2e42fd4eb94c9b11187cbabbf274f60643ce，`bundlesExplicitGatewaySidecar=false`。
