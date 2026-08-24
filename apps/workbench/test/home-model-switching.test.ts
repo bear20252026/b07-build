@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { homeModelCapabilityHint, homeModelChoices, isSelectableHomeModel } from '../src/runtime/home-model-switching';
+import { explicitHomeModelSelection, homeModelCapabilityHint, homeModelChoices, isSelectableHomeModel } from '../src/runtime/home-model-switching';
 
 const mimo = {
   schemaVersion: 1 as const,
@@ -33,6 +33,12 @@ test('首页模型选择器接受标准模型标识但拒绝不安全的空白�
   assert.equal(isSelectableHomeModel('mimo-v2.5/vision'), true);
   assert.equal(isSelectableHomeModel(''), false);
   assert.equal(isSelectableHomeModel('model with space'), false);
+});
+
+test('首页显式模型输入始终绑定当前连接，不向 MiMo 或其他厂商静默回退', () => {
+  assert.deepEqual(explicitHomeModelSelection('longcat', 'LongCat-Flash-Chat'), { providerId: 'longcat', model: 'LongCat-Flash-Chat' });
+  assert.deepEqual(explicitHomeModelSelection('deepseek', 'deepseek-chat'), { providerId: 'deepseek', model: 'deepseek-chat' });
+  assert.equal(explicitHomeModelSelection('longcat', 'model with space'), undefined);
 });
 
 test('MiMo 图片能力提示要求显式选择视觉模型，不声称本地拦截图片', () => {

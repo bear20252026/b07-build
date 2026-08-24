@@ -8,7 +8,7 @@ import { parseMathSegments } from './math-text';
 import { useChatAutoScroll } from './use-chat-auto-scroll';
 import type { DirectConversation, DirectConversationActivity } from '../../runtime/use-direct-conversations';
 import type { WorkbenchProviderConnection, WorkbenchProviderModelDiscovery } from '../../runtime/task-client';
-import { homeModelCapabilityHint, homeModelChoices, isSelectableHomeModel } from '../../runtime/home-model-switching';
+import { explicitHomeModelSelection, homeModelCapabilityHint, homeModelChoices, isSelectableHomeModel } from '../../runtime/home-model-switching';
 import { isSearchRunKind, searchRunLabel, searchRunMode, searchRunStatus, type SearchRunMode } from '../../runtime/search-run-card';
 import { recordSessionPerformance } from '../../runtime/session-performance-ledger';
 
@@ -88,8 +88,8 @@ function HomeModelSwitcher({
   if (!connection) return <section className="chat-home-provider" aria-label="第三方模型连接状态"><div><span>MODEL CONNECTION</span><strong>尚未连接模型</strong><p>请先添加任意厂商的 Provider 连接；首页不会回退到旧 Gateway 链路。</p></div><button onClick={onOpenModels} type="button">添加 API 连接</button></section>;
   const choices = homeModelChoices(connection, discoveredModels[connection.providerId]);
   const applyModel = (): void => {
-    const model = modelDraft.trim();
-    if (isSelectableHomeModel(model)) onSelectTaskModel({ providerId: connection.providerId, model });
+    const next = explicitHomeModelSelection(connection.providerId, modelDraft);
+    if (next) onSelectTaskModel(next);
   };
   return <section className="chat-home-provider chat-home-provider-switcher ready" aria-label="首页 Provider 与模型切换">
     <div className="chat-home-provider-switcher-heading"><span>MODEL CONNECTION · DIRECT</span><strong>{connection.displayName}</strong><p>切换仅改变后续聊天使用的连接和模型；不会修改地址、密钥或自动改用其他厂商。</p></div>
@@ -99,7 +99,7 @@ function HomeModelSwitcher({
     }}>
       {connections.map((item) => <option key={item.providerId} value={item.providerId}>{item.displayName} · {item.driverId.replace('desktop-direct.', '')}</option>)}
     </select></label>
-    <label>模型标识<input aria-label="首页模型标识" list={`home-model-options-${connection.providerId}`} maxLength={128} onChange={(event) => setModelDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); applyModel(); } }} value={modelDraft} /><datalist id={`home-model-options-${connection.providerId}`}>{choices.map((model) => <option key={model} value={model} />)}</datalist></label>
+    <label>模型标识<input aria-label="首页模型标识" list={`home-model-options-${connection.providerId}`} maxLength={128} onChange={(event) => { const nextValue = event.target.value; setModelDraft(nextValue); const next = explicitHomeModelSelection(connection.providerId, nextValue); if (next) onSelectTaskModel(next); }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); applyModel(); } }} value={modelDraft} /><datalist id={`home-model-options-${connection.providerId}`}>{choices.map((model) => <option key={model} value={model} />)}</datalist></label>
     <p className="chat-home-provider-capability">{homeModelCapabilityHint(connection, modelDraft.trim() || connection.defaultModel)}</p>
     <div className="chat-home-provider-switcher-actions"><button disabled={!isSelectableHomeModel(modelDraft)} onClick={applyModel} type="button">使用此模型</button><button className="chat-home-provider-manage" onClick={onOpenContextBudget} type="button">上下文预算</button><button className="chat-home-provider-manage" onClick={onOpenModels} type="button">管理 API</button></div>
   </section>;
@@ -111,7 +111,7 @@ function ConversationModelControl({ connections, discoveredModels, selection, on
   useEffect(() => { if (selection?.providerId) setProviderId(selection.providerId); if (selection?.model) setModel(selection.model); }, [selection?.model, selection?.providerId]);
   const connection = connections.find((item) => item.providerId === providerId);
   const choices = connection ? homeModelChoices(connection, discoveredModels[providerId]) : [];
-  return <details className="chat-home-model-drawer"><summary><span>模型</span><strong>{model || connection?.defaultModel || '未选择'}</strong><em>更改</em></summary><div><label>厂商连接<select aria-label="切换当前会话的厂商连接" onChange={(event) => { const next = connections.find((item) => item.providerId === event.target.value); setProviderId(event.target.value); setModel(next?.defaultModel ?? ''); }} value={providerId}>{connections.map((item) => <option key={item.providerId} value={item.providerId}>{item.displayName} · {item.driverId.replace('desktop-direct.', '')}</option>)}</select></label><label>模型标识<input aria-label="切换当前会话的模型" list="conversation-model-options" maxLength={128} onChange={(event) => setModel(event.target.value)} value={model} /><datalist id="conversation-model-options">{choices.map((item) => <option key={item} value={item} />)}</datalist></label><button disabled={!connection || !isSelectableHomeModel(model)} onClick={() => connection && onSelectTaskModel({ providerId: connection.providerId, model: model.trim() })} type="button">使用此模型</button></div></details>;
+  return <details className="chat-home-model-drawer"><summary><span>模型</span><strong>{model || connection?.defaultModel || '未选择'}</strong><em>更改</em></summary><div><label>厂商连接<select aria-label="切换当前会话的厂商连接" onChange={(event) => { const next = connections.find((item) => item.providerId === event.target.value); setProviderId(event.target.value); setModel(next?.defaultModel ?? ''); if (next) onSelectTaskModel({ providerId: next.providerId, model: next.defaultModel }); }} value={providerId}>{connections.map((item) => <option key={item.providerId} value={item.providerId}>{item.displayName} · {item.driverId.replace('desktop-direct.', '')}</option>)}</select></label><label>模型标识<input aria-label="切换当前会话的模型" list="conversation-model-options" maxLength={128} onChange={(event) => { const nextValue = event.target.value; setModel(nextValue); const next = connection ? explicitHomeModelSelection(connection.providerId, nextValue) : undefined; if (next) onSelectTaskModel(next); }} value={model} /><datalist id="conversation-model-options">{choices.map((item) => <option key={item} value={item} />)}</datalist></label><button disabled={!connection || !isSelectableHomeModel(model)} onClick={() => { const next = connection ? explicitHomeModelSelection(connection.providerId, model) : undefined; if (next) onSelectTaskModel(next); }} type="button">使用此模型</button></div></details>;
 }
 
 function SearchRunCard({ activity, query, onPrepareSearchRetry }: Readonly<{ activity: DirectConversationActivity; query: string; onPrepareSearchRetry(query: string, mode: SearchRunMode): void }>) {

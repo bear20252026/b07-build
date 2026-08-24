@@ -6,6 +6,12 @@ export function isSelectableHomeModel(value: string): boolean {
   return modelIdentifier.test(value.trim());
 }
 
+/** 将用户在当前已选连接上明确输入的有效模型标准化；没有 MiMo 或任意厂商的隐式替换规则。 */
+export function explicitHomeModelSelection(providerId: string, value: string): Readonly<{ providerId: string; model: string }> | undefined {
+  const model = value.trim();
+  return isSelectableHomeModel(model) ? { providerId, model } : undefined;
+}
+
 export function homeModelChoices(
   connection: WorkbenchProviderConnection | undefined,
   discovery: WorkbenchProviderModelDiscovery | undefined,

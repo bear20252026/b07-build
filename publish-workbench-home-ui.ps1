@@ -1,7 +1,7 @@
 $root = 'D:\maanuse\AI-Work-OS-local-build'
 $delivery = 'D:\maanuse\AI-Work-OS-Installer\local-build'
-$source = Join-Path $root 'apps\desktop-shell\src-tauri\target\release\bundle\nsis\AI Work OS_0.1.11_x64-setup.exe'
-$target = Join-Path $delivery 'AI Work OS_0.1.11_x64-setup.exe'
+$source = Join-Path $root 'apps\desktop-shell\src-tauri\target\release\bundle\nsis\AI Work OS_0.1.12_x64-setup.exe'
+$target = Join-Path $delivery 'AI Work OS_0.1.12_x64-setup.exe'
 
 if (-not (Test-Path $source)) { throw "Installer missing: $source" }
 New-Item -ItemType Directory -Path $delivery -Force | Out-Null
@@ -12,7 +12,7 @@ $hash = (Get-FileHash -Path $target -Algorithm SHA256).Hash
 $signature = (Get-AuthenticodeSignature -FilePath $target).Status.ToString()
 $manifest = [ordered]@{
   product = 'AI Work OS'
-  version = '0.1.11'
+  version = '0.1.12'
   installer = $item.Name
   sourceCommit = 'cbec990'
   sourceCommitFull = 'cbec990a7f2e1c5464c266cfa8407f6fa5a2c980'
@@ -54,7 +54,7 @@ $manifest = [ordered]@{
     'PNG, JPEG, WebP and GIF attachments are sent as OpenAI-compatible or Anthropic-compatible multimodal content blocks instead of filename-only descriptors',
     'Very long chat input is retained as a virtual TXT context record and remains available in later turns under the 1M-character request budget',
     'The terminal window executes user-submitted commands under the current Windows user, streams output and supports cancellation; high-impact commands require one final explicit confirmation',
-    'Release metadata, Tauri bundle metadata, desktop package version and installer filename use semantic version 0.1.11 and a pre-build consistency check rejects mismatches',
+    'Release metadata, Tauri bundle metadata, desktop package version and installer filename use semantic version 0.1.12 and a pre-build consistency check rejects mismatches',
     'AionUi Apache-2.0 chat auto-scroll interaction is adapted with preserved notices: the central timeline scrolls independently, follows streaming only near the bottom and never pulls readers away from history',
     'The ordinary chat entry is code-split from legacy task, settings and inspector pages; the initial Workbench entry is kept below the 500 KB performance budget',
     'Hybrid search requests and deduplicates up to 100 sources; raw search bodies are provided only to the current Provider request instead of being persisted or rendered into the chat timeline',
