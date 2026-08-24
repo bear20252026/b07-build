@@ -1,5 +1,5 @@
 import type { AgentProfileId } from '@awo/protocol';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useEffect, useRef, useState } from 'react';
 import type { Translation } from '../../i18n/catalog';
 import { WORKBENCH_PROFILE_IDS } from './agent-profiles';
 import { createWorkModeAuditProjection } from './work-mode-projection';
@@ -16,11 +16,11 @@ export { messageWindowStart } from './chat-timeline-window';
 
 const LazyMathText = lazy(() => import('./MathText'));
 
-function MessageText({ value }: Readonly<{ value: string }>) {
+const MessageText = memo(function MessageText({ value }: Readonly<{ value: string }>) {
   const hasFormula = parseMathSegments(value).some((segment) => segment.kind !== 'text');
   if (!hasFormula) return <>{value}</>;
   return <Suspense fallback={<span className="math-text-plain">{value}</span>}><LazyMathText value={value} /></Suspense>;
-}
+});
 
 async function copyMessageText(value: string): Promise<void> {
   if (navigator.clipboard?.writeText) {

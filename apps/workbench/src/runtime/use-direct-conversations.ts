@@ -24,6 +24,7 @@ const MAX_MESSAGES = 200;
 const MAX_PROVIDER_MESSAGES = 200;
 const MAX_PROVIDER_HISTORY_CHARS = 1_000_000;
 const AUTO_TEXT_FILE_THRESHOLD = 12_000;
+const STREAM_PERSIST_DELAY_MS = 280;
 
 function validProjectId(value: unknown): value is string { return typeof value === 'string' && /^project-[a-f0-9-]{8,80}$/.test(value); }
 
@@ -203,16 +204,30 @@ export function useDirectConversations(): DirectConversations {
   const [error, setError] = useState<string>();
   const [checkpoints, setCheckpoints] = useState<readonly DirectConversationCheckpoint[]>(loadCheckpoints);
   const mountedRef = useRef(true);
+  const deferredPersistTimer = useRef<number | undefined>(undefined);
+  const deferredPersistSnapshot = useRef<readonly DirectConversation[] | undefined>(undefined);
   useEffect(() => () => { mountedRef.current = false; }, []);
+  const flushDeferredPersist = useCallback((): void => {
+    if (deferredPersistTimer.current !== undefined) { window.clearTimeout(deferredPersistTimer.current); deferredPersistTimer.current = undefined; }
+    const snapshot = deferredPersistSnapshot.current; deferredPersistSnapshot.current = undefined;
+    if (snapshot) persist(snapshot);
+  }, []);
+  const queueDeferredPersist = useCallback((snapshot: readonly DirectConversation[]): void => {
+    deferredPersistSnapshot.current = snapshot;
+    if (deferredPersistTimer.current !== undefined) return;
+    deferredPersistTimer.current = window.setTimeout(() => { deferredPersistTimer.current = undefined; const next = deferredPersistSnapshot.current; deferredPersistSnapshot.current = undefined; if (next) persist(next); }, STREAM_PERSIST_DELAY_MS);
+  }, []);
+  useEffect(() => () => { flushDeferredPersist(); }, [flushDeferredPersist]);
   const activeConversation = useMemo(() => conversations.find((conversation) => conversation.id === activeId), [activeId, conversations]);
 
-  const update = useCallback((transform: (current: readonly DirectConversation[]) => readonly DirectConversation[]): void => {
+  const update = useCallback((transform: (current: readonly DirectConversation[]) => readonly DirectConversation[], persistence: 'immediate' | 'deferred' = 'immediate'): void => {
     if (!mountedRef.current) return;
     setConversations((current) => {
     const next = [...transform(current)].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, MAX_CONVERSATIONS);
-    persist(next); return next;
+    if (persistence === 'deferred') queueDeferredPersist(next); else { flushDeferredPersist(); persist(next); }
+    return next;
     });
-  }, []);
+  }, [flushDeferredPersist, queueDeferredPersist]);
 
   const create = useCallback((selection: DirectConversationSelection, projectId?: string): string => {
     const now = Date.now(); const id = nextId('conversation');
@@ -336,7 +351,7 @@ export function useDirectConversations(): DirectConversations {
     try {
       const refreshStream = () => {
         const startedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
-        update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: [...conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), streamingAssistantMessage(conversationId, output, now, selection.model, reasoning)].slice(-MAX_MESSAGES), updatedAt: Date.now() })));
+        update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: [...conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), streamingAssistantMessage(conversationId, output, now, selection.model, reasoning)].slice(-MAX_MESSAGES), updatedAt: Date.now() })), 'deferred');
         const endedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
         recordSessionPerformance({ kind: 'stream-refresh', elapsedMs: endedAt - startedAt, conversationCount: conversations.length, messageCount: Math.min(MAX_MESSAGES, (base.messages.length + 2)), renderedMessageCount: Math.min(60, base.messages.length + 2) });
       };

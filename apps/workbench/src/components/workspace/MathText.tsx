@@ -1,4 +1,5 @@
 import katex from 'katex';
+import { memo } from 'react';
 import 'katex/dist/katex.min.css';
 import { parseMathSegments } from './math-text';
 
@@ -18,7 +19,7 @@ function renderedMath(formula: string, displayMode: boolean): string {
   }
 }
 
-export default function MathText({ value }: Readonly<{ value: string }>) {
+const MathText = memo(function MathText({ value }: Readonly<{ value: string }>) {
   return <>
     {parseMathSegments(value).map((segment, index) => {
       if (segment.kind === 'text') return <span className="math-text-plain" key={`text-${index}`}>{segment.value}</span>;
@@ -27,4 +28,6 @@ export default function MathText({ value }: Readonly<{ value: string }>) {
       return <span className={`math-text-formula math-text-formula--${segment.kind}`} dangerouslySetInnerHTML={{ __html: html }} key={`math-${index}`} />;
     })}
   </>;
-}
+});
+
+export default MathText;

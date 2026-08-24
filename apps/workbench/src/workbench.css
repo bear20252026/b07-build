@@ -1577,8 +1577,9 @@ body:has(.workbench-shell.chat-home-surface.theme-dark) { background: #000; }
 @media (prefers-reduced-motion: reduce) {
   .chat-home--studio .chat-home-hero,
   .chat-home--studio .chat-home-context,
-  .chat-home--studio .chat-home-profile { transition: none; }
-  .project-memory-panel, .context-budget-panel, .conversation-checkpoints-panel, .github-collaboration-panel, .direct-usage-ledger { animation: none; }
+  .chat-home--studio .chat-home-profile,
+  .chat-home-message { transition: none; animation: none; }
+  .project-memory-panel, .context-budget-panel, .conversation-checkpoints-panel, .github-collaboration-panel, .direct-usage-ledger, .companion-portrait-stage, .companion-portrait-stage i { animation: none; }
 }
 
 @media (max-width: 940px) {
