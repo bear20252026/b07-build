@@ -7,6 +7,7 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   server: {
+    allowedHosts: ['5173-iz2xki9wsuy148l2hwr47-6b7bb924.us3.manus.computer'],
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:4318',
