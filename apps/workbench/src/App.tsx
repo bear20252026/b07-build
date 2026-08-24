@@ -76,6 +76,9 @@ const WorkspaceFilesPage = lazy(async () => ({ default: (await import('./compone
 const TerminalCodingPage = lazy(async () => ({ default: (await import('./components/workspace/TerminalCodingPage')).TerminalCodingPage }));
 const ProjectBoard = lazy(async () => ({ default: (await import('./components/workspace/ProjectBoard')).ProjectBoard }));
 const ProjectMemoryPanel = lazy(async () => ({ default: (await import('./components/workspace/ProjectMemoryPanel')).ProjectMemoryPanel }));
+const ContextBudgetPanel = lazy(async () => ({ default: (await import('./components/workspace/ContextBudgetPanel')).ContextBudgetPanel }));
+const ConversationCheckpointsPanel = lazy(async () => ({ default: (await import('./components/workspace/ConversationCheckpointsPanel')).ConversationCheckpointsPanel }));
+const DirectUsageLedgerPanel = lazy(async () => ({ default: (await import('./components/observability/DirectUsageLedgerPanel')).DirectUsageLedgerPanel }));
 const GitHubCollaborationPanel = lazy(async () => ({ default: (await import('./components/workspace/GitHubCollaborationPanel')).GitHubCollaborationPanel }));
 
 function loadTaskModelSelection(): Readonly<{ providerId: string; model?: string }> | undefined {
@@ -168,7 +171,7 @@ export function App() {
   const [researchMode, setResearchMode] = useState<'web-search' | Last30DaysMode | 'hybrid' | 'searxng-local'>('web-search');
   const [composerCollapsed, setComposerCollapsed] = useState(false);
   const [composerAttachments, setComposerAttachments] = useState<readonly ComposerFileAttachment[]>([]);
-  const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding' | 'project-memory' | 'github-collaboration'>();
+  const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding' | 'project-memory' | 'context-budget' | 'conversation-checkpoints' | 'usage-ledger' | 'github-collaboration'>();
   const [activeGoal, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
   const [authorityMode, setAuthorityMode] = useState<WorkbenchAuthorityMode>('review');
@@ -322,6 +325,14 @@ export function App() {
     setActivePage('workspace');
     focusTaskComposer();
   };
+  const exportConversation = (format: 'markdown' | 'json'): void => {
+    const content = directConversations.exportActive(format);
+    if (!content) return;
+    const blob = new Blob([content], { type: format === 'markdown' ? 'text/markdown;charset=utf-8' : 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
+    anchor.href = url; anchor.download = `ai-work-os-conversation.${format === 'markdown' ? 'md' : 'json'}`; anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
 
   const executeCommand = (command: WorkbenchCommand): void => {
     switch (command.action.kind) {
@@ -426,7 +437,7 @@ export function App() {
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
-            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} restoringProviderSession={providerControl.restoring} draftActive={Boolean(draft.trim())} directError={directSetupError ?? directConversations.error} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} activeConversation={directConversations.activeConversation} connections={providerControl.connections} discoveredModels={providerControl.discoveredModels} taskModelSelection={taskModelSelection} onSelectTaskModel={selectTaskModel} onPrepareSearchRetry={prepareSearchRetry} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} profiles={profiles} />}
+            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} restoringProviderSession={providerControl.restoring} draftActive={Boolean(draft.trim())} directError={directSetupError ?? directConversations.error} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} activeConversation={directConversations.activeConversation} connections={providerControl.connections} discoveredModels={providerControl.discoveredModels} taskModelSelection={taskModelSelection} onSelectTaskModel={selectTaskModel} onPrepareSearchRetry={prepareSearchRetry} onOpenContextBudget={() => setInspectorSurface('context-budget')} onOpenCheckpoints={() => setInspectorSurface('conversation-checkpoints')} onOpenUsageLedger={() => setInspectorSurface('usage-ledger')} onBranchFromMessage={directConversations.branchFromMessage} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} profiles={profiles} />}
             {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} error={projectWorkspace.error} storageReady={true} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={(input) => { directConversations.clearSelection(); projectWorkspace.create(input); }} onSelect={(projectId) => { directConversations.clearSelection(); projectWorkspace.select(projectId); }} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
             {isTaskPage && snapshot && <TaskPage
               activeGoal={activeGoal}
@@ -541,6 +552,9 @@ export function App() {
       {inspectorSurface === 'workspace-files' && <WorkbenchOverlay description="独立工作区文件窗口。目录、导入和预览只在你明确操作时发生；不会扫描、上传或执行文件。" onClose={() => setInspectorSurface(undefined)} title="工作区与文件" tone="api"><WorkspaceFilesPage preferences={workspaceFilePreferences} onChange={updateWorkspaceFiles} /></WorkbenchOverlay>}
       {inspectorSurface === 'terminal-coding' && <WorkbenchOverlay description="独立终端与编码窗口。命令只在你明确点击运行后以当前 Windows 用户权限执行；输出可见并可停止。" onClose={() => setInspectorSurface(undefined)} title="终端与编码" tone="api"><TerminalCodingPage workspace={workspaceFilePreferences} /></WorkbenchOverlay>}
       {inspectorSurface === 'project-memory' && <WorkbenchOverlay description="项目持久记忆是当前已选择工作区中的可见 Markdown 文件。主人可以直接编辑；模型只在发送时读取其内容作为项目上下文。" onClose={() => setInspectorSurface(undefined)} title="项目记忆" tone="artifacts"><ProjectMemoryPanel /></WorkbenchOverlay>}
+      {inspectorSurface === 'context-budget' && <WorkbenchOverlay description="本地字符预算投影独立呈现会话、项目记忆、草稿和附件元数据。读取项目记忆需显式点击；不会导出正文、图片、密钥或文件路径。" onClose={() => setInspectorSurface(undefined)} title="上下文预算" tone="artifacts"><ContextBudgetPanel conversation={directConversations.activeConversation} draft={draft} pendingAttachmentBytes={composerAttachments.reduce((total, attachment) => total + attachment.descriptor.byteSize, 0)} pendingAttachmentCount={composerAttachments.length} selection={taskModelSelection} /></WorkbenchOverlay>}
+      {inspectorSurface === 'conversation-checkpoints' && <WorkbenchOverlay description="检查点、分支和导出只操作当前 Windows WebView 的本地会话账本。恢复检查点创建新分支；原会话不会被改写。" onClose={() => setInspectorSurface(undefined)} title="会话检查点" tone="artifacts"><ConversationCheckpointsPanel activeConversation={directConversations.activeConversation} checkpoints={directConversations.checkpoints.filter((checkpoint) => checkpoint.conversationId === directConversations.activeConversation?.id)} onCreate={directConversations.createCheckpoint} onExport={exportConversation} onRestore={directConversations.restoreCheckpoint} /></WorkbenchOverlay>}
+      {inspectorSurface === 'usage-ledger' && <WorkbenchOverlay description="本地 Provider 运行账本仅聚合脱敏诊断元数据、延迟、错误类别与可见输出字符。它不是供应商 token、费用或账单。" onClose={() => setInspectorSurface(undefined)} title="本地用量账本" tone="artifacts"><DirectUsageLedgerPanel /></WorkbenchOverlay>}
       {inspectorSurface === 'github-collaboration' && <WorkbenchOverlay description="GitHub 协作先展示本地变更，再由主人明确确认提交和推送。个人访问令牌只保存在当前 Windows 用户的本地应用数据中。" onClose={() => setInspectorSurface(undefined)} title="GitHub 代码协作" tone="api"><GitHubCollaborationPanel /></WorkbenchOverlay>}
       {inspectorSurface === 'artifacts' && <WorkbenchOverlay description="当前 task/run 的受控文件检查器。可查看 Markdown、代码、JSON、差异和用户发起的交付包，不读取任意本机目录。" onClose={() => setInspectorSurface(undefined)} title="项目产物" tone="artifacts"><PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} /></WorkbenchOverlay>}
       {inspectorSurface === 'companion' && <WorkbenchOverlay description="独立角色窗口。角色、对话与 API 连接保持分离；高影响能力仍需未来的单独权限设计。" onClose={() => setInspectorSurface(undefined)} title="Companion" tone="companion"><CompanionWindow gatewayAttached={gatewayAttached} preferences={companionPreferences} onOpenApi={() => { setInspectorSurface(undefined); setActivePage('models'); }} onOpenControls={() => { setInspectorSurface(undefined); setActivePage('companion'); }} /></WorkbenchOverlay>}

@@ -21,6 +21,14 @@ pub struct GithubWorkspaceStatus {
     pub diff_stat: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubWorkspacePreflight {
+    pub passed: bool,
+    pub command: &'static str,
+    pub detail: String,
+}
+
 fn valid_token(token: &str) -> bool {
     let value = token.trim();
     value.len() >= 20 && value.len() <= 4096 && !value.chars().any(char::is_whitespace)
@@ -51,6 +59,14 @@ pub async fn github_workspace_status(state: State<'_, WorkspaceDirectoryState>) 
     let changes = git_output(&state, &["status", "--short"]).await?;
     let diff_stat = git_output(&state, &["diff", "--stat"]).await?;
     Ok(GithubWorkspaceStatus { selected: true, branch, changes, diff_stat })
+}
+
+#[tauri::command]
+pub async fn github_workspace_preflight(state: State<'_, WorkspaceDirectoryState>) -> Result<GithubWorkspacePreflight, &'static str> {
+    let workspace = state.0.lock().map_err(|_| "github-workspace-unavailable")?.clone().ok_or("github-workspace-not-selected")?;
+    let output = Command::new("git").args(["diff", "--check"]).current_dir(workspace).stdin(Stdio::null()).output().await.map_err(|_| "github-git-unavailable")?;
+    let detail = String::from_utf8_lossy(if output.status.success() { &output.stdout } else { &output.stderr }).trim().chars().take(4_000).collect::<String>();
+    Ok(GithubWorkspacePreflight { passed: output.status.success(), command: "git diff --check", detail: if detail.is_empty() && output.status.success() { "未发现空白或冲突标记问题。".to_owned() } else { detail } })
 }
 
 #[tauri::command]

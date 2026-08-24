@@ -55,6 +55,10 @@ export interface ChatHomeProps {
   profiles: Readonly<Record<AgentProfileId, { label: string; description: string }>>;
   onSelectTaskModel(selection: Readonly<{ providerId: string; model?: string }>): void;
   onPrepareSearchRetry(query: string, mode: SearchRunMode): void;
+  onOpenContextBudget(): void;
+  onOpenCheckpoints(): void;
+  onOpenUsageLedger(): void;
+  onBranchFromMessage(messageId: string): void;
   onOpenModels(): void;
   onProfileChange(profileId: AgentProfileId): void;
   onSuggestion(goal: string): void;
@@ -65,12 +69,14 @@ function HomeModelSwitcher({
   discoveredModels,
   selection,
   onSelectTaskModel,
+  onOpenContextBudget,
   onOpenModels,
 }: Readonly<{
   connections: readonly WorkbenchProviderConnection[];
   discoveredModels: Readonly<Record<string, WorkbenchProviderModelDiscovery | undefined>>;
   selection?: Readonly<{ providerId: string; model?: string }>;
   onSelectTaskModel(selection: Readonly<{ providerId: string; model?: string }>): void;
+  onOpenContextBudget(): void;
   onOpenModels(): void;
 }>) {
   const connection = connections.find((item) => item.providerId === selection?.providerId) ?? connections[0];
@@ -93,8 +99,17 @@ function HomeModelSwitcher({
     </select></label>
     <label>模型标识<input aria-label="首页模型标识" list={`home-model-options-${connection.providerId}`} maxLength={128} onChange={(event) => setModelDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); applyModel(); } }} value={modelDraft} /><datalist id={`home-model-options-${connection.providerId}`}>{choices.map((model) => <option key={model} value={model} />)}</datalist></label>
     <p className="chat-home-provider-capability">{homeModelCapabilityHint(connection, modelDraft.trim() || connection.defaultModel)}</p>
-    <div className="chat-home-provider-switcher-actions"><button disabled={!isSelectableHomeModel(modelDraft)} onClick={applyModel} type="button">使用此模型</button><button className="chat-home-provider-manage" onClick={onOpenModels} type="button">管理 API</button></div>
+    <div className="chat-home-provider-switcher-actions"><button disabled={!isSelectableHomeModel(modelDraft)} onClick={applyModel} type="button">使用此模型</button><button className="chat-home-provider-manage" onClick={onOpenContextBudget} type="button">上下文预算</button><button className="chat-home-provider-manage" onClick={onOpenModels} type="button">管理 API</button></div>
   </section>;
+}
+
+function ConversationModelControl({ connections, discoveredModels, selection, onSelectTaskModel }: Readonly<{ connections: readonly WorkbenchProviderConnection[]; discoveredModels: Readonly<Record<string, WorkbenchProviderModelDiscovery | undefined>>; selection?: Readonly<{ providerId: string; model?: string }>; onSelectTaskModel(selection: Readonly<{ providerId: string; model?: string }>): void }>) {
+  const [providerId, setProviderId] = useState(selection?.providerId ?? connections[0]?.providerId ?? '');
+  const [model, setModel] = useState(selection?.model ?? connections.find((connection) => connection.providerId === selection?.providerId)?.defaultModel ?? connections[0]?.defaultModel ?? '');
+  useEffect(() => { if (selection?.providerId) setProviderId(selection.providerId); if (selection?.model) setModel(selection.model); }, [selection?.model, selection?.providerId]);
+  const connection = connections.find((item) => item.providerId === providerId);
+  const choices = connection ? homeModelChoices(connection, discoveredModels[providerId]) : [];
+  return <details className="chat-home-model-drawer"><summary><span>模型</span><strong>{model || connection?.defaultModel || '未选择'}</strong><em>更改</em></summary><div><label>厂商连接<select aria-label="切换当前会话的厂商连接" onChange={(event) => { const next = connections.find((item) => item.providerId === event.target.value); setProviderId(event.target.value); setModel(next?.defaultModel ?? ''); }} value={providerId}>{connections.map((item) => <option key={item.providerId} value={item.providerId}>{item.displayName} · {item.driverId.replace('desktop-direct.', '')}</option>)}</select></label><label>模型标识<input aria-label="切换当前会话的模型" list="conversation-model-options" maxLength={128} onChange={(event) => setModel(event.target.value)} value={model} /><datalist id="conversation-model-options">{choices.map((item) => <option key={item} value={item} />)}</datalist></label><button disabled={!connection || !isSelectableHomeModel(model)} onClick={() => connection && onSelectTaskModel({ providerId: connection.providerId, model: model.trim() })} type="button">使用此模型</button></div></details>;
 }
 
 function SearchRunCard({ activity, query, onPrepareSearchRetry }: Readonly<{ activity: DirectConversationActivity; query: string; onPrepareSearchRetry(query: string, mode: SearchRunMode): void }>) {
@@ -134,6 +149,10 @@ export function ChatHome({
   profiles,
   onSelectTaskModel,
   onPrepareSearchRetry,
+  onOpenContextBudget,
+  onOpenCheckpoints,
+  onOpenUsageLedger,
+  onBranchFromMessage,
   onOpenModels,
   onProfileChange,
   onSuggestion,
@@ -175,9 +194,10 @@ export function ChatHome({
             <p>{hasTaskModel ? taskModelLabel : home.description}</p>
           </div>}
           {hasConversationContent && activeConversation && <section className="chat-home-message-timeline" aria-live="polite" aria-label="当前对话消息" onScroll={onScroll} ref={timelineRef}>
+            <div className="chat-home-timeline-tools"><span>当前会话 · {activeConversation.messages.length} 条消息</span><div><ConversationModelControl connections={connections} discoveredModels={discoveredModels} onSelectTaskModel={onSelectTaskModel} selection={taskModelSelection} /><button onClick={onOpenContextBudget} type="button">上下文预算</button><button onClick={onOpenUsageLedger} type="button">用量账本</button><button onClick={onOpenCheckpoints} type="button">检查点</button></div></div>
             {visibleStart > 0 && <button className="chat-home-load-history" onClick={() => setWindowStart((current) => Math.max(0, current - MESSAGE_RENDER_WINDOW))} type="button">加载更早的 {Math.min(MESSAGE_RENDER_WINDOW, visibleStart)} 条消息</button>}
             {visibleMessages.map((message) => <article className={`chat-home-message chat-home-message--${message.role}`} key={message.id}>
-              <div className="chat-home-message-meta"><span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span><button className="chat-home-message-copy" onClick={() => { void copyMessageText(message.text); }} title="复制这一条对话的完整文本" type="button">复制</button></div>
+              <div className="chat-home-message-meta"><span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span><div><button className="chat-home-message-copy" onClick={() => onBranchFromMessage(message.id)} title="从此条消息创建一个新的本地会话分支，原会话不变" type="button">分支</button><button className="chat-home-message-copy" onClick={() => { void copyMessageText(message.text); }} title="复制这一条对话的完整文本" type="button">复制</button></div></div>
               {message.activities?.map((activity) => isSearchRunKind(activity.kind) ? <SearchRunCard activity={activity} key={`${message.id}-${activity.kind}`} onPrepareSearchRetry={onPrepareSearchRetry} query={message.text} /> : <details className="chat-home-message-process" key={`${message.id}-${activity.kind}`}><summary>{activity.kind === 'reasoning' ? '模型过程（供应商实际返回）' : '附件上下文与图片（本轮传递状态）'}</summary><pre>{activity.text}</pre></details>)}
               <div className="chat-home-message-content"><MessageText value={message.text} /></div>
             </article>)}
@@ -208,7 +228,7 @@ export function ChatHome({
           </section>}
         </div>
         {!hasConversationContent && <aside className={`chat-home-context${hasTaskModel ? ' chat-home-context--connected' : ''}`} aria-label="当前任务上下文">
-          {restoringProviderSession ? <section className="chat-home-provider" aria-label="第三方模型连接状态"><div><span>MODEL CONNECTION</span><strong>{modelTitle}</strong><p>仅在本地重建已保存的原生 Provider 会话，不会自动探测、查询模型或发送第三方请求。</p></div></section> : <HomeModelSwitcher connections={connections} discoveredModels={discoveredModels} onOpenModels={onOpenModels} onSelectTaskModel={onSelectTaskModel} selection={taskModelSelection} />}
+          {restoringProviderSession ? <section className="chat-home-provider" aria-label="第三方模型连接状态"><div><span>MODEL CONNECTION</span><strong>{modelTitle}</strong><p>仅在本地重建已保存的原生 Provider 会话，不会自动探测、查询模型或发送第三方请求。</p></div></section> : <HomeModelSwitcher connections={connections} discoveredModels={discoveredModels} onOpenContextBudget={onOpenContextBudget} onOpenModels={onOpenModels} onSelectTaskModel={onSelectTaskModel} selection={taskModelSelection} />}
           <section className="chat-home-work-mode" aria-label="工作方式审计摘要"><span>WORK MODE · EXPLICIT</span><strong>{profiles[workMode.profileId].label} · {messages.authority.mode[authorityMode].label}</strong><p>{workMode.connectionSummary}</p><small>{workMode.boundarySummary}</small></section>
           <section className="chat-home-suggestions chat-home-suggestions--context" aria-label={home.suggestionLabel}>
             <span>{home.suggestionLabel}</span>

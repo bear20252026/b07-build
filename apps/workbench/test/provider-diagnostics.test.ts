@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { providerDiagnosticEntries, providerDiagnosticReport, recordProviderDiagnostic, resetProviderDiagnosticsForTest } from '../src/runtime/provider-diagnostics.js';
+import { directUsageLedgerEntries, resetDirectUsageLedgerForTest } from '../src/runtime/direct-provider-usage-ledger.js';
 
 test('Provider 诊断仅记录可公开配置摘要、首 token 耗时与错误代码，不记录提示词或密钥', () => {
   resetProviderDiagnosticsForTest();
@@ -29,4 +30,18 @@ test('Provider 诊断报告会移除 Base URL 中的用户信息、查询参数�
   assert.equal(entry.baseUrl, 'https://example.test/v1');
   assert.doesNotMatch(providerDiagnosticReport({ providerEntries: [entry] }), /password|token=|sk-secret/);
   Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
+});
+
+test('直连用量账本仅持久化脱敏运行元数据、会话和可见输出字符', () => {
+  resetProviderDiagnosticsForTest();
+  resetDirectUsageLedgerForTest();
+  recordProviderDiagnostic({ providerId: 'example', model: 'vision-1', stage: 'chat', outcome: 'succeeded', startedAt: Date.now() - 9, firstByteAt: Date.now() - 4, outputCharacters: 42, conversationId: 'conv-local-1', includedImages: true });
+  const [entry] = directUsageLedgerEntries();
+  assert.equal(entry.conversationId, 'conv-local-1');
+  assert.equal(entry.outputCharacters, 42);
+  assert.equal(entry.includedImages, true);
+  assert.equal('baseUrl' in entry, false);
+  assert.equal('apiKey' in entry, false);
+  assert.equal('prompt' in entry, false);
+  assert.equal('response' in entry, false);
 });

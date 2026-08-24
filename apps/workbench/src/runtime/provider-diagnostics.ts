@@ -1,5 +1,6 @@
 import { loadDirectProviderAccounts } from './direct-provider-accounts';
 import type { DirectProviderProtocol } from './direct-provider-client';
+import { recordDirectUsageLedger } from './direct-provider-usage-ledger';
 
 export type ProviderDiagnosticStage = 'configured' | 'probe' | 'stream-test' | 'chat';
 export type ProviderDiagnosticOutcome = 'succeeded' | 'failed';
@@ -10,6 +11,8 @@ export interface ProviderDiagnosticEntry {
   readonly at: number;
   readonly elapsedMs: number;
   readonly firstByteMs?: number;
+  readonly outputCharacters?: number;
+  readonly conversationId?: string;
   readonly providerId: string;
   readonly displayName: string;
   readonly protocol: DirectProviderProtocol | 'unknown';
@@ -66,6 +69,8 @@ export function recordProviderDiagnostic(input: Readonly<{
   outcome: ProviderDiagnosticOutcome;
   startedAt: number;
   firstByteAt?: number;
+  outputCharacters?: number;
+  conversationId?: string;
   traceId?: string;
   error?: unknown;
   includedImages?: boolean;
@@ -77,6 +82,8 @@ export function recordProviderDiagnostic(input: Readonly<{
     at: Date.now(),
     elapsedMs: Math.max(0, Date.now() - input.startedAt),
     ...(input.firstByteAt === undefined ? {} : { firstByteMs: Math.max(0, input.firstByteAt - input.startedAt) }),
+    ...(input.outputCharacters === undefined ? {} : { outputCharacters: Math.max(0, input.outputCharacters) }),
+    ...(input.conversationId ? { conversationId: input.conversationId } : {}),
     providerId: input.providerId,
     displayName: account?.displayName ?? input.providerId,
     protocol: account?.protocol ?? 'unknown',
@@ -89,6 +96,7 @@ export function recordProviderDiagnostic(input: Readonly<{
     sharedNativeSession: true,
   };
   entries = [entry, ...entries].slice(0, MAX_ENTRIES);
+  recordDirectUsageLedger({ schemaVersion: 1, traceId: entry.traceId, at: entry.at, providerId: entry.providerId, displayName: entry.displayName, model: entry.model, stage: entry.stage, outcome: entry.outcome, elapsedMs: entry.elapsedMs, ...(entry.firstByteMs === undefined ? {} : { firstByteMs: entry.firstByteMs }), ...(entry.outputCharacters === undefined ? {} : { outputCharacters: entry.outputCharacters }), ...(entry.conversationId ? { conversationId: entry.conversationId } : {}), includedImages: entry.includedImages, ...(entry.errorCode ? { errorCode: entry.errorCode } : {}) });
   listeners.forEach((listener) => listener());
 }
 
@@ -121,7 +129,7 @@ export function providerDiagnosticReport(input: Readonly<{
   lines.push('', 'Provider 最近操作（不包含 API key、提示词、回复、图片数据或代理地址）：');
   if (input.providerEntries.length === 0) lines.push('- 暂无本会话诊断记录。');
   for (const entry of input.providerEntries) {
-    lines.push(`- ${new Date(entry.at).toISOString()} | 追踪 ${entry.traceId} | ${entry.displayName} | ${entry.protocol} | ${entry.baseUrl} | ${entry.model} | ${entry.stage} | ${entry.outcome}${entry.errorCode ? ` | ${entry.errorCode}` : ''}${entry.includedImages ? ' | 含图片' : ''}${entry.firstByteMs === undefined ? '' : ` | 首 token ${entry.firstByteMs}ms`} | 总计 ${entry.elapsedMs}ms | 同一原生会话=${entry.sharedNativeSession ? '是' : '否'}`);
+    lines.push(`- ${new Date(entry.at).toISOString()} | 追踪 ${entry.traceId} | ${entry.displayName} | ${entry.protocol} | ${entry.baseUrl} | ${entry.model} | ${entry.stage} | ${entry.outcome}${entry.errorCode ? ` | ${entry.errorCode}` : ''}${entry.conversationId ? ` | 会话 ${entry.conversationId}` : ''}${entry.includedImages ? ' | 含图片' : ''}${entry.firstByteMs === undefined ? '' : ` | 首 token ${entry.firstByteMs}ms`}${entry.outputCharacters === undefined ? '' : ` | 可见输出 ${entry.outputCharacters} 字符`} | 总计 ${entry.elapsedMs}ms | 同一原生会话=${entry.sharedNativeSession ? '是' : '否'}`);
   }
   return lines.join('\n');
 }

@@ -230,6 +230,7 @@ pub fn run() {
             project_memory::write_project_memory,
             github_collaboration::github_test_token,
             github_collaboration::github_workspace_status,
+            github_collaboration::github_workspace_preflight,
             github_collaboration::github_commit_and_push,
             choose_workspace_directory,
             show_desktop_companion,

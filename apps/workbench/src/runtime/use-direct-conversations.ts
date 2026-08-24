@@ -7,14 +7,18 @@ import { searxngLocalClient } from './searxng-local-client';
 import { projectMemoryClient } from './project-memory-client';
 import { createProviderTraceId, recordProviderDiagnostic } from './provider-diagnostics';
 import { attachmentContextText, attachmentImages, type DirectChatAttachmentContext } from './direct-chat-attachments';
+import { branchConversation, checkpointConversation, conversationJson, conversationMarkdown } from './conversation-workflow';
 
 export interface DirectConversationSelection { readonly providerId: string; readonly model?: string; }
 export interface DirectConversationActivity { readonly kind: 'reasoning' | 'web-search' | 'research' | 'hybrid-search' | 'searxng' | 'attachment'; readonly text: string; readonly createdAt: number; readonly sources?: readonly WebSearchSource[]; }
 export interface DirectConversationMessage { readonly id: string; readonly role: 'user' | 'assistant'; readonly text: string; readonly context?: string; readonly createdAt: number; readonly model?: string; readonly activities?: readonly DirectConversationActivity[]; }
 export interface DirectConversation { readonly schemaVersion: 1; readonly id: string; readonly title: string; readonly selection: DirectConversationSelection; readonly messages: readonly DirectConversationMessage[]; readonly projectId?: string; readonly createdAt: number; readonly updatedAt: number; }
+export interface DirectConversationCheckpoint { readonly schemaVersion: 1; readonly id: string; readonly conversationId: string; readonly label: string; readonly messageCount: number; readonly createdAt: number; readonly conversation: DirectConversation; }
 
 const STORAGE_KEY = 'awo.direct-conversations.v1';
+const CHECKPOINT_STORAGE_KEY = 'awo.direct-conversation-checkpoints.v1';
 const MAX_CONVERSATIONS = 32;
+const MAX_CHECKPOINTS = 64;
 const MAX_MESSAGES = 200;
 const MAX_PROVIDER_MESSAGES = 200;
 const MAX_PROVIDER_HISTORY_CHARS = 1_000_000;
@@ -69,6 +73,16 @@ function load(): readonly DirectConversation[] {
 function persist(conversations: readonly DirectConversation[]): void {
   try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations.slice(0, MAX_CONVERSATIONS))); } catch { /* Keep the live conversation usable when storage quota or WebView storage fails. */ }
 }
+
+function safeCheckpoint(value: unknown): DirectConversationCheckpoint | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const input = value as Partial<DirectConversationCheckpoint>;
+  const conversation = safeConversation(input.conversation);
+  if (!conversation || input.schemaVersion !== 1 || typeof input.id !== 'string' || typeof input.conversationId !== 'string' || typeof input.label !== 'string' || typeof input.messageCount !== 'number' || !Number.isSafeInteger(input.messageCount) || typeof input.createdAt !== 'number' || !Number.isSafeInteger(input.createdAt)) return undefined;
+  return { schemaVersion: 1, id: input.id, conversationId: input.conversationId, label: input.label.slice(0, 80), messageCount: Math.max(0, input.messageCount), createdAt: input.createdAt, conversation };
+}
+function loadCheckpoints(): readonly DirectConversationCheckpoint[] { try { const raw: unknown = JSON.parse(window.localStorage.getItem(CHECKPOINT_STORAGE_KEY) ?? '[]'); return Array.isArray(raw) ? raw.map(safeCheckpoint).filter((item): item is DirectConversationCheckpoint => Boolean(item)).sort((left, right) => right.createdAt - left.createdAt).slice(0, MAX_CHECKPOINTS) : []; } catch { return []; } }
+function persistCheckpoints(checkpoints: readonly DirectConversationCheckpoint[]): void { try { window.localStorage.setItem(CHECKPOINT_STORAGE_KEY, JSON.stringify(checkpoints.slice(0, MAX_CHECKPOINTS))); } catch { /* Keep conversations usable when storage is full. */ } }
 
 function nextId(prefix: string): string { return `${prefix}-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`; }
 function titleFor(prompt: string): string { return prompt.trim().replace(/\s+/g, ' ').slice(0, 48) || '新对话'; }
@@ -161,11 +175,16 @@ export interface DirectConversations {
   readonly streaming: boolean;
   readonly searching: boolean;
   readonly error?: string;
+  readonly checkpoints: readonly DirectConversationCheckpoint[];
   create(selection: DirectConversationSelection, projectId?: string): string;
   select(id: string): void;
   clearSelection(): void;
   rename(id: string, title: string): void;
   remove(id: string): void;
+  createCheckpoint(label: string): void;
+  branchFromMessage(messageId: string): void;
+  restoreCheckpoint(id: string): void;
+  exportActive(format: 'markdown' | 'json'): string | undefined;
   send(selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch?: boolean, researchMode?: Last30DaysMode | 'hybrid' | 'searxng-local', attachments?: readonly DirectChatAttachmentContext[]): Promise<boolean>;
 }
 
@@ -176,6 +195,7 @@ export function useDirectConversations(): DirectConversations {
   const [streaming, setStreaming] = useState(false);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string>();
+  const [checkpoints, setCheckpoints] = useState<readonly DirectConversationCheckpoint[]>(loadCheckpoints);
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
   const activeConversation = useMemo(() => conversations.find((conversation) => conversation.id === activeId), [activeId, conversations]);
@@ -204,6 +224,23 @@ export function useDirectConversations(): DirectConversations {
     update((current) => current.filter((conversation) => conversation.id !== id));
     setActiveId((current) => current === id ? undefined : current);
   }, [update]);
+  const createCheckpoint = useCallback((label: string): void => {
+    if (!activeConversation) return;
+    const checkpoint = checkpointConversation(activeConversation, nextId('checkpoint'), label, Date.now());
+    setCheckpoints((current) => { const next = [checkpoint, ...current].slice(0, MAX_CHECKPOINTS); persistCheckpoints(next); return next; });
+  }, [activeConversation]);
+  const branchFromMessage = useCallback((messageId: string): void => {
+    if (!activeConversation) return;
+    const branch = branchConversation(activeConversation, messageId, nextId('conversation'), Date.now());
+    if (!branch) return;
+    update((current) => [branch, ...current]); setActiveId(branch.id);
+  }, [activeConversation, update]);
+  const restoreCheckpoint = useCallback((id: string): void => {
+    const checkpoint = checkpoints.find((item) => item.id === id); if (!checkpoint) return;
+    const now = Date.now(); const branch = { ...checkpoint.conversation, id: nextId('conversation'), title: `${checkpoint.conversation.title.slice(0, 58)} · 检查点`, createdAt: now, updatedAt: now };
+    update((current) => [branch, ...current]); setActiveId(branch.id);
+  }, [checkpoints, update]);
+  const exportActive = useCallback((format: 'markdown' | 'json'): string | undefined => !activeConversation ? undefined : format === 'markdown' ? conversationMarkdown(activeConversation) : conversationJson(activeConversation), [activeConversation]);
 
   const send = useCallback(async (selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch = false, researchMode?: Last30DaysMode | 'hybrid' | 'searxng-local', attachments: readonly DirectChatAttachmentContext[] = []): Promise<boolean> => {
     const text = prompt.trim(); if (!text || streaming) return false;
@@ -298,12 +335,12 @@ export function useDirectConversations(): DirectConversations {
       };
       providerStartedAt = Date.now();
       const completion = await directProviderClient.stream({ providerId: selection.providerId, model: selection.model, messages: messagesForProvider, onText: (chunk) => { firstByteAt ??= Date.now(); output += chunk; scheduleStreamRefresh(); }, onReasoning: (chunk) => { firstByteAt ??= Date.now(); reasoning += chunk; scheduleStreamRefresh(); } });
-      recordProviderDiagnostic({ providerId: selection.providerId, model: completion.model ?? selection.model, stage: 'chat', outcome: 'succeeded', startedAt: providerStartedAt, firstByteAt, includedImages: images.length > 0, traceId: providerTraceId });
+      recordProviderDiagnostic({ providerId: selection.providerId, model: completion.model ?? selection.model, stage: 'chat', outcome: 'succeeded', startedAt: providerStartedAt, firstByteAt, outputCharacters: output.length, conversationId, includedImages: images.length > 0, traceId: providerTraceId });
       if (streamRefreshTimer !== undefined) { window.clearTimeout(streamRefreshTimer); streamRefreshTimer = undefined; refreshStream(); }
       update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== `${conversationId}-stream` ? message : { ...message, ...(completion.model ? { model: completion.model } : {}) }), updatedAt: Date.now() })));
       return true;
     } catch (nextError: unknown) {
-      recordProviderDiagnostic({ providerId: selection.providerId, model: selection.model, stage: 'chat', outcome: 'failed', startedAt: providerStartedAt, error: nextError, includedImages: images.length > 0, traceId: providerTraceId });
+      recordProviderDiagnostic({ providerId: selection.providerId, model: selection.model, stage: 'chat', outcome: 'failed', startedAt: providerStartedAt, error: nextError, conversationId, includedImages: images.length > 0, traceId: providerTraceId });
       if (streamRefreshTimer !== undefined) window.clearTimeout(streamRefreshTimer);
       setError(streamErrorText(nextError));
       update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), updatedAt: Date.now() })));
@@ -311,5 +348,5 @@ export function useDirectConversations(): DirectConversations {
     } finally { setStreaming(false); }
   }, [activeConversation, streaming, update]);
 
-  return { conversations, activeConversation, streaming, searching, error, create, select, clearSelection, rename, remove, send };
+  return { conversations, activeConversation, streaming, searching, error, checkpoints, create, select, clearSelection, rename, remove, createCheckpoint, branchFromMessage, restoreCheckpoint, exportActive, send };
 }
