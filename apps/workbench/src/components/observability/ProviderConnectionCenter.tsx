@@ -33,7 +33,7 @@ function probeLabel(probe: WorkbenchProviderConnectionProbe | undefined): string
 
 function entryLabel(entry: ProviderDiagnosticEntry): string {
   const outcome = entry.outcome === 'succeeded' ? '完成' : `失败${entry.errorCode ? `：${entry.errorCode}` : ''}`;
-  return `${entry.displayName} · ${entry.stage} · ${outcome} · ${entry.elapsedMs} ms${entry.includedImages ? ' · 含图片' : ''}`;
+  return `${entry.traceId} · ${entry.displayName} · ${entry.stage} · ${outcome} · ${entry.elapsedMs} ms${entry.firstByteMs === undefined ? '' : ` · 首 token ${entry.firstByteMs} ms`}${entry.includedImages ? ' · 含图片' : ''}`;
 }
 
 /** 所有连接均为 Tauri 原生进程直连的 Provider 会话；预置与自定义服务共享同一操作路径。 */
@@ -59,10 +59,10 @@ export function ProviderConnectionCenter({ connections, probes, inferences, stre
       </div>
       {error && <p className="provider-connection-error" role="alert">{error}</p>}
       <section className="provider-diagnostics-report" aria-label="Provider 本地诊断报告">
-        <div><div><strong>本地诊断报告</strong><span>测试连接、流式测试与真实聊天均记录为同一原生会话的非敏感摘要。</span></div><button type="button" onClick={copyDiagnostics}>复制诊断报告</button></div>
+        <div><div><strong>请求时间线与本地诊断报告</strong><span>每条追踪记录关联配置、连接测试、流式测试或真实聊天；不会保存 API key、正文、图片或代理地址。</span></div><button type="button" onClick={copyDiagnostics}>复制诊断报告</button></div>
         <p>桌面 {desktopDiagnostics?.desktopVersion ?? '状态读取中'} · 来源 {desktopDiagnostics?.sourceRevision.slice(0, 12) ?? '读取中'} · 已连接 Provider {desktopDiagnostics?.connectedProviderCount ?? connections?.length ?? 0} 个 · 工作区{desktopDiagnostics?.workspaceSelected ? '已选择' : '未选择'} · SearXNG {desktopDiagnostics ? (desktopDiagnostics.searxng.state === 'running' ? `运行中（127.0.0.1:${desktopDiagnostics.searxng.port}）` : '未启动') : '状态读取中'}。</p>
         {copyState && <p className="provider-diagnostics-copy" role="status">{copyState}</p>}
-        <ul>{diagnostics.length ? diagnostics.slice(0, 5).map((entry) => <li key={`${entry.at}-${entry.providerId}-${entry.stage}`}>{entryLabel(entry)}</li>) : <li>暂无本会话 Provider 操作记录。</li>}</ul>
+        <ul className="provider-diagnostics-timeline">{diagnostics.length ? diagnostics.slice(0, 12).map((entry) => <li key={`${entry.at}-${entry.traceId}-${entry.stage}`}><time>{new Date(entry.at).toLocaleTimeString()}</time><span>{entryLabel(entry)}</span></li>) : <li>暂无本会话 Provider 操作记录。</li>}</ul>
       </section>
       {!connections && <p className="provider-connection-empty">正在读取当前桌面会话的模型连接…</p>}
       {connections?.length === 0 && <p className="provider-connection-empty">尚未连接模型。请先在“API 连接”填写任意预置或自定义兼容服务。</p>}

@@ -7,12 +7,14 @@ test('Provider 诊断仅记录可公开配置摘要、首 token 耗时与错误�
   recordProviderDiagnostic({ providerId: 'example', model: 'vision-1', stage: 'chat', outcome: 'failed', startedAt: Date.now() - 8, firstByteAt: Date.now() - 4, error: new Error('provider-http-404-image: secret should not appear'), includedImages: true });
   const [entry] = providerDiagnosticEntries();
   assert.equal(entry.providerId, 'example');
+  assert.match(entry.traceId, /^direct-/);
   assert.equal(entry.stage, 'chat');
   assert.equal(entry.errorCode, 'provider-http-404-image');
   assert.equal(typeof entry.firstByteMs, 'number');
   assert.equal(entry.includedImages, true);
   const report = providerDiagnosticReport({ desktopVersion: '0.1.3', sourceRevision: 'abc', workspaceSelected: false, providerEntries: [entry] });
   assert.match(report, /provider-http-404-image/);
+  assert.match(report, /追踪 direct-/);
   assert.doesNotMatch(report, /secret should not appear/);
 });
 

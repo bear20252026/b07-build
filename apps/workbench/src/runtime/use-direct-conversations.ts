@@ -5,7 +5,7 @@ import { last30daysClient, type Last30DaysMode } from './last30days-client';
 import { hybridSearchClient } from './hybrid-search-client';
 import { searxngLocalClient } from './searxng-local-client';
 import { projectMemoryClient } from './project-memory-client';
-import { recordProviderDiagnostic } from './provider-diagnostics';
+import { createProviderTraceId, recordProviderDiagnostic } from './provider-diagnostics';
 import { attachmentContextText, attachmentImages, type DirectChatAttachmentContext } from './direct-chat-attachments';
 
 export interface DirectConversationSelection { readonly providerId: string; readonly model?: string; }
@@ -208,6 +208,7 @@ export function useDirectConversations(): DirectConversations {
   const send = useCallback(async (selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch = false, researchMode?: Last30DaysMode | 'hybrid' | 'searxng-local', attachments: readonly DirectChatAttachmentContext[] = []): Promise<boolean> => {
     const text = prompt.trim(); if (!text || streaming) return false;
     const now = Date.now(); const existing = activeConversation?.selection.providerId === selection.providerId && activeConversation.projectId === projectId ? activeConversation : undefined;
+    const providerTraceId = createProviderTraceId();
     const conversationId = existing?.id ?? nextId('conversation');
     let searchActivity: DirectConversationActivity | undefined;
     let searchSummary: string | undefined;
@@ -297,12 +298,12 @@ export function useDirectConversations(): DirectConversations {
       };
       providerStartedAt = Date.now();
       const completion = await directProviderClient.stream({ providerId: selection.providerId, model: selection.model, messages: messagesForProvider, onText: (chunk) => { firstByteAt ??= Date.now(); output += chunk; scheduleStreamRefresh(); }, onReasoning: (chunk) => { firstByteAt ??= Date.now(); reasoning += chunk; scheduleStreamRefresh(); } });
-      recordProviderDiagnostic({ providerId: selection.providerId, model: completion.model ?? selection.model, stage: 'chat', outcome: 'succeeded', startedAt: providerStartedAt, firstByteAt, includedImages: images.length > 0 });
+      recordProviderDiagnostic({ providerId: selection.providerId, model: completion.model ?? selection.model, stage: 'chat', outcome: 'succeeded', startedAt: providerStartedAt, firstByteAt, includedImages: images.length > 0, traceId: providerTraceId });
       if (streamRefreshTimer !== undefined) { window.clearTimeout(streamRefreshTimer); streamRefreshTimer = undefined; refreshStream(); }
       update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== `${conversationId}-stream` ? message : { ...message, ...(completion.model ? { model: completion.model } : {}) }), updatedAt: Date.now() })));
       return true;
     } catch (nextError: unknown) {
-      recordProviderDiagnostic({ providerId: selection.providerId, model: selection.model, stage: 'chat', outcome: 'failed', startedAt: providerStartedAt, error: nextError, includedImages: images.length > 0 });
+      recordProviderDiagnostic({ providerId: selection.providerId, model: selection.model, stage: 'chat', outcome: 'failed', startedAt: providerStartedAt, error: nextError, includedImages: images.length > 0, traceId: providerTraceId });
       if (streamRefreshTimer !== undefined) window.clearTimeout(streamRefreshTimer);
       setError(streamErrorText(nextError));
       update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), updatedAt: Date.now() })));

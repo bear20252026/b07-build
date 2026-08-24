@@ -6,6 +6,7 @@ export type ProviderDiagnosticOutcome = 'succeeded' | 'failed';
 
 export interface ProviderDiagnosticEntry {
   readonly schemaVersion: 1;
+  readonly traceId: string;
   readonly at: number;
   readonly elapsedMs: number;
   readonly firstByteMs?: number;
@@ -32,6 +33,12 @@ export interface SearxngDiagnosticStatus {
 const MAX_ENTRIES = 32;
 let entries: readonly ProviderDiagnosticEntry[] = [];
 const listeners = new Set<() => void>();
+let traceSequence = 0;
+
+export function createProviderTraceId(): string {
+  traceSequence += 1;
+  return `direct-${Date.now().toString(36)}-${traceSequence.toString(36)}`;
+}
 
 function safeBaseUrl(value: string): string {
   try {
@@ -59,12 +66,14 @@ export function recordProviderDiagnostic(input: Readonly<{
   outcome: ProviderDiagnosticOutcome;
   startedAt: number;
   firstByteAt?: number;
+  traceId?: string;
   error?: unknown;
   includedImages?: boolean;
 }>): void {
   const account = accountFor(input.providerId);
   const entry: ProviderDiagnosticEntry = {
     schemaVersion: 1,
+    traceId: input.traceId ?? createProviderTraceId(),
     at: Date.now(),
     elapsedMs: Math.max(0, Date.now() - input.startedAt),
     ...(input.firstByteAt === undefined ? {} : { firstByteMs: Math.max(0, input.firstByteAt - input.startedAt) }),
@@ -109,14 +118,15 @@ export function providerDiagnosticReport(input: Readonly<{
   ];
   if (input.searxng) lines.push(`本地 SearXNG：${input.searxng.state}${input.searxng.port ? `（127.0.0.1:${input.searxng.port}）` : ''}；启动预算 ${input.searxng.startupTimeoutSeconds}s；请求预算 ${input.searxng.requestTimeoutSeconds}s。`);
   else lines.push('本地 SearXNG：状态未读取。');
-  lines.push('', 'Provider 最近操作（不包含 API key、提示词、回复或图片数据）：');
+  lines.push('', 'Provider 最近操作（不包含 API key、提示词、回复、图片数据或代理地址）：');
   if (input.providerEntries.length === 0) lines.push('- 暂无本会话诊断记录。');
   for (const entry of input.providerEntries) {
-    lines.push(`- ${new Date(entry.at).toISOString()} | ${entry.displayName} | ${entry.protocol} | ${entry.baseUrl} | ${entry.model} | ${entry.stage} | ${entry.outcome}${entry.errorCode ? ` | ${entry.errorCode}` : ''}${entry.includedImages ? ' | 含图片' : ''}${entry.firstByteMs === undefined ? '' : ` | 首 token ${entry.firstByteMs}ms`} | 总计 ${entry.elapsedMs}ms | 同一原生会话=${entry.sharedNativeSession ? '是' : '否'}`);
+    lines.push(`- ${new Date(entry.at).toISOString()} | 追踪 ${entry.traceId} | ${entry.displayName} | ${entry.protocol} | ${entry.baseUrl} | ${entry.model} | ${entry.stage} | ${entry.outcome}${entry.errorCode ? ` | ${entry.errorCode}` : ''}${entry.includedImages ? ' | 含图片' : ''}${entry.firstByteMs === undefined ? '' : ` | 首 token ${entry.firstByteMs}ms`} | 总计 ${entry.elapsedMs}ms | 同一原生会话=${entry.sharedNativeSession ? '是' : '否'}`);
   }
   return lines.join('\n');
 }
 
 export function resetProviderDiagnosticsForTest(): void {
   entries = [];
+  traceSequence = 0;
 }

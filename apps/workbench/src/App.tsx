@@ -314,6 +314,14 @@ export function App() {
     setDraft(goal);
     focusTaskComposer();
   };
+  const prepareSearchRetry = (query: string, mode: 'web-search' | Last30DaysMode | 'hybrid' | 'searxng-local'): void => {
+    setDraft(query);
+    setResearchMode(mode);
+    setWebSearchEnabled(true);
+    setComposerCollapsed(false);
+    setActivePage('workspace');
+    focusTaskComposer();
+  };
 
   const executeCommand = (command: WorkbenchCommand): void => {
     switch (command.action.kind) {
@@ -418,7 +426,7 @@ export function App() {
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
-            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} restoringProviderSession={providerControl.restoring} draftActive={Boolean(draft.trim())} directError={directSetupError ?? directConversations.error} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} activeConversation={directConversations.activeConversation} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} profiles={profiles} />}
+            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} restoringProviderSession={providerControl.restoring} draftActive={Boolean(draft.trim())} directError={directSetupError ?? directConversations.error} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} activeConversation={directConversations.activeConversation} connections={providerControl.connections} discoveredModels={providerControl.discoveredModels} taskModelSelection={taskModelSelection} onSelectTaskModel={selectTaskModel} onPrepareSearchRetry={prepareSearchRetry} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSuggestion={useSuggestedGoal} profiles={profiles} />}
             {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} error={projectWorkspace.error} storageReady={true} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={(input) => { directConversations.clearSelection(); projectWorkspace.create(input); }} onSelect={(projectId) => { directConversations.clearSelection(); projectWorkspace.select(projectId); }} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
             {isTaskPage && snapshot && <TaskPage
               activeGoal={activeGoal}

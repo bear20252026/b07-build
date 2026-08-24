@@ -17,6 +17,10 @@ const desktopMain = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src
 const workbenchVite = readFileSync(resolve(root, 'apps/workbench/vite.config.ts'), 'utf8');
 const workbenchSider = readFileSync(resolve(root, 'apps/workbench/src/components/layout/Sider.tsx'), 'utf8');
 const workbenchApp = readFileSync(resolve(root, 'apps/workbench/src/App.tsx'), 'utf8');
+const chatHome = readFileSync(resolve(root, 'apps/workbench/src/components/workspace/ChatHome.tsx'), 'utf8');
+const homeModelSwitching = readFileSync(resolve(root, 'apps/workbench/src/runtime/home-model-switching.ts'), 'utf8');
+const providerDiagnostics = readFileSync(resolve(root, 'apps/workbench/src/runtime/provider-diagnostics.ts'), 'utf8');
+const searchRunCard = readFileSync(resolve(root, 'apps/workbench/src/runtime/search-run-card.ts'), 'utf8');
 
 function csp(): string {
   const app = desktopConfig.app as Record<string, unknown>;
@@ -72,6 +76,16 @@ test('明确 /github 命令只在本地打开确认式 GitHub 协作面板，不
   assert.ok(workbenchApp.includes("setInspectorSurface('github-collaboration')"));
   assert.ok(workbenchApp.includes('const githubIntent = resolveGitHubCollaborationIntent(goal)'));
   assert.ok(workbenchApp.includes('directConversations.send(taskModelSelection, goal'));
+});
+
+test('首页可明确选择任意已连接厂商与模型，并提供无敏感 Provider 时间线和搜索重试预填', () => {
+  for (const expected of ['MODEL CONNECTION · DIRECT', '首页厂商连接', '首页模型标识', 'onSelectTaskModel', '不会修改地址、密钥或自动改用其他厂商']) assert.ok(chatHome.includes(expected), `首页缺少模型切换契约：${expected}`);
+  for (const expected of ['homeModelChoices', 'isSelectableHomeModel', 'mimo-v2.5', 'mimo-v2.5-pro']) assert.ok(homeModelSwitching.includes(expected), `首页模型选择缺少：${expected}`);
+  for (const expected of ['createProviderTraceId', 'traceId', '不包含 API key、提示词、回复、图片数据或代理地址']) assert.ok(providerDiagnostics.includes(expected), `Provider 时间线缺少：${expected}`);
+  for (const expected of ['SearchRunCard', 'onPrepareSearchRetry', '准备以同一后端重试']) assert.ok(chatHome.includes(expected), `搜索运行卡缺少：${expected}`);
+  assert.ok(searchRunCard.includes('searchRunMode'));
+  assert.ok(workbenchApp.includes('const prepareSearchRetry'));
+  assert.ok(workbenchApp.includes('setWebSearchEnabled(true)'));
 });
 
 test('模型目录仅作为可选辅助能力，连接测试必须调用已配置模型的真实聊天端点', () => {

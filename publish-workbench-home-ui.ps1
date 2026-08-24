@@ -1,7 +1,7 @@
 $root = 'D:\maanuse\AI-Work-OS-local-build'
 $delivery = 'D:\maanuse\AI-Work-OS-Installer\local-build'
-$source = Join-Path $root 'apps\desktop-shell\src-tauri\target\release\bundle\nsis\AI Work OS_0.1.6_x64-setup.exe'
-$target = Join-Path $delivery 'AI Work OS_0.1.6_x64-setup.exe'
+$source = Join-Path $root 'apps\desktop-shell\src-tauri\target\release\bundle\nsis\AI Work OS_0.1.7_x64-setup.exe'
+$target = Join-Path $delivery 'AI Work OS_0.1.7_x64-setup.exe'
 
 if (-not (Test-Path $source)) { throw "Installer missing: $source" }
 New-Item -ItemType Directory -Path $delivery -Force | Out-Null
@@ -12,7 +12,7 @@ $hash = (Get-FileHash -Path $target -Algorithm SHA256).Hash
 $signature = (Get-AuthenticodeSignature -FilePath $target).Status.ToString()
 $manifest = [ordered]@{
   product = 'AI Work OS'
-  version = '0.1.6'
+  version = '0.1.7'
   installer = $item.Name
   sourceCommit = 'cbec990'
   sourceCommitFull = 'cbec990a7f2e1c5464c266cfa8407f6fa5a2c980'
