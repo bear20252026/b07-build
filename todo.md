@@ -218,3 +218,5 @@
 - [x] 修复 Android x86_64 emulator runner 将内联多行 shell 逐行执行而使证据函数在启动前语法失败的问题；改用受版本控制的 POSIX 冒烟脚本，并断言前台窗口和 UI 自动化树均可见 NOVA。
 - [ ] 在 hosted Android runner 重新构建修复 APK/AAB，核验 APK SHA-256、签名、SLSA provenance，并通过 Android emulator 或用户设备验证启动到 NOVA 首页后，才替换官网 Android 下载项；Windows/Mac 入口保持不变。
 - [ ] 将 Android emulator runner 的启动等待预算扩展到 1200 秒，以覆盖 hosted runner 首次启动 Android 35 镜像的实际冷启动时长；该轮未执行 NOVA 安装/页面断言，不能作为白屏结论。
+- [ ] 排除 Android emulator 的 UiAutomation 服务崩溃噪声：UI XML 仅作为可选证据，不能把 `com.android.commands.uiautomator` 的 FATAL 当成 NOVA 应用崩溃；应用级验收改为进程仍存活、前台窗口为 NOVA、截图可读及应用自身错误日志无异常。
+- [ ] 将模拟器启动断言从固定等待 12 秒改为最多 90 秒轮询 `MainActivity` 前台状态，并保留最终截图与进程/窗口证据；若仍停留 Splash，再针对 Tauri Android 启动路径修复。

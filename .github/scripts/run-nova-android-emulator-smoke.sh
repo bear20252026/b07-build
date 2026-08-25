@@ -30,14 +30,24 @@ rm -f "$signed_apk.aligned" "$keystore"
 adb install -r "$signed_apk"
 adb logcat -c
 adb shell monkey -p com.bear20252026.nova 1
-sleep 12
+startup_deadline=90
+startup_elapsed=0
+while [ "$startup_elapsed" -lt "$startup_deadline" ]; do
+  adb shell dumpsys activity activities > "$evidence_dir/activity.txt" 2>&1 || true
+  if grep -q 'com.bear20252026.nova/.MainActivity' "$evidence_dir/activity.txt"; then
+    break
+  fi
+  sleep 1
+  startup_elapsed=$((startup_elapsed + 1))
+done
 
 adb shell dumpsys window windows > "$evidence_dir/window.txt"
 adb shell uiautomator dump /sdcard/nova-ui.xml >/dev/null 2>&1 || true
 adb pull /sdcard/nova-ui.xml "$evidence_dir/nova-ui.xml" >/dev/null 2>&1 || true
 capture_evidence
 
+grep -q 'com.bear20252026.nova/.MainActivity' "$evidence_dir/activity.txt"
 grep -q 'com.bear20252026.nova' "$evidence_dir/window.txt"
-if grep -E 'FATAL EXCEPTION|NOVA mobile shell failed to run|Unable to start activity' "$evidence_dir/logcat.txt"; then
+if grep -E 'Process: com\.bear20252026\.nova|NOVA mobile shell failed to run|Unable to start activity:.*com\.bear20252026\.nova' "$evidence_dir/logcat.txt"; then
   exit 1
 fi
