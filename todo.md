@@ -217,3 +217,4 @@
 - [ ] 以最小改动修复 Android 启动/白屏路径，新增可跨 Windows CRLF、Android 编译和实际 Android runtime 启动边界的测试；普通聊天仍必须保持 Rust reqwest HTTPS/SSE 到用户 Provider 的原生直连。
 - [x] 修复 Android x86_64 emulator runner 将内联多行 shell 逐行执行而使证据函数在启动前语法失败的问题；改用受版本控制的 POSIX 冒烟脚本，并断言前台窗口和 UI 自动化树均可见 NOVA。
 - [ ] 在 hosted Android runner 重新构建修复 APK/AAB，核验 APK SHA-256、签名、SLSA provenance，并通过 Android emulator 或用户设备验证启动到 NOVA 首页后，才替换官网 Android 下载项；Windows/Mac 入口保持不变。
+- [ ] 将 Android emulator runner 的启动等待预算扩展到 1200 秒，以覆盖 hosted runner 首次启动 Android 35 镜像的实际冷启动时长；该轮未执行 NOVA 安装/页面断言，不能作为白屏结论。
