@@ -264,3 +264,11 @@ jobs:
           name: nova-android-emulator-startup-evidence
           if-no-files-found: warn
           path: ${{ runner.temp }}/nova-android-emulator-smoke
+
+      - name: Verify NOVA Android startup result
+        if: always()
+        run: |
+          status_file="$RUNNER_TEMP/nova-android-emulator-smoke/smoke-status.txt"
+          test -f "$status_file"
+          cat "$status_file"
+          grep -q '^status=passed$' "$status_file"
