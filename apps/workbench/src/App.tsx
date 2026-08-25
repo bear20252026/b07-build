@@ -44,6 +44,7 @@ import { loadCompanionStudioPreferences, saveCompanionStudioPreferences, updateC
 import { loadWorkspaceFilePreferences, saveWorkspaceFilePreferences, type WorkspaceFilePreferencesV1 } from './runtime/workspace-file-contract';
 import { assistantArtifactFileName, loadAssistantArtifacts, persistAssistantArtifacts, type AssistantArtifactEntry, type AssistantArtifactTarget } from './runtime/assistant-artifact-ledger';
 import type { DirectConversationMessage } from './runtime/use-direct-conversations';
+import { nativePlatformClient, type NativeRuntimePlatform } from './runtime/native-platform';
 
 const localGatewayClient = HttpWorkbenchTaskClient.forLocalGateway();
 const localProjectClient = createProjectClient();
@@ -159,6 +160,7 @@ function gatewayErrorText(error: unknown): string {
 
 export function App() {
   const [activePage, setActivePage] = useState<WorkbenchPage>('workspace');
+  const [nativeRuntimePlatform, setNativeRuntimePlatform] = useState<NativeRuntimePlatform>('web');
   const [gatewayAttached] = useState(false);
   const [localModels, setLocalModels] = useState<readonly WorkbenchLocalModelHealth[]>();
   const [localModelError, setLocalModelError] = useState<string>();
@@ -199,6 +201,12 @@ export function App() {
   });
   const [savingAssistantArtifactId, setSavingAssistantArtifactId] = useState<string>();
   const { messages } = useLocale();
+  useEffect(() => {
+    let disposed = false;
+    void nativePlatformClient.read().then((status) => { if (!disposed) setNativeRuntimePlatform(status.platform); }).catch(() => undefined);
+    return () => { disposed = true; };
+  }, []);
+  const androidRuntime = nativeRuntimePlatform === 'android';
   const taskExecution = useTaskExecution(gatewayAttached, {
     gatewayRequired: '请先显式附着本机 Gateway；桌面应用不会自动启动或连接服务。',
     submitFailed: messages.task.error.connect,
@@ -429,7 +437,7 @@ export function App() {
   return (
     <Suspense fallback={<div className="workbench-async-loading" role="status">正在加载所选工作面…</div>}>
     <StartupSplash />
-    <div className={`workbench-shell ${showTaskPreview ? 'with-preview' : 'focus-page'}${artifactRailOpen ? ' with-artifact-rail' : ''}${workbenchSurface === 'chat-home' ? ' chat-home-surface' : ''}${isSettings ? ' settings-open' : ''} theme-${theme}`}>
+    <div className={`workbench-shell ${showTaskPreview ? 'with-preview' : 'focus-page'}${artifactRailOpen ? ' with-artifact-rail' : ''}${workbenchSurface === 'chat-home' ? ' chat-home-surface' : ''}${isSettings ? ' settings-open' : ''}${androidRuntime ? ' android-runtime' : ''} theme-${theme}`} style={androidRuntime ? { display: 'block', paddingBottom: 64 } : undefined}>
       <Sider
         activePage={isSettings ? 'workspace' : activePage}
         hasActiveTask={Boolean(snapshot)}
@@ -437,6 +445,7 @@ export function App() {
         selectedProjectId={projectWorkspace.selectedProjectId}
         conversations={directConversations.conversations}
         activeConversationId={directConversations.activeConversation?.id}
+        mobileNavigation={androidRuntime}
         onNavigate={setActivePage}
         onShowWorkspaceConversations={() => { projectWorkspace.clearSelection(); directConversations.clearSelection(); setActivePage('workspace'); }}
         onSelectProject={(projectId) => { projectWorkspace.select(projectId); directConversations.clearSelection(); setActivePage('workspace'); }}
@@ -453,7 +462,7 @@ export function App() {
         onThemeToggle={() => setTheme((current) => current === 'light' ? 'dark' : 'light')}
         theme={theme}
       />
-      <main className="workbench-main">
+      <main className="workbench-main" style={androidRuntime ? { height: 'calc(100dvh - 64px)', borderRight: 0 } : undefined}>
         <header className="workbench-titlebar">
           <div>
             <div className="titlebar-kicker">NOVA · THIRD-PARTY API</div>
@@ -471,13 +480,14 @@ export function App() {
               <button aria-label="打开模型连接设置" className="titlebar-icon-button" onClick={() => setActivePage('models')} title="打开模型连接设置；在原有配置页面中填写地址和密钥。" type="button">⌁</button>
               <button aria-label="打开真实阶段状态" className="titlebar-icon-button" onClick={() => setInspectorSurface('real-progress')} title="查看已有 Provider 回执、本地知识库索引和当前聊天接收状态；打开不会启动任何请求。" type="button">◷</button>
               <button aria-label="打开工作区文件窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('workspace-files')} title="打开受控工作区文件窗口；目录、导入与预览不进入对话。" type="button">▤</button>
-              <button aria-label="打开终端与编码窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('terminal-coding')} title="打开本地终端；仅在你明确点击运行后以当前 Windows 用户权限执行命令。" type="button">›_</button>
+              {!androidRuntime && <button aria-label="打开终端与编码窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('terminal-coding')} title="打开本地终端；仅在你明确点击运行后以当前 Windows 用户权限执行命令。" type="button">›_</button>}
               <button aria-label="打开项目持久记忆" className="titlebar-icon-button" onClick={() => setInspectorSurface('project-memory')} title="打开当前工作区的 AI_WORK_OS_MEMORY.md；可由主人编辑，发送时按预算作为项目上下文提供给模型。" type="button">◫</button>
-              <button aria-label="打开 GitHub 代码协作" className="titlebar-icon-button" onClick={() => setInspectorSurface('github-collaboration')} title="查看当前工作区 Git 变更，测试本地令牌，并在明确确认后提交和推送到 GitHub。" type="button">⌘</button>
+              {!androidRuntime && <button aria-label="打开 GitHub 代码协作" className="titlebar-icon-button" onClick={() => setInspectorSurface('github-collaboration')} title="查看当前工作区 Git 变更，测试本地令牌，并在明确确认后提交和推送到 GitHub。" type="button">⌘</button>}
               <button aria-label="打开右侧项目产物扩展框" className="titlebar-icon-button" onClick={openArtifactExtension} title="打开可伸缩右侧项目产物扩展框；只显示受控文件投影与已确认保存的 Markdown 回复。" type="button">▧</button>
-              <button aria-label="打开 Companion 独立窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('companion')} title="打开独立 Companion 角色窗口；不会切换模型或授予权限。" type="button">◉</button>
+              {!androidRuntime && <button aria-label="打开 Companion 独立窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('companion')} title="打开独立 Companion 角色窗口；不会切换模型或授予权限。" type="button">◉</button>}
             </div>
             {activePage !== 'models' && <button className="gateway-attach-button attached" type="button" onClick={() => setActivePage('models')}>管理 API 连接</button>}
+            {androidRuntime && <span className="status-chip muted" title="Android 保留第三方 Provider 原生直连与用户点击的 HTTP(S) 外部链接；终端、桌面 Companion、桌面 Save As 与本地 Python 搜索不可用。">Android · 直连</span>}
             {isTaskPage && <><div className="profile-switcher" aria-label={messages.profile.selectAria}>
               {WORKBENCH_PROFILE_IDS.map((profileId) => (
                 <button
@@ -497,8 +507,8 @@ export function App() {
         </header>
         <section className="conversation-scroll" aria-label={messages.task.eventStreamAria}>
           <div className="conversation-frame">
-            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} restoringProviderSession={providerControl.restoring} draftActive={Boolean(draft.trim())} directError={directSetupError ?? directConversations.error} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} activeConversation={directConversations.activeConversation} connections={providerControl.connections} discoveredModels={providerControl.discoveredModels} taskModelSelection={taskModelSelection} onSelectTaskModel={selectTaskModel} onPrepareSearchRetry={prepareSearchRetry} onOpenSearchSource={openSearchSource} onOpenContextBudget={() => setInspectorSurface('context-budget')} onOpenCheckpoints={() => setInspectorSurface('conversation-checkpoints')} onOpenUsageLedger={() => setInspectorSurface('usage-ledger')} onOpenSessionPerformance={() => setInspectorSurface('session-performance')} onBranchFromMessage={directConversations.branchFromMessage} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSaveAssistantArtifact={(message) => void saveAssistantArtifact(message)} savingAssistantArtifactId={savingAssistantArtifactId} onSuggestion={useSuggestedGoal} profiles={profiles} />}
-            {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} conversations={directConversations.conversations} error={projectWorkspace.error} storageReady={true} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={(input) => { directConversations.clearSelection(); projectWorkspace.create(input); }} onOpenArtifacts={openArtifactExtension} onOpenFiles={() => setInspectorSurface('workspace-files')} onOpenKnowledge={() => setInspectorSurface('local-knowledge')} onOpenTerminal={() => setInspectorSurface('terminal-coding')} onSelect={(projectId) => { directConversations.clearSelection(); projectWorkspace.select(projectId); }} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
+            {workbenchSurface === 'chat-home' && <ChatHome activeProfile={activeProfile} authorityMode={authorityMode} canSaveAssistantArtifacts={!androidRuntime} connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={providerControl.connections.length > 0} taskModelLabel={taskModelLabel} restoringProviderSession={providerControl.restoring} draftActive={Boolean(draft.trim())} directError={directSetupError ?? directConversations.error} directResponse={directConversations.activeConversation?.messages.at(-1)?.role === 'assistant' ? { output: directConversations.activeConversation.messages.at(-1)?.text ?? '', model: directConversations.activeConversation.messages.at(-1)?.model, complete: !directConversations.streaming } : undefined} messages={messages} activeConversation={directConversations.activeConversation} connections={providerControl.connections} discoveredModels={providerControl.discoveredModels} taskModelSelection={taskModelSelection} onSelectTaskModel={selectTaskModel} onPrepareSearchRetry={prepareSearchRetry} onOpenSearchSource={openSearchSource} onOpenContextBudget={() => setInspectorSurface('context-budget')} onOpenCheckpoints={() => setInspectorSurface('conversation-checkpoints')} onOpenUsageLedger={() => setInspectorSurface('usage-ledger')} onOpenSessionPerformance={() => setInspectorSurface('session-performance')} onBranchFromMessage={directConversations.branchFromMessage} onOpenModels={() => setActivePage('models')} onProfileChange={setActiveProfile} onSaveAssistantArtifact={(message) => void saveAssistantArtifact(message)} savingAssistantArtifactId={savingAssistantArtifactId} onSuggestion={useSuggestedGoal} profiles={profiles} />}
+            {isProjectPage && <ProjectBoard activeTask={snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined} conversations={directConversations.conversations} error={projectWorkspace.error} storageReady={true} onAttachCurrentTask={() => projectWorkspace.attachCurrentTask(snapshot ? { taskId: snapshot.taskId, runId: snapshot.runId } : undefined)} onBackToChat={() => setActivePage('workspace')} onCreate={(input) => { directConversations.clearSelection(); projectWorkspace.create(input); }} onOpenArtifacts={openArtifactExtension} onOpenFiles={() => setInspectorSurface('workspace-files')} onOpenKnowledge={() => setInspectorSurface('local-knowledge')} onOpenTerminal={() => androidRuntime ? setDirectSetupError('Android 候选版不提供本地终端执行。请在 Windows 或 macOS 桌面版使用此能力。') : setInspectorSurface('terminal-coding')} onSelect={(projectId) => { directConversations.clearSelection(); projectWorkspace.select(projectId); }} pending={projectWorkspace.pending} projectTasks={projectWorkspace.projectTasks} projects={projectWorkspace.projects} selectedProjectId={projectWorkspace.selectedProjectId} />}
             {isTaskPage && snapshot && <TaskPage
               activeGoal={activeGoal}
               authorityLabel={messages.authority.mode[snapshot.authorityMode ?? authorityMode].label}
@@ -607,7 +617,7 @@ export function App() {
           </>}
         </div>}
       </main>
-      {activePage === 'workspace' && <HomeFloatingCompanion desktopCompanionAvailable={companionStudioPreferences.desktopResidencyMode === 'windows-native' && typeof window !== 'undefined' && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)} preferences={companionPreferences} presentation={floatingCompanionPreferences} onOpenDesktopCompanion={openDesktopCompanion} onOpenSettings={() => setActivePage('companion')} onPresentationChange={updateFloatingCompanion} />}
+      {activePage === 'workspace' && <HomeFloatingCompanion desktopCompanionAvailable={!androidRuntime && companionStudioPreferences.desktopResidencyMode === 'windows-native' && typeof window !== 'undefined' && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)} preferences={companionPreferences} presentation={floatingCompanionPreferences} onOpenDesktopCompanion={openDesktopCompanion} onOpenSettings={() => setActivePage('companion')} onPresentationChange={updateFloatingCompanion} />}
       {isSettings && <SettingsOverlay onClose={() => setActivePage('workspace')} title={pageTitle[activePage]}>{settingsContent}</SettingsOverlay>}
       {inspectorSurface === 'workspace-files' && <WorkbenchOverlay description="独立工作区文件窗口。目录、导入和预览只在你明确操作时发生；不会扫描、上传或执行文件。" onClose={() => setInspectorSurface(undefined)} title="工作区与文件" tone="api"><WorkspaceFilesPage preferences={workspaceFilePreferences} onChange={updateWorkspaceFiles} /></WorkbenchOverlay>}
       {inspectorSurface === 'terminal-coding' && <WorkbenchOverlay description="独立终端与编码窗口。命令只在你明确点击运行后以当前 Windows 用户权限执行；输出可见并可停止。" onClose={() => setInspectorSurface(undefined)} title="终端与编码" tone="api"><TerminalCodingPage workspace={workspaceFilePreferences} /></WorkbenchOverlay>}

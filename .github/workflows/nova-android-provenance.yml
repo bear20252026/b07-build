@@ -1,10 +1,7 @@
-name: Android APK candidate
+name: NOVA Android candidate provenance
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'android-v*'
 
 permissions:
   contents: read
@@ -12,8 +9,8 @@ permissions:
   attestations: write
 
 jobs:
-  build-android-apk:
-    name: Build Android arm64 and armv7 APK candidate
+  build-android-candidate:
+    name: Build NOVA Android aarch64 APK and universal AAB candidate
     runs-on: ubuntu-latest
     steps:
       - name: Check out exact source revision
@@ -34,7 +31,7 @@ jobs:
       - name: Set up stable Rust and Android targets
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
@@ -63,67 +60,64 @@ jobs:
       - name: Initialize Android Studio project in the remote workspace
         run: npm run android:init
 
-      - name: Build APK candidates
+      - name: Build aarch64 APK candidate
         run: npm run android:build:apk
 
-      - name: Sign release APKs with an ephemeral test certificate
+      - name: Build universal AAB candidate
+        run: npm run android:build:aab
+
+      - name: Create ephemeral candidate signing key and package Android candidates
+        id: package
         shell: bash
         run: |
           set -euo pipefail
-          signing_dir="$RUNNER_TEMP/ai-work-os-android-signing"
+          version=$(node -p "require('./apps/desktop-shell/package.json').version")
+          stage="$RUNNER_TEMP/nova-android-candidate"
+          signing_dir="$RUNNER_TEMP/nova-android-signing"
           keystore="$signing_dir/candidate-release.jks"
-          mkdir -p "$signing_dir"
+          mkdir -p "$stage" "$signing_dir"
           keytool -genkeypair \
             -keystore "$keystore" \
             -storepass android \
             -keypass android \
-            -alias ai-work-os-candidate \
+            -alias nova-android-candidate \
             -keyalg RSA \
             -keysize 2048 \
             -validity 30 \
-            -dname 'CN=AI Work OS Android Candidate, O=AI Work OS, C=US' \
+            -dname 'CN=NOVA Android Candidate, O=NOVA, C=US' \
             -noprompt
           build_tools_dir=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)
           test -n "$build_tools_dir"
           zipalign_bin="$ANDROID_HOME/build-tools/$build_tools_dir/zipalign"
           apksigner_bin="$ANDROID_HOME/build-tools/$build_tools_dir/apksigner"
           test -x "$zipalign_bin" && test -x "$apksigner_bin"
-          mapfile -t apks < <(find apps/desktop-shell/src-tauri/gen/android/app/build/outputs/apk -type f -name '*release-unsigned.apk' | sort)
-          test "${#apks[@]}" -gt 0
-          for apk in "${apks[@]}"; do
-            signed="${apk%-unsigned.apk}.apk"
-            "$zipalign_bin" -f -p 4 "$apk" "$signed.aligned"
-            "$apksigner_bin" sign \
-              --ks "$keystore" \
-              --ks-key-alias ai-work-os-candidate \
-              --ks-pass pass:android \
-              --key-pass pass:android \
-              --out "$signed" \
-              "$signed.aligned"
-            "$apksigner_bin" verify --verbose --print-certs "$signed"
-            rm -f "$apk" "$signed.aligned"
-          done
-          rm -rf "$signing_dir"
-
-      - name: Collect APKs and write manifest
-        id: package
-        shell: bash
-        run: |
-          set -euo pipefail
-          stage="$RUNNER_TEMP/ai-work-os-android-apk-candidate"
-          mkdir -p "$stage"
-          mapfile -t apks < <(find apps/desktop-shell/src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' | sort)
-          test "${#apks[@]}" -gt 0
-          cp "${apks[@]}" "$stage/"
-          python3 - <<'PY' "$stage"
+          apk=$(find apps/desktop-shell/src-tauri/gen/android/app/build/outputs/apk -type f -name '*aarch64*release-unsigned.apk' | sort | head -n 1)
+          test -n "$apk" && test -f "$apk"
+          apk_output="$stage/NOVA_${version}_aarch64-candidate.apk"
+          "$zipalign_bin" -f -p 4 "$apk" "$apk_output.aligned"
+          "$apksigner_bin" sign \
+            --ks "$keystore" \
+            --ks-key-alias nova-android-candidate \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --out "$apk_output" \
+            "$apk_output.aligned"
+          "$apksigner_bin" verify --verbose --print-certs "$apk_output"
+          rm -f "$apk_output.aligned"
+          aab=$(find apps/desktop-shell/src-tauri/gen/android/app/build/outputs/bundle -type f -name '*release*.aab' | sort | head -n 1)
+          test -n "$aab" && test -f "$aab"
+          aab_output="$stage/NOVA_${version}_universal-candidate.aab"
+          jarsigner -keystore "$keystore" -storepass android -keypass android -signedjar "$aab_output" "$aab" nova-android-candidate
+          jarsigner -verify -strict "$aab_output"
+          python3 - <<'PY' "$stage" "$version" "$GITHUB_SHA"
           import hashlib
           import json
           import os
           import sys
-          stage = sys.argv[1]
+          stage, version, source_revision = sys.argv[1:]
           files = []
           for name in sorted(os.listdir(stage)):
-              if not name.endswith('.apk'):
+              if not name.endswith(('.apk', '.aab')):
                   continue
               path = os.path.join(stage, name)
               with open(path, 'rb') as handle:
@@ -131,29 +125,40 @@ jobs:
               files.append({'file': name, 'sha256': digest, 'bytes': os.path.getsize(path)})
           manifest = {
               'schemaVersion': 1,
-              'product': 'AI Work OS',
+              'product': 'NOVA',
+              'version': version,
+              'sourceRevision': source_revision,
               'platform': 'android',
-              'artifactKind': 'android-apk-candidate',
+              'artifactKind': 'android-apk-aab-candidate',
+              'apkArchitecture': 'aarch64',
+              'aabArchitectures': ['aarch64', 'armv7', 'i686', 'x86_64'],
               'signingStatus': 'ephemeral-test-signed-release-candidate',
               'publicTrust': False,
+              'playStoreReady': False,
+              'requiresExplicitRemoteProviderConfiguration': True,
+              'directProviderTransport': 'rust-reqwest-https-sse',
               'includesWindowsGatewaySidecar': False,
               'includesDesktopCompanionCommands': False,
-              'requiresExplicitRemoteProviderConfiguration': True,
+              'includesLocalPythonSearchRuntime': False,
+              'excludedCapabilities': ['terminal', 'desktop-companion', 'desktop-save-as', 'local-python-search'],
               'files': files,
           }
-          with open(os.path.join(stage, 'android-apk-manifest.json'), 'w', encoding='utf-8') as handle:
+          with open(os.path.join(stage, 'nova-android-candidate-manifest.json'), 'w', encoding='utf-8') as handle:
               json.dump(manifest, handle, ensure_ascii=False, indent=2)
           PY
+          rm -rf "$signing_dir"
           echo "artifact-directory=$stage" >> "$GITHUB_OUTPUT"
 
-      - name: Upload Android APK candidates
+      - name: Upload NOVA Android candidates
         uses: actions/upload-artifact@v7
         with:
-          name: ai-work-os-android-apk-candidate
+          name: nova-android-aarch64-apk-and-universal-aab-candidate
           if-no-files-found: error
           path: ${{ steps.package.outputs.artifact-directory }}
 
-      - name: Generate build provenance for Android APK candidates
+      - name: Generate build provenance for NOVA Android candidates
         uses: actions/attest@v4
         with:
-          subject-path: ${{ steps.package.outputs.artifact-directory }}/*.apk
+          subject-path: |
+            ${{ steps.package.outputs.artifact-directory }}/*.apk
+            ${{ steps.package.outputs.artifact-directory }}/*.aab

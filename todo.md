@@ -204,3 +204,12 @@
 - [x] 新建仅用于 NOVA macOS Apple Silicon 的 GitHub hosted candidate 工作流与平台配置：生成 ad-hoc candidate DMG、独立 SHA-256 manifest 和 SLSA provenance；保持 Windows workflow、NSIS 产物、版本核验和发布历史不变。
 - [x] 为 macOS 首版明确隔离 Windows 内嵌 Python 的本地 SearXNG／last30days 资源；核心 Provider HTTPS/SSE、会话、项目、文件、Markdown 导出、历史树、Halo 和开屏保持可用，并由 hosted macOS runner 构建验证。
 - [x] 在 macOS arm64 候选成功后，对同一源修订触发既有 GitHub hosted Windows runner 回归构建，并核验 Windows Setup.exe 的 SHA-256 与 SLSA provenance，确认新增 macOS 配置未破坏稳定 Windows 交付链。
+- [x] 审计 Tauri Android 所需的 Kotlin/Gradle/NDK、WebView、Rust target、capability 与构建环境，明确可共享的 Provider HTTPS/SSE／会话／项目层和必须隔离的桌面窗口、系统浏览器、终端、文件对话框、本地 Python 搜索运行时与 Companion 功能；不得改动 Windows、macOS 或官网发布链。
+- [x] 设计 Android 首版最小可用范围：保留第三方 Provider 原生直连、多会话、项目、Markdown 历史、Halo 与手机响应式聊天；以明确的不可用状态隔离终端、Desktop Companion、桌面 Save As 和本地 SearXNG／last30days，不伪造支持。
+- [x] 核实 GitHub hosted Android APK/AAB 构建、调试／发布签名、Play App Signing 与 SLSA provenance 要求；未经用户确认不得提交 Android 平台代码或发布安装包。
+- [ ] 初始化受版本控制的 Tauri Android 工程，并以独立 Android 配置、manifest、图标和 package identifier 建立 NOVA 移动端目标；不得提交 Android target、Gradle cache 或 keystore。
+- [ ] 将桌面专属命令和窗口能力按 Android 平台隔离：终端、Desktop Companion、桌面 Save As、Windows/macOS 进程打开与本地 Python SearXNG／last30days 必须返回可见且真实的 Android 不可用状态，不伪造支持；普通聊天保持 WebView → Tauri → Rust reqwest HTTPS/SSE → 用户 Provider 原生直连。
+- [ ] 为 NOVA Workbench 实现手机窄屏响应式布局和单内容 Inspector：保留多会话、项目、已保存 Markdown、历史树、模型选择、Halo 与开屏；不得将桌面三栏简单压缩为不可操作界面，也不得改变聊天时间线设计。
+- [ ] 以独立 GitHub hosted Android workflow 产出 aarch64 APK 和 universal AAB candidate、各自 manifest、SHA-256 和 SLSA provenance；使用临时测试签名，并明确不属于正式 Play 发布或受信任安装包。
+- [ ] 执行 Android 候选构建和静态/单元/契约验证，并对同源修订触发 Windows 与 macOS hosted 回归构建；核验三平台工件哈希与 provenance。
+- [ ] 在 Android 候选构建和来源核验成功后，将 APK 下载项接入 NOVA 官网：上传至受管存储、扩展下载白名单与测试、添加“Android 版”下载入口，并通过 checkpoint 自动发布；不得替换 Windows/Mac 现有下载项。

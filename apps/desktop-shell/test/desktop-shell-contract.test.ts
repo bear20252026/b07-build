@@ -9,9 +9,11 @@ const rootPackageManifest = JSON.parse(readFileSync(resolve(root, 'package.json'
 const cargoManifest = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/Cargo.toml'), 'utf8');
 const desktopConfig = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/tauri.conf.json'), 'utf8')) as Record<string, unknown>;
 const macosDesktopConfig = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/tauri.macos.conf.json'), 'utf8')) as Record<string, unknown>;
+const androidConfig = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/tauri.android.conf.json'), 'utf8')) as Record<string, unknown>;
 const capability = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/capabilities/main-window.json'), 'utf8')) as Record<string, unknown>;
 const companionCapability = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/capabilities/desktop-companion-window.json'), 'utf8')) as Record<string, unknown>;
 const desktopCore = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/lib.rs'), 'utf8');
+const nativePlatformClient = readFileSync(resolve(root, 'apps/workbench/src/runtime/native-platform.ts'), 'utf8');
 const directProvider = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/direct_provider.rs'), 'utf8');
 const searxngLocal = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/searxng_local.rs'), 'utf8');
 const desktopMain = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/main.rs'), 'utf8');
@@ -32,6 +34,7 @@ const artifactExtension = readFileSync(resolve(root, 'apps/workbench/src/compone
 const directConversations = readFileSync(resolve(root, 'apps/workbench/src/runtime/use-direct-conversations.ts'), 'utf8');
 const workbenchCss = readFileSync(resolve(root, 'apps/workbench/src/workbench.css'), 'utf8');
 const macosWorkflow = readFileSync(resolve(root, '.github/workflows/macos-desktop-shell-provenance.yml'), 'utf8');
+const androidWorkflow = readFileSync(resolve(root, '.github/workflows/nova-android-provenance.yml'), 'utf8');
 
 function csp(): string {
   const app = desktopConfig.app as Record<string, unknown>;
@@ -80,6 +83,26 @@ test('macOS arm64 候选使用独立 DMG workflow、ad-hoc 候选签名和无 Wi
   assert.ok(desktopCore.includes('desktop-companion-macos-unavailable'));
 });
 
+test('Android 使用独立 NOVA 包标识、手机尺寸、PNG 图标和无 Windows Python 资源的配置', () => {
+  const androidBundle = androidConfig.bundle as Record<string, unknown>;
+  const androidSettings = androidBundle.android as Record<string, unknown>;
+  const resources = androidBundle.resources as Record<string, unknown>;
+  const app = androidConfig.app as Record<string, unknown>;
+  const windows = app.windows as readonly Record<string, unknown>[];
+  assert.equal(androidConfig.productName, 'NOVA');
+  assert.equal(androidConfig.identifier, 'com.bear20252026.nova');
+  assert.equal(androidSettings.minSdkVersion, 24);
+  assert.equal(androidSettings.versionCode, 1018);
+  assert.deepEqual(androidBundle.icon, ['icons/icon.png']);
+  assert.deepEqual(androidBundle.externalBin, []);
+  for (const value of Object.values(resources)) assert.equal(value, null, 'Android 不得打入桌面 Python/研究资源');
+  assert.equal(windows.length, 1);
+  assert.equal(windows[0].width, 390);
+  assert.equal(windows[0].height, 844);
+  assert.equal(rootPackageManifest.scripts?.['android:build:apk'], 'npm exec --workspace=@awo/desktop-shell -- tauri android build --apk --target aarch64');
+  assert.equal(rootPackageManifest.scripts?.['android:build:aab'], 'npm exec --workspace=@awo/desktop-shell -- tauri android build --aab');
+});
+
 test('桌面 WebView CSP 不开放远程 HTTP 通讯；第三方请求由 Tauri 原生 Provider 客户端直接发出', () => {
   const value = csp();
   for (const expected of ["default-src 'self'", "base-uri 'none'", "object-src 'none'", "frame-ancestors 'none'", "connect-src 'self'"]) assert.ok(value.includes(expected), `CSP 缺少约束：${expected}`);
@@ -98,6 +121,44 @@ test('桌面 Rust 核心提供直接 OpenAI/Anthropic Provider、模型查询、
   assert.ok(cargoManifest.includes('tray-icon'), '桌面常驻入口需要 Tauri tray-icon');
   assert.equal(cargoManifest.includes('tauri-plugin-shell'), false, '不得保留 sidecar shell plugin');
   assert.ok(desktopMain.includes('windows_subsystem = "windows"'));
+});
+
+test('Android 移动入口复用 Rust 直接 Provider HTTPS/SSE 与受限 HTTP(S) 外部链接，但不注册桌面命令', () => {
+  const mobileStart = desktopCore.indexOf('#[cfg(mobile)]\n#[tauri::mobile_entry_point]');
+  assert.notEqual(mobileStart, -1, '缺少 Android/iOS Tauri 入口');
+  const mobile = desktopCore.slice(mobileStart);
+  for (const expected of ['tauri_plugin_opener::init()', 'DirectProviderState::new()', 'configure_direct_provider', 'discover_direct_provider', 'probe_direct_provider', 'start_direct_provider_stream', 'external_url::open_external_url', 'native_runtime_platform']) assert.ok(mobile.includes(expected), `Android 移动入口缺少：${expected}`);
+  for (const forbidden of ['terminal::', 'show_desktop_companion', 'assistant_artifacts::', 'searxng_local::', 'last30days::', 'hybrid_search::', 'tauri_plugin_dialog::init()']) assert.equal(mobile.includes(forbidden), false, `Android 移动入口不得注册桌面能力：${forbidden}`);
+  assert.ok(externalUrl.includes('tauri_plugin_opener::open_url'));
+  assert.ok(externalUrl.includes('external-url-invalid'));
+  assert.ok(cargoManifest.includes('tauri-plugin-opener'));
+  for (const expected of ['platform: "android"', 'supports_direct_provider: true', 'supports_terminal: false', 'supports_desktop_companion: false', 'supports_desktop_save_as: false', 'supports_local_python_research: false']) assert.ok(desktopCore.includes(expected), `Android 能力回执缺少：${expected}`);
+  for (const expected of ["'android' | 'desktop' | 'web'", "invoke('native_runtime_platform')", 'supportsLocalPythonResearch']) assert.ok(nativePlatformClient.includes(expected), `Workbench 移动平台客户端缺少：${expected}`);
+});
+
+test('Android 候选构建链独立产出 NOVA aarch64 APK、universal AAB、临时签名、哈希清单与 SLSA provenance', () => {
+  for (const expected of [
+    'workflow_dispatch:',
+    'runs-on: ubuntu-latest',
+    'aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android',
+    'npm run android:init',
+    'npm run android:build:apk',
+    'npm run android:build:aab',
+    'NOVA_${version}_aarch64-candidate.apk',
+    'NOVA_${version}_universal-candidate.aab',
+    'nova-android-candidate-manifest.json',
+    'ephemeral-test-signed-release-candidate',
+    'rust-reqwest-https-sse',
+    'includesWindowsGatewaySidecar',
+    'includesLocalPythonSearchRuntime',
+    'actions/attest@v4',
+  ]) assert.ok(androidWorkflow.includes(expected), `Android workflow 缺少：${expected}`);
+  assert.equal(androidWorkflow.includes('push:\n'), false, 'Android 候选工作流在稳定前不得因推送自动触发');
+  assert.equal(androidWorkflow.includes('AI Work OS'), false, 'Android 候选工作流不得保留旧产品名称');
+  assert.equal(existsSync(resolve(root, '.github/workflows/android-apk-candidate.yml')), false, '不得保留旧 AI Work OS Android workflow');
+  const windowsWorkflow = readFileSync(resolve(root, '.github/workflows/windows-desktop-shell-provenance.yml'), 'utf8');
+  assert.equal(windowsWorkflow.includes('nova-android-provenance'), false, 'Windows 工作流不得耦合 Android 构建');
+  assert.equal(macosWorkflow.includes('nova-android-provenance'), false, 'macOS 工作流不得耦合 Android 构建');
 });
 
 test('桌面宠物默认由明确动作显示，独立隐藏或关闭不会接管工作台或 Provider 直连聊天', () => {

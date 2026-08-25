@@ -1,9 +1,37 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "productName": "NOVA",
+  "identifier": "com.bear20252026.nova",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "NOVA",
+        "width": 390,
+        "height": 844,
+        "minWidth": 320,
+        "minHeight": 480,
+        "resizable": true,
+        "maximized": false,
+        "visible": true,
+        "center": true
+      }
+    ]
+  },
   "bundle": {
+    "icon": [
+      "icons/icon.png"
+    ],
     "externalBin": [],
+    "resources": {
+      "../../../third_party/last30days-skill/": null,
+      "../../../third_party/last30days-skill-cn/": null,
+      "../../../third_party/searxng-windows/": null,
+      "resources/research/python-runtime/": null
+    },
     "android": {
-      "minSdkVersion": 24
+      "minSdkVersion": 24,
+      "versionCode": 1018
     }
   }
 }

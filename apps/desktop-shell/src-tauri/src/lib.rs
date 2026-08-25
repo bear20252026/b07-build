@@ -1,14 +1,13 @@
-//! NOVA desktop shell.
+//! NOVA Tauri shell.
 //!
 //! The WebView receives no filesystem, shell, database, environment, updater, deep-link, or
 //! native-helper API. Third-party model requests are issued by the fixed native Provider client
-//! from explicit user configuration; Companion commands only create, restore, or destroy the fixed local desktop window.
+//! from explicit user configuration on desktop and mobile; desktop Companion commands only create,
+//! restore, or destroy the fixed local desktop window.
 
 #[cfg(not(mobile))]
 mod assistant_artifacts;
-#[cfg(not(mobile))]
 mod direct_provider;
-#[cfg(not(mobile))]
 mod external_url;
 #[cfg(not(mobile))]
 mod file_extract;
@@ -30,11 +29,12 @@ mod web_search;
 #[cfg(not(mobile))]
 use std::{path::PathBuf, sync::Mutex};
 
+#[cfg(not(mobile))]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Manager,
 };
+use tauri::{AppHandle, Manager};
 #[cfg(not(mobile))]
 use tauri::{State, WindowEvent};
 #[cfg(not(target_os = "macos"))]
@@ -42,10 +42,51 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 #[cfg(not(mobile))]
 use tauri_plugin_dialog::DialogExt;
 #[cfg(not(mobile))]
-#[cfg(not(mobile))]
 const MAIN_WINDOW_LABEL: &str = "main";
 #[cfg(not(mobile))]
 const DESKTOP_COMPANION_WINDOW_LABEL: &str = "desktop-companion";
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeRuntimePlatformStatus {
+    platform: &'static str,
+    supports_direct_provider: bool,
+    supports_external_http_links: bool,
+    supports_terminal: bool,
+    supports_desktop_companion: bool,
+    supports_desktop_save_as: bool,
+    supports_local_python_research: bool,
+}
+
+/// Reports capability facts only; it never opens a connection, reads a file, starts a local
+/// runtime, or discloses a path, Provider endpoint, secret, prompt or message body.
+#[tauri::command]
+fn native_runtime_platform() -> NativeRuntimePlatformStatus {
+    #[cfg(target_os = "android")]
+    {
+        return NativeRuntimePlatformStatus {
+            platform: "android",
+            supports_direct_provider: true,
+            supports_external_http_links: true,
+            supports_terminal: false,
+            supports_desktop_companion: false,
+            supports_desktop_save_as: false,
+            supports_local_python_research: false,
+        };
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        NativeRuntimePlatformStatus {
+            platform: "desktop",
+            supports_direct_provider: true,
+            supports_external_http_links: true,
+            supports_terminal: true,
+            supports_desktop_companion: true,
+            supports_desktop_save_as: true,
+            supports_local_python_research: true,
+        }
+    }
+}
 
 #[cfg(not(mobile))]
 struct WorkspaceDirectoryState(Mutex<Option<PathBuf>>);
@@ -258,6 +299,7 @@ pub fn run() {
             github_collaboration::github_workspace_status,
             github_collaboration::github_workspace_preflight,
             github_collaboration::github_commit_and_push,
+            native_runtime_platform,
             choose_workspace_directory,
             show_desktop_companion,
             hide_desktop_companion,
@@ -299,13 +341,23 @@ pub fn run() {
 }
 
 /// Android/iOS 不继承 Windows sidecar、目录选择或桌面 Companion 命令。
-/// 移动端只承载经过平台配置隔离的 Web 工作台；远程模型接入仍需后续明确的数据出境确认。
+/// 移动端保留同一 Rust reqwest HTTPS/SSE Provider 直连与显式 HTTP(S) 外部链接；
+/// 终端、桌面 Companion、原生 Save As 和 Windows Python 搜索运行时不注册为移动命令。
 #[cfg(mobile)]
 #[tauri::mobile_entry_point]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![exit_ai_work_os])
+        .plugin(tauri_plugin_opener::init())
+        .manage(direct_provider::DirectProviderState::new())
+        .invoke_handler(tauri::generate_handler![
+            direct_provider::configure_direct_provider,
+            direct_provider::discover_direct_provider,
+            direct_provider::probe_direct_provider,
+            direct_provider::start_direct_provider_stream,
+            external_url::open_external_url,
+            native_runtime_platform,
+            exit_ai_work_os
+        ])
         .setup(|app| {
             let main_window = app
                 .get_webview_window(MAIN_WINDOW_LABEL)

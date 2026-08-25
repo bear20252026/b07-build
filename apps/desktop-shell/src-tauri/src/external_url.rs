@@ -17,6 +17,13 @@ fn validated_external_url(value: &str) -> Result<&str, &'static str> {
 #[tauri::command]
 pub fn open_external_url(url: String) -> Result<(), &'static str> {
     let url = validated_external_url(&url)?;
+    #[cfg(mobile)]
+    {
+        // Android/iOS opener delegates only an explicitly validated HTTP(S) link to the
+        // system default browser. It is not a shell bridge and never receives file paths.
+        return tauri_plugin_opener::open_url(url, None::<&str>)
+            .map_err(|_| "external-url-open-failed");
+    }
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut command = std::process::Command::new("rundll32.exe");
@@ -29,7 +36,7 @@ pub fn open_external_url(url: String) -> Result<(), &'static str> {
         command.arg(url);
         command
     };
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    #[cfg(all(not(mobile), not(target_os = "windows"), not(target_os = "macos")))]
     let mut command = {
         let mut command = std::process::Command::new("xdg-open");
         command.arg(url);

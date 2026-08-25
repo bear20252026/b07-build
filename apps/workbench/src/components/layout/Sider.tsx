@@ -36,6 +36,7 @@ export interface SiderProps {
   selectedProjectId?: string;
   conversations: readonly DirectConversation[];
   activeConversationId?: string;
+  mobileNavigation?: boolean;
   theme: 'light' | 'dark';
   onThemeToggle(): void;
   onNewTask(): void;
@@ -80,7 +81,7 @@ function useFreshListItems(projects: readonly WorkbenchProject[], conversations:
  * 参考 AionUi 的两态侧栏：主工作区只承载任务入口，设置状态替换为二级设置导航。
  * 这仅改变阅读与跳转层级；所有 Gateway 请求仍必须由用户明确点击的页面动作触发。
  */
-export function Sider({ activePage, hasActiveTask, projects, selectedProjectId, conversations, activeConversationId, theme, onThemeToggle, onNewTask, onNavigate, onShowWorkspaceConversations, onSelectProject, onSelectConversation, onNewConversation, onRenameConversation, onRemoveConversation }: SiderProps) {
+export function Sider({ activePage, hasActiveTask, projects, selectedProjectId, conversations, activeConversationId, mobileNavigation = false, theme, onThemeToggle, onNewTask, onNavigate, onShowWorkspaceConversations, onSelectProject, onSelectConversation, onNewConversation, onRenameConversation, onRemoveConversation }: SiderProps) {
   const { locale, messages, setLocale } = useLocale();
   const [companionId, setCompanionId] = useState<Companion['id']>('orbit');
   const [companionMotion, setCompanionMotion] = useState<'idle' | 'attention' | 'celebrate'>('idle');
@@ -93,6 +94,26 @@ export function Sider({ activePage, hasActiveTask, projects, selectedProjectId, 
   const visibleConversations = conversations.filter((conversation) => conversation.projectId === selectedProjectId);
   const selectedProject = projects.find((project) => project.projectId === selectedProjectId);
   const freshListItems = useFreshListItems(projects, conversations);
+
+  if (mobileNavigation) {
+    const mobileButton = { minWidth: 0, flex: '1 1 0', display: 'grid', placeItems: 'center', gap: 2, padding: '7px 2px', color: 'var(--muted-strong)', fontSize: 10, border: 0, borderRadius: 12, background: 'transparent' } as const;
+    const mobileActive = { ...mobileButton, color: 'var(--accent-strong)', background: 'var(--accent-soft)' } as const;
+    const mobilePanel = { position: 'fixed', zIndex: 2147483645, right: 12, bottom: 72, left: 12, maxHeight: 'min(60dvh, 480px)', overflow: 'auto', padding: 12, border: '1px solid var(--border)', borderRadius: 20, background: 'var(--panel)', boxShadow: 'var(--shadow-float)' } as const;
+    return <nav aria-label="NOVA 手机导航" className="sider sider-mobile" style={{ position: 'fixed', zIndex: 2147483644, right: 0, bottom: 0, left: 0, height: 64, minHeight: 64, display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 5, padding: '7px 10px env(safe-area-inset-bottom)', border: 0, borderTop: '1px solid var(--border)', background: 'color-mix(in srgb, var(--sidebar) 94%, transparent)', boxShadow: '0 -8px 24px color-mix(in srgb, var(--text-strong) 7%, transparent)' }}>
+      <button aria-current={activePage === 'workspace' ? 'page' : undefined} onClick={onShowWorkspaceConversations} style={activePage === 'workspace' ? mobileActive : mobileButton} type="button"><span aria-hidden="true">◌</span><span>聊天</span></button>
+      <details style={{ minWidth: 0, flex: '1 1 0', textAlign: 'center' }}>
+        <summary style={{ ...mobileButton, width: '100%', cursor: 'pointer', listStyle: 'none' }}><span aria-hidden="true">☰</span><span>会话</span></summary>
+        <div style={mobilePanel}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}><strong style={{ color: 'var(--text-strong)', fontSize: 13 }}>本地项目与会话</strong><button onClick={onNewConversation} style={{ minHeight: 30, padding: '0 10px', color: '#fff', border: 0, borderRadius: 10, background: 'var(--accent-strong)' }} type="button">新建会话</button></div>
+          <div style={{ display: 'grid', gap: 6, marginTop: 12 }}><button onClick={onShowWorkspaceConversations} style={{ minHeight: 36, padding: '0 10px', color: 'var(--text-strong)', textAlign: 'left', border: '1px solid var(--border)', borderRadius: 11, background: !selectedProjectId ? 'var(--accent-soft)' : 'var(--panel-subtle)' }} type="button">工作区对话</button>{projects.map((project) => <button key={project.projectId} onClick={() => onSelectProject(project.projectId)} style={{ minHeight: 36, padding: '0 10px', color: 'var(--text-strong)', textAlign: 'left', border: '1px solid var(--border)', borderRadius: 11, background: project.projectId === selectedProjectId ? 'var(--accent-soft)' : 'var(--panel-subtle)' }} type="button">▱ {project.title}</button>)}</div>
+          <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>{visibleConversations.length === 0 ? <p style={{ margin: 0, color: 'var(--muted)', fontSize: 11 }}>当前范围尚无会话。</p> : visibleConversations.map((conversation) => <button key={conversation.id} onClick={() => onSelectConversation(conversation.id)} style={{ minHeight: 40, padding: '5px 10px', color: 'var(--text-strong)', textAlign: 'left', border: '1px solid var(--border)', borderRadius: 11, background: conversation.id === activeConversationId ? 'var(--accent-soft)' : 'var(--panel-subtle)' }} type="button"><strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>{conversation.title}</strong><small style={{ color: 'var(--muted)', fontSize: 9 }}>{conversation.messages.length} 条消息</small></button>)}</div>
+        </div>
+      </details>
+      <button aria-current={activePage === 'projects' ? 'page' : undefined} onClick={() => onNavigate('projects')} style={activePage === 'projects' ? mobileActive : mobileButton} type="button"><span aria-hidden="true">▤</span><span>项目</span></button>
+      <button aria-current={activePage === 'models' ? 'page' : undefined} onClick={() => onNavigate('models')} style={activePage === 'models' ? mobileActive : mobileButton} type="button"><span aria-hidden="true">⌁</span><span>模型</span></button>
+      <button onClick={onNewTask} style={mobileButton} type="button"><span aria-hidden="true">＋</span><span>新建</span></button>
+    </nav>;
+  }
 
   return (
     <nav className="sider" aria-label={messages.navigation.aria}>
