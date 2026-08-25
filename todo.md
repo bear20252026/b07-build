@@ -198,5 +198,5 @@
 - [x] 依据 DeepSeek 官方公开模型资料审计首页厂商与模型候选数据流，确保历史／自定义 DeepSeek 连接中真实呈现并可选择 `deepseek-v4-flash`，且不覆盖手填模型或回退到其他 Provider。
 - [x] 实现以用户提供 NOVA 圆环图标为视觉锚点的开屏动画：错位双弧旋转、中心点呼吸和克制辉光；尊重 reduced-motion、设定短时上限、不得阻塞 Provider 会话或改变聊天 Composer。
 - [x] 为品牌图标、Halo 搜索置顶、DeepSeek V4 Flash 候选与开屏动效补充回归测试、严格类型检查、生产构建、预算与格式验证。
-- [ ] 经用户确认候选版本范围后，以 GitHub hosted Windows runner 构建并核验图标、Halo、模型候选与开屏改动；不得使用用户本机工具链。
-- [ ] 将已验证的 NOVA 圆环图标、Halo 搜索置顶、DeepSeek V4 Flash 可见候选、开屏动画与来源记录升级为下一候选版本，提交、推送并核验安装器 SHA-256 和 SLSA provenance。
+- [x] 经用户确认候选版本范围后，以 GitHub hosted Windows runner 构建并核验图标、Halo、模型候选与开屏改动；不得使用用户本机工具链。
+- [x] 将已验证的 NOVA 圆环图标、Halo 搜索置顶、DeepSeek V4 Flash 可见候选、开屏动画与来源记录升级为下一候选版本，提交、推送并核验安装器 SHA-256 和 SLSA provenance。
