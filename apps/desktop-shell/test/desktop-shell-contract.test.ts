@@ -77,6 +77,7 @@ test('macOS arm64 候选使用独立 DMG workflow、ad-hoc 候选签名和无 Wi
   assert.ok(windowsWorkflow.includes('runs-on: windows-latest'));
   assert.equal(windowsWorkflow.includes('macos-desktop-shell-provenance'), false);
   assert.ok(searxngLocal.includes('searxng-macos-runtime-unavailable'));
+  assert.ok(desktopCore.includes('desktop-companion-macos-unavailable'));
 });
 
 test('桌面 WebView CSP 不开放远程 HTTP 通讯；第三方请求由 Tauri 原生 Provider 客户端直接发出', () => {

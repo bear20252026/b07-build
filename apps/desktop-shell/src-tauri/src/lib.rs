@@ -121,7 +121,7 @@ fn desktop_diagnostics(
 
 /// Creates only the fixed, local Companion surface without hiding or changing the main workbench.
 /// It neither starts a model/Gateway nor grants the new WebView Shell, file, capture, or autostart access.
-#[cfg(not(mobile))]
+#[cfg(all(not(mobile), not(target_os = "macos")))]
 #[tauri::command]
 fn show_desktop_companion(app: AppHandle) -> Result<(), &'static str> {
     if let Some(window) = app.get_webview_window(DESKTOP_COMPANION_WINDOW_LABEL) {
@@ -145,6 +145,14 @@ fn show_desktop_companion(app: AppHandle) -> Result<(), &'static str> {
     }
 
     Ok(())
+}
+
+/// The transparent, always-on-top Companion surface uses a Windows-only window builder API.
+/// macOS candidates keep the core workbench available and report this optional surface explicitly.
+#[cfg(all(not(mobile), target_os = "macos"))]
+#[tauri::command]
+fn show_desktop_companion(_app: AppHandle) -> Result<(), &'static str> {
+    Err("desktop-companion-macos-unavailable")
 }
 
 /// Hides the fixed Companion window without changing the main workbench.
