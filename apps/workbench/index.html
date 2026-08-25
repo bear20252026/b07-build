@@ -4,9 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NOVA</title>
+    <style>
+      html, body, #root { min-height: 100%; margin: 0; }
+      body { background: #07091a; }
+      #boot-fallback { min-height: 100dvh; display: grid; place-items: center; color: #dbe7ff; font: 600 14px system-ui, sans-serif; letter-spacing: .08em; }
+      #boot-fallback > div { display: grid; gap: 10px; justify-items: center; padding: 28px; border: 1px solid rgba(159, 192, 255, .24); border-radius: 24px; background: rgba(20, 34, 79, .72); box-shadow: 0 20px 70px rgba(0, 0, 0, .32); }
+      #boot-fallback small { color: #9bb6e8; font-size: 11px; letter-spacing: .04em; }
+      .workbench-boot-error { min-height: 100dvh; display: grid; place-items: center; padding: 24px; box-sizing: border-box; color: #dbe7ff; font: 14px system-ui, sans-serif; }
+      .workbench-boot-error section { max-width: 520px; padding: 28px; border: 1px solid rgba(159, 192, 255, .24); border-radius: 24px; background: rgba(20, 34, 79, .72); box-shadow: 0 20px 70px rgba(0, 0, 0, .32); }
+      .workbench-boot-error h1 { margin: 18px 0 8px; font-size: 22px; }
+      .workbench-boot-error p { color: #9bb6e8; line-height: 1.6; }
+      .workbench-boot-error code { display: block; margin-top: 18px; color: #ffc7d3; white-space: pre-wrap; overflow-wrap: anywhere; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div id="boot-fallback" role="status"><div><strong>NOVA</strong><small>正在加载工作台…</small></div></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

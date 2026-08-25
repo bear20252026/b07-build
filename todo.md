@@ -213,10 +213,11 @@
 - [x] 以独立 GitHub hosted Android workflow 产出 aarch64 APK 和 universal AAB candidate、各自 manifest、SHA-256 和 SLSA provenance；使用临时测试签名，并明确不属于正式 Play 发布或受信任安装包。
 - [x] 执行 Android 候选构建和静态/单元/契约验证，并对同源修订触发 Windows 与 macOS hosted 回归构建；核验三平台工件哈希与 provenance。
 - [x] 在 Android 候选构建和来源核验成功后，将 APK 下载项接入 NOVA 官网：上传至受管存储、扩展下载白名单与测试、添加“Android 版”下载入口，并通过 checkpoint 自动发布；不得替换 Windows/Mac 现有下载项。
-- [ ] 诊断用户报告的 Android candidate APK 启动后页面异常：保全当前工件和设备症状，审计 Tauri Android manifest、初始化时序、WebView 静态产物、capability/插件配置与 Rust mobile 入口；如需设备日志则请求用户提供。
+- [x] 诊断用户报告的 Android candidate APK 启动后页面异常：保全当前工件和设备症状，审计 Tauri Android manifest、初始化时序、WebView 静态产物、capability/插件配置与 Rust mobile 入口；如需设备日志则请求用户提供。
 - [ ] 以最小改动修复 Android 启动/白屏路径，新增可跨 Windows CRLF、Android 编译和实际 Android runtime 启动边界的测试；普通聊天仍必须保持 Rust reqwest HTTPS/SSE 到用户 Provider 的原生直连。
 - [x] 修复 Android x86_64 emulator runner 将内联多行 shell 逐行执行而使证据函数在启动前语法失败的问题；改用受版本控制的 POSIX 冒烟脚本，并断言前台窗口和 UI 自动化树均可见 NOVA。
 - [ ] 在 hosted Android runner 重新构建修复 APK/AAB，核验 APK SHA-256、签名、SLSA provenance，并通过 Android emulator 或用户设备验证启动到 NOVA 首页后，才替换官网 Android 下载项；Windows/Mac 入口保持不变。
-- [ ] 将 Android emulator runner 的启动等待预算扩展到 1200 秒，以覆盖 hosted runner 首次启动 Android 35 镜像的实际冷启动时长；该轮未执行 NOVA 安装/页面断言，不能作为白屏结论。
-- [ ] 排除 Android emulator 的 UiAutomation 服务崩溃噪声：UI XML 仅作为可选证据，不能把 `com.android.commands.uiautomator` 的 FATAL 当成 NOVA 应用崩溃；应用级验收改为进程仍存活、前台窗口为 NOVA、截图可读及应用自身错误日志无异常。
-- [ ] 将模拟器启动断言从固定等待 12 秒改为最多 90 秒轮询 `MainActivity` 前台状态，并保留最终截图与进程/窗口证据；若仍停留 Splash，再针对 Tauri Android 启动路径修复。
+- [x] 将 Android emulator runner 的启动等待预算扩展到 1200 秒，以覆盖 hosted runner 首次启动 Android 35 镜像的实际冷启动时长；该轮未执行 NOVA 安装/页面断言，不能作为白屏结论。
+- [x] 排除 Android emulator 的 UiAutomation 服务崩溃噪声：UI XML 仅作为可选证据，不能把 `com.android.commands.uiautomator` 的 FATAL 当成 NOVA 应用崩溃；应用级验收改为进程仍存活、前台窗口为 NOVA、截图可读及应用自身错误日志无异常。
+- [x] 将模拟器启动断言从固定等待 12 秒改为最多 90 秒轮询 `MainActivity` 前台状态，并保留最终截图与进程/窗口证据；若仍停留 Splash，再针对 Tauri Android 启动路径修复。
+- [ ] 为 Android/桌面 Workbench 增加 HTML 静态首帧回退和 React 错误边界，避免模块加载或首屏渲染异常直接呈现无信息白屏；不改变 Provider 直连架构。

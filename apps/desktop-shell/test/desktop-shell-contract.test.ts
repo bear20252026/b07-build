@@ -36,6 +36,8 @@ const workbenchCss = readFileSync(resolve(root, 'apps/workbench/src/workbench.cs
 const macosWorkflow = readFileSync(resolve(root, '.github/workflows/macos-desktop-shell-provenance.yml'), 'utf8');
 const androidWorkflow = readFileSync(resolve(root, '.github/workflows/nova-android-provenance.yml'), 'utf8');
 const androidEmulatorSmokeScript = readFileSync(resolve(root, '.github/scripts/run-nova-android-emulator-smoke.sh'), 'utf8');
+const workbenchIndex = readFileSync(resolve(root, 'apps/workbench/index.html'), 'utf8');
+const workbenchMain = readFileSync(resolve(root, 'apps/workbench/src/main.tsx'), 'utf8');
 
 function csp(): string {
   const app = desktopConfig.app as Record<string, unknown>;
@@ -290,4 +292,5 @@ test('开屏仅是有界品牌过渡，尊重 reduced-motion 且不参与 Provid
   for (const expected of ['prefers-reduced-motion: reduce', 'setTimeout(() => setVisible(false)', '1250', '跳过', 'nova-splash-orbit', 'nova-splash-breathe']) assert.ok(startupSplash.includes(expected), `开屏缺少：${expected}`);
   for (const forbidden of ['invoke(', 'directConversations', 'start_direct_provider_stream']) assert.equal(startupSplash.includes(forbidden), false, `开屏不得依赖：${forbidden}`);
   assert.ok(workbenchApp.includes('<StartupSplash />'));
+  for (const expected of ['id="boot-fallback"', '正在加载工作台', 'WorkbenchErrorBoundary', 'Workbench render failed']) assert.ok(workbenchIndex.includes(expected) || workbenchMain.includes(expected), `Workbench 首帧保护缺少：${expected}`);
 });
