@@ -192,3 +192,11 @@
 - [x] 为受限单文件 Markdown 导出、分组历史投影、展开状态恢复与无通用文件权限边界补充单元／静态契约测试。
 - [x] 经用户确认下一次版本范围后，将右侧 Markdown 导出与历史管理改动交由 GitHub hosted Windows runner 构建验证；不得使用用户本机工具链。
 - [x] 将已验证的右侧 Markdown 导出、项目／任务运行／回复历史树与 AionUi 来源记录升级为下一 NOVA 候选版本，提交、推送并核验安装器 SHA-256 与 SLSA provenance。
+- [x] 解析用户提供的 Ant Design、Calendar、Type Scale、Tailwind Kit 与 shadcn/ui Penpot 文件，按 NOVA 的 Apple 风格、桌面聊天稳定性、CSS 预算与许可证边界形成参考价值排序；未经用户确认不得直接迁移任何视觉改动。
+- [x] 按用户提供的公开资料与作者署名边界，更新 NOVA 品牌图标；保留来源、修改说明和必要的许可证记录，不直接复制未核验的社区资产。
+- [x] 复现并修复 Halo Search 在 Windows 标题栏／工作区上被遮住的问题，使搜索层视觉上位于最上方、标题栏不被模糊、背景保持非交互。
+- [x] 依据 DeepSeek 官方公开模型资料审计首页厂商与模型候选数据流，确保历史／自定义 DeepSeek 连接中真实呈现并可选择 `deepseek-v4-flash`，且不覆盖手填模型或回退到其他 Provider。
+- [x] 实现以用户提供 NOVA 圆环图标为视觉锚点的开屏动画：错位双弧旋转、中心点呼吸和克制辉光；尊重 reduced-motion、设定短时上限、不得阻塞 Provider 会话或改变聊天 Composer。
+- [x] 为品牌图标、Halo 搜索置顶、DeepSeek V4 Flash 候选与开屏动效补充回归测试、严格类型检查、生产构建、预算与格式验证。
+- [ ] 经用户确认候选版本范围后，以 GitHub hosted Windows runner 构建并核验图标、Halo、模型候选与开屏改动；不得使用用户本机工具链。
+- [ ] 将已验证的 NOVA 圆环图标、Halo 搜索置顶、DeepSeek V4 Flash 可见候选、开屏动画与来源记录升级为下一候选版本，提交、推送并核验安装器 SHA-256 和 SLSA provenance。

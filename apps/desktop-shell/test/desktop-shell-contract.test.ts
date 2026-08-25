@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
@@ -17,6 +17,8 @@ const desktopMain = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src
 const workbenchVite = readFileSync(resolve(root, 'apps/workbench/vite.config.ts'), 'utf8');
 const workbenchSider = readFileSync(resolve(root, 'apps/workbench/src/components/layout/Sider.tsx'), 'utf8');
 const workbenchApp = readFileSync(resolve(root, 'apps/workbench/src/App.tsx'), 'utf8');
+const haloSearch = readFileSync(resolve(root, 'apps/workbench/src/components/layout/HaloSearch.tsx'), 'utf8');
+const startupSplash = readFileSync(resolve(root, 'apps/workbench/src/components/layout/StartupSplash.tsx'), 'utf8');
 const chatHome = readFileSync(resolve(root, 'apps/workbench/src/components/workspace/ChatHome.tsx'), 'utf8');
 const homeModelSwitching = readFileSync(resolve(root, 'apps/workbench/src/runtime/home-model-switching.ts'), 'utf8');
 const providerDiagnostics = readFileSync(resolve(root, 'apps/workbench/src/runtime/provider-diagnostics.ts'), 'utf8');
@@ -136,6 +138,8 @@ test('桌面 Workbench 使用静态 NOVA 图标而不引入要求 unsafe-eval �
   assert.ok(workbenchSider.includes("import novaIcon from '../../assets/nova-icon.png'"));
   assert.ok(workbenchSider.includes('src={novaIcon}'));
   assert.equal(workbenchSider.includes('@lobehub/icons'), false);
+  assert.ok(existsSync(resolve(root, 'apps/desktop-shell/src-tauri/icons/icon.ico')));
+  assert.ok(existsSync(resolve(root, 'apps/desktop-shell/src-tauri/icons/128x128@2x.png')));
 });
 
 test('联网搜索每轮最多向模型投影十个 URL，且来源可见并由用户点击后在系统浏览器打开', () => {
@@ -171,6 +175,20 @@ test('Halo Search 必须位于最上层且不对标题栏施加模糊遮罩', ()
   assert.notEqual(layerStart, -1);
   assert.notEqual(layerEnd, -1);
   const layer = workbenchCss.slice(layerStart, layerEnd);
-  assert.ok(layer.includes('z-index: 200'));
+  assert.ok(layer.includes('z-index: 2147483646'));
   assert.equal(layer.includes('backdrop-filter'), false);
+  assert.ok(haloSearch.includes('createPortal'));
+  assert.ok(haloSearch.includes('document.body'));
+});
+
+test('DeepSeek V4 Flash 必须通过可见模型候选选择器呈现，同时继续允许手动模型标识', () => {
+  for (const expected of ['首页模型候选', '切换当前会话的模型候选', '模型标识（可手动输入）', 'visibleChoices']) assert.ok(chatHome.includes(expected), `首页模型候选缺少：${expected}`);
+  const officialCatalog = readFileSync(resolve(root, 'apps/workbench/src/runtime/official-provider-catalog.ts'), 'utf8');
+  for (const expected of ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp']) assert.ok(officialCatalog.includes(expected), `DeepSeek 官方模型目录缺少：${expected}`);
+});
+
+test('开屏仅是有界品牌过渡，尊重 reduced-motion 且不参与 Provider、Gateway 或会话状态机', () => {
+  for (const expected of ['prefers-reduced-motion: reduce', 'setTimeout(() => setVisible(false)', '1250', '跳过', 'nova-splash-orbit', 'nova-splash-breathe']) assert.ok(startupSplash.includes(expected), `开屏缺少：${expected}`);
+  for (const forbidden of ['invoke(', 'directConversations', 'start_direct_provider_stream']) assert.equal(startupSplash.includes(forbidden), false, `开屏不得依赖：${forbidden}`);
+  assert.ok(workbenchApp.includes('<StartupSplash />'));
 });

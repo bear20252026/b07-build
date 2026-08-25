@@ -8,6 +8,7 @@ import { SettingsOverlay } from './components/layout/SettingsOverlay';
 import { WorkbenchOverlay } from './components/layout/WorkbenchOverlay';
 import { CommandPalette } from './components/layout/CommandPalette';
 import { HaloSearch } from './components/layout/HaloSearch';
+import { StartupSplash } from './components/layout/StartupSplash';
 import { createWorkbenchCommandCatalog, type WorkbenchCommand } from './components/layout/command-catalog';
 import { resolveWorkbenchSurface } from './components/layout/workbench-surface';
 import { ChatHome } from './components/workspace/ChatHome';
@@ -427,6 +428,7 @@ export function App() {
 
   return (
     <Suspense fallback={<div className="workbench-async-loading" role="status">正在加载所选工作面…</div>}>
+    <StartupSplash />
     <div className={`workbench-shell ${showTaskPreview ? 'with-preview' : 'focus-page'}${artifactRailOpen ? ' with-artifact-rail' : ''}${workbenchSurface === 'chat-home' ? ' chat-home-surface' : ''}${isSettings ? ' settings-open' : ''} theme-${theme}`}>
       <Sider
         activePage={isSettings ? 'workspace' : activePage}
@@ -454,7 +456,7 @@ export function App() {
       <main className="workbench-main">
         <header className="workbench-titlebar">
           <div>
-            <div className="titlebar-kicker">AI WORK OS · THIRD-PARTY API</div>
+            <div className="titlebar-kicker">NOVA · THIRD-PARTY API</div>
             <div className="titlebar-title">{workbenchSurface === 'chat-home' && taskModelLabel ? taskModelLabel : pageTitle[activePage]}</div>
           </div>
           <div className="titlebar-actions">
