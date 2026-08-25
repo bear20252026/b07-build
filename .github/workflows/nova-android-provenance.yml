@@ -110,7 +110,9 @@ jobs:
           test -n "$aab" && test -f "$aab"
           aab_output="$stage/NOVA_${version}_universal-candidate.aab"
           jarsigner -keystore "$keystore" -storepass android -keypass android -signedjar "$aab_output" "$aab" nova-android-candidate
-          jarsigner -verify -strict "$aab_output"
+          # The candidate key is intentionally self-signed and removed after this job.
+          # Verify JAR integrity without requiring an external PKIX trust chain.
+          jarsigner -verify -verbose "$aab_output"
           python3 - <<'PY' "$stage" "$version" "$GITHUB_SHA"
           import hashlib
           import json
