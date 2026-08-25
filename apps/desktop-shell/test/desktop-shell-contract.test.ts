@@ -164,6 +164,8 @@ test('Android 候选构建链独立产出 NOVA aarch64 APK、universal AAB、临
     'x86_64-linux-android',
     'reactivecircus/android-emulator-runner@v2',
     'nova-android-emulator-startup-evidence',
+    'Prepare Android emulator startup evidence directory',
+    'trap capture_evidence EXIT',
     'nova-emulator-smoke.jks',
     'apksigner_bin',
   ]) assert.ok(androidWorkflow.includes(expected), `Android workflow 缺少：${expected}`);
