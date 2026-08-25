@@ -57,6 +57,17 @@ jobs:
           npm run typecheck
           node --experimental-sqlite --import tsx --test apps/desktop-shell/test/desktop-shell-contract.test.ts
 
+      - name: Build Workbench static assets before Android generation
+        run: npm run build --workspace=@awo/workbench
+
+      - name: Verify WebView asset payload before Android generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s apps/workbench/dist/index.html
+          test -d apps/workbench/dist/assets
+          test -n "$(find apps/workbench/dist/assets -maxdepth 1 -type f -name '*.js' -print -quit)"
+
       - name: Initialize Android Studio project in the remote workspace
         run: npm run android:init
 
@@ -65,6 +76,15 @@ jobs:
 
       - name: Build universal AAB candidate
         run: npm run android:build:aab
+
+      - name: Verify Android WebView asset payload before signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=$(find apps/desktop-shell/src-tauri/gen/android/app/build/outputs/apk/universal/release -type f -name 'app-universal-release-unsigned.apk' | sort | head -n 1)
+          test -n "$apk" && test -f "$apk"
+          unzip -l "$apk" | grep -q ' assets/index.html$'
+          unzip -p "$apk" assets/index.html | grep -q '<script'
 
       - name: Create ephemeral candidate signing key and package Android candidates
         id: package

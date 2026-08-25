@@ -212,4 +212,7 @@
 - [x] 为 NOVA Workbench 实现手机窄屏响应式布局和单内容 Inspector：保留多会话、项目、已保存 Markdown、历史树、模型选择、Halo 与开屏；不得将桌面三栏简单压缩为不可操作界面，也不得改变聊天时间线设计。
 - [x] 以独立 GitHub hosted Android workflow 产出 aarch64 APK 和 universal AAB candidate、各自 manifest、SHA-256 和 SLSA provenance；使用临时测试签名，并明确不属于正式 Play 发布或受信任安装包。
 - [x] 执行 Android 候选构建和静态/单元/契约验证，并对同源修订触发 Windows 与 macOS hosted 回归构建；核验三平台工件哈希与 provenance。
-- [ ] 在 Android 候选构建和来源核验成功后，将 APK 下载项接入 NOVA 官网：上传至受管存储、扩展下载白名单与测试、添加“Android 版”下载入口，并通过 checkpoint 自动发布；不得替换 Windows/Mac 现有下载项。
+- [x] 在 Android 候选构建和来源核验成功后，将 APK 下载项接入 NOVA 官网：上传至受管存储、扩展下载白名单与测试、添加“Android 版”下载入口，并通过 checkpoint 自动发布；不得替换 Windows/Mac 现有下载项。
+- [ ] 诊断用户报告的 Android candidate APK 启动后页面异常：保全当前工件和设备症状，审计 Tauri Android manifest、初始化时序、WebView 静态产物、capability/插件配置与 Rust mobile 入口；如需设备日志则请求用户提供。
+- [ ] 以最小改动修复 Android 启动/白屏路径，新增可跨 Windows CRLF、Android 编译和实际 Android runtime 启动边界的测试；普通聊天仍必须保持 Rust reqwest HTTPS/SSE 到用户 Provider 的原生直连。
+- [ ] 在 hosted Android runner 重新构建修复 APK/AAB，核验 APK SHA-256、签名、SLSA provenance，并通过 Android emulator 或用户设备验证启动到 NOVA 首页后，才替换官网 Android 下载项；Windows/Mac 入口保持不变。
