@@ -226,3 +226,4 @@
 - [ ] 将 Android 冒烟脚本与 emulator runner 解耦：脚本即使 ADB 安装/诊断超时也必须写 `smoke-status.txt` 并正常返回，由后续独立步骤判定通过/失败；确保失败时截图和 Logcat 一定上传，避免 runner 直接退出导致无法诊断。
 - [x] 从源码层审计手机版实际入口和配置链：核对 Tauri Android 配置合并、生成工程 assets、Workbench frontendDist、React 入口与 Android 条件分支，确认代码/设置未被错误排除；不得继续仅凭 APK 外观推断白屏原因。
 - [x] 扫描并修复所有平台共用 Workbench 首屏代码中的全新安装空状态反模式：空 connections、undefined selection、空数组首项、持久化 JSON 损坏及保护条件晚于字段解引用；覆盖 Android、Windows、macOS 共用路径。
+- [ ] 为 Android 模拟器安装阶段增加 `adb wait-for-device`、`--no-streaming` 和有限重试；本轮 `smoke-status` 已确认失败点为 install-timeout-or-failed，尚未执行 NOVA 页面断言，不能作为源码修复失败结论。

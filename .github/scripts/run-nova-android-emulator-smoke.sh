@@ -42,7 +42,18 @@ keytool -genkeypair -keystore "$keystore" -storepass android -keypass android -a
 "$apksigner_bin" verify --verbose "$signed_apk" || fail verify-signature-failed
 rm -f "$signed_apk.aligned" "$keystore"
 
-timeout 60 adb install -r "$signed_apk" || fail install-timeout-or-failed
+timeout 30 adb wait-for-device || fail device-not-ready
+install_attempt=1
+installed=0
+while [ "$install_attempt" -le 3 ]; do
+  if timeout 90 adb install --no-streaming -r "$signed_apk"; then
+    installed=1
+    break
+  fi
+  sleep 5
+  install_attempt=$((install_attempt + 1))
+done
+[ "$installed" -eq 1 ] || fail install-timeout-or-failed
 timeout 20 adb logcat -c || fail logcat-clear-failed
 timeout 30 adb shell monkey -p com.bear20252026.nova 1 || fail launch-timeout-or-failed
 
