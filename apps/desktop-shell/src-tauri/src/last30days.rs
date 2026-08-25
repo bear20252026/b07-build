@@ -112,11 +112,21 @@ fn python_executable(app: &AppHandle) -> std::path::PathBuf {
     })
 }
 
+fn macos_runtime_guard() -> Result<(), &'static str> {
+    #[cfg(target_os = "macos")]
+    {
+        return Err("last30days-macos-runtime-unavailable");
+    }
+    #[cfg(not(target_os = "macos"))]
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn run_last30days_research(
     app: AppHandle,
     request: Last30DaysRequest,
 ) -> Result<Last30DaysResponse, &'static str> {
+    macos_runtime_guard()?;
     let query = validated_query(&request.query)?.to_owned();
     let script = source_script(&app, &request.mode)?;
     let executable = python_executable(&app);

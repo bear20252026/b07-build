@@ -8,6 +8,7 @@ const packageManifest = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shel
 const rootPackageManifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as { scripts?: Record<string, string> };
 const cargoManifest = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/Cargo.toml'), 'utf8');
 const desktopConfig = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/tauri.conf.json'), 'utf8')) as Record<string, unknown>;
+const macosDesktopConfig = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/tauri.macos.conf.json'), 'utf8')) as Record<string, unknown>;
 const capability = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/capabilities/main-window.json'), 'utf8')) as Record<string, unknown>;
 const companionCapability = JSON.parse(readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/capabilities/desktop-companion-window.json'), 'utf8')) as Record<string, unknown>;
 const desktopCore = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/lib.rs'), 'utf8');
@@ -30,6 +31,7 @@ const artifactProjection = readFileSync(resolve(root, 'apps/workbench/src/compon
 const artifactExtension = readFileSync(resolve(root, 'apps/workbench/src/components/preview/ArtifactExtensionPanel.tsx'), 'utf8');
 const directConversations = readFileSync(resolve(root, 'apps/workbench/src/runtime/use-direct-conversations.ts'), 'utf8');
 const workbenchCss = readFileSync(resolve(root, 'apps/workbench/src/workbench.css'), 'utf8');
+const macosWorkflow = readFileSync(resolve(root, '.github/workflows/macos-desktop-shell-provenance.yml'), 'utf8');
 
 function csp(): string {
   const app = desktopConfig.app as Record<string, unknown>;
@@ -57,6 +59,24 @@ test('桌面壳加载本地 Workbench 静态产物并生成每用户 Windows NSI
   assert.equal(bundle.externalBin, undefined);
   assert.equal(rootPackageManifest.scripts?.['gateway:sidecar'], undefined);
   assert.ok(workbenchVite.includes("base: './'"));
+});
+
+test('macOS arm64 候选使用独立 DMG workflow、ad-hoc 候选签名和无 Windows Python 的资源覆盖，不影响 Windows NSIS workflow', () => {
+  const macosBundle = macosDesktopConfig.bundle as Record<string, unknown>;
+  const macosConfig = macosBundle.macOS as Record<string, unknown>;
+  const resources = macosBundle.resources as Record<string, unknown>;
+  assert.deepEqual(macosBundle.targets, ['dmg']);
+  assert.deepEqual(macosBundle.icon, ['icons/icon.icns']);
+  assert.equal(macosConfig.minimumSystemVersion, '11.0');
+  assert.equal(macosConfig.signingIdentity, '-');
+  assert.equal(resources['resources/research/python-runtime/'], null);
+  assert.equal(Object.values(resources).some((value) => String(value).includes('python-runtime')), false);
+  assert.ok(existsSync(resolve(root, 'apps/desktop-shell/src-tauri/icons/icon.icns')));
+  for (const expected of ['runs-on: macos-latest', 'aarch64-apple-darwin', 'nova-macos-arm64-desktop-shell-candidate', "platform\": \"macos-arm64", 'ad-hoc-candidate', 'bundlesWindowsPythonRuntime']) assert.ok(macosWorkflow.includes(expected), `macOS workflow 缺少：${expected}`);
+  const windowsWorkflow = readFileSync(resolve(root, '.github/workflows/windows-desktop-shell-provenance.yml'), 'utf8');
+  assert.ok(windowsWorkflow.includes('runs-on: windows-latest'));
+  assert.equal(windowsWorkflow.includes('macos-desktop-shell-provenance'), false);
+  assert.ok(searxngLocal.includes('searxng-macos-runtime-unavailable'));
 });
 
 test('桌面 WebView CSP 不开放远程 HTTP 通讯；第三方请求由 Tauri 原生 Provider 客户端直接发出', () => {

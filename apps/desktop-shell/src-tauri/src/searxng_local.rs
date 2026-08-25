@@ -92,6 +92,15 @@ fn python_executable(app: &AppHandle) -> PathBuf {
     })
 }
 
+fn macos_runtime_guard() -> Result<(), &'static str> {
+    #[cfg(target_os = "macos")]
+    {
+        return Err("searxng-macos-runtime-unavailable");
+    }
+    #[cfg(not(target_os = "macos"))]
+    Ok(())
+}
+
 fn runtime_directory(app: &AppHandle) -> Result<PathBuf, &'static str> {
     let directory = app
         .path()
@@ -188,6 +197,7 @@ pub(crate) fn status(state: &SearxngState) -> Result<SearxngLocalStatus, &'stati
 }
 
 async fn ensure_running(app: &AppHandle, state: &SearxngState) -> Result<u16, &'static str> {
+    macos_runtime_guard()?;
     if let Some(port) = running_port(state)? {
         return Ok(port);
     }

@@ -200,3 +200,6 @@
 - [x] 为品牌图标、Halo 搜索置顶、DeepSeek V4 Flash 候选与开屏动效补充回归测试、严格类型检查、生产构建、预算与格式验证。
 - [x] 经用户确认候选版本范围后，以 GitHub hosted Windows runner 构建并核验图标、Halo、模型候选与开屏改动；不得使用用户本机工具链。
 - [x] 将已验证的 NOVA 圆环图标、Halo 搜索置顶、DeepSeek V4 Flash 可见候选、开屏动画与来源记录升级为下一候选版本，提交、推送并核验安装器 SHA-256 和 SLSA provenance。
+- [x] 审计 NOVA Tauri／Rust／前端的 macOS 兼容性与 Windows 专属边界，设计单独的 macOS arm64 与 x64 构建矩阵、签名／公证选项和验证流程；不得改动或削弱已验证的 Windows hosted runner 发布链，未经用户确认不得提交平台代码改动。
+- [ ] 新建仅用于 NOVA macOS Apple Silicon 的 GitHub hosted candidate 工作流与平台配置：生成 unsigned DMG、独立 SHA-256 manifest 和 SLSA provenance；保持 Windows workflow、NSIS 产物、版本核验和发布历史不变。
+- [ ] 为 macOS 首版明确隔离 Windows 内嵌 Python 的本地 SearXNG／last30days 资源；核心 Provider HTTPS/SSE、会话、项目、文件、Markdown 导出、历史树、Halo 和开屏保持可用，并由 hosted macOS runner 构建验证。

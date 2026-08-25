@@ -1,0 +1,86 @@
+name: macOS desktop shell provenance
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'macos-desktop-v*'
+
+# This is an isolated candidate workflow. It does not receive Apple credentials,
+# cannot write to the repository, and never modifies the Windows NSIS release chain.
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build-and-attest:
+    name: Build and attest macOS arm64 desktop shell
+    runs-on: macos-latest
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Set up stable Rust with Apple Silicon target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - name: Install locked workspace dependencies
+        run: npm ci
+      - name: Verify desktop-shell boundary contract
+        run: |
+          npm run desktop:typecheck
+          node --experimental-sqlite --import tsx --test apps/desktop-shell/test/desktop-shell-contract.test.ts
+      - name: Build macOS arm64 DMG candidate
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/verify-desktop-release-version.mjs
+          export AI_WORK_OS_SOURCE_REVISION='${{ github.sha }}'
+          npm run tauri --workspace=@awo/desktop-shell -- build --target aarch64-apple-darwin --bundles dmg
+          dmg_dir='apps/desktop-shell/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg'
+          candidate="$(find "$dmg_dir" -maxdepth 1 -type f -name 'NOVA_*.dmg' -print -quit)"
+          if [ -z "$candidate" ]; then
+            echo 'Expected macOS arm64 DMG output was not generated.' >&2
+            exit 1
+          fi
+          hash="$(shasum -a 256 "$candidate" | awk '{print tolower($1)}')"
+          version="$(node -p "require('./apps/desktop-shell/package.json').version")"
+          manifest_path="$dmg_dir/desktop-shell-macos-manifest.json"
+          cat > "$manifest_path" <<EOF
+          {
+            "schemaVersion": 1,
+            "product": "NOVA",
+            "version": "$version",
+            "platform": "macos-arm64",
+            "artifactKind": "desktop-shell-dmg-candidate",
+            "signingStatus": "ad-hoc-candidate",
+            "publicTrust": false,
+            "canAutoStartGateway": false,
+            "bundlesExplicitGatewaySidecar": false,
+            "bundlesWindowsPythonRuntime": false,
+            "localSearxngRuntime": "disabled-no-macos-python-runtime",
+            "sourceRevision": "${{ github.sha }}",
+            "installerFile": "$(basename "$candidate")",
+            "sha256": "$hash"
+          }
+          EOF
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+          echo "manifest=$manifest_path" >> "$GITHUB_OUTPUT"
+      - name: Upload macOS arm64 DMG candidate
+        uses: actions/upload-artifact@v7
+        with:
+          name: nova-macos-arm64-desktop-shell-candidate
+          if-no-files-found: error
+          path: |
+            ${{ steps.package.outputs.candidate }}
+            ${{ steps.package.outputs.manifest }}
+      - name: Generate SLSA build provenance for macOS arm64 DMG
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.package.outputs.candidate }}
