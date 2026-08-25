@@ -35,6 +35,7 @@ const directConversations = readFileSync(resolve(root, 'apps/workbench/src/runti
 const workbenchCss = readFileSync(resolve(root, 'apps/workbench/src/workbench.css'), 'utf8');
 const macosWorkflow = readFileSync(resolve(root, '.github/workflows/macos-desktop-shell-provenance.yml'), 'utf8');
 const androidWorkflow = readFileSync(resolve(root, '.github/workflows/nova-android-provenance.yml'), 'utf8');
+const androidEmulatorSmokeScript = readFileSync(resolve(root, '.github/scripts/run-nova-android-emulator-smoke.sh'), 'utf8');
 
 function csp(): string {
   const app = desktopConfig.app as Record<string, unknown>;
@@ -165,10 +166,9 @@ test('Android 候选构建链独立产出 NOVA aarch64 APK、universal AAB、临
     'reactivecircus/android-emulator-runner@v2',
     'nova-android-emulator-startup-evidence',
     'Prepare Android emulator startup evidence directory',
-    'trap capture_evidence EXIT',
-    'nova-emulator-smoke.jks',
-    'apksigner_bin',
+    'script: sh .github/scripts/run-nova-android-emulator-smoke.sh',
   ]) assert.ok(androidWorkflow.includes(expected), `Android workflow 缺少：${expected}`);
+  for (const expected of ['#!/bin/sh', 'set -eu', 'trap capture_evidence EXIT', 'nova-emulator-smoke.jks', 'apksigner_bin', "grep -q 'com.bear20252026.nova'", "grep -q 'NOVA' \"$evidence_dir/nova-ui.xml\""]) assert.ok(androidEmulatorSmokeScript.includes(expected), `Android emulator 冒烟脚本缺少：${expected}`);
   assert.equal(androidWorkflow.includes('push:\n'), false, 'Android 候选工作流在稳定前不得因推送自动触发');
   assert.equal(androidWorkflow.includes('AI Work OS'), false, 'Android 候选工作流不得保留旧产品名称');
   assert.equal(existsSync(resolve(root, '.github/workflows/android-apk-candidate.yml')), false, '不得保留旧 AI Work OS Android workflow');
