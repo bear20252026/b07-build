@@ -83,8 +83,10 @@ jobs:
           set -euo pipefail
           apk=$(find apps/desktop-shell/src-tauri/gen/android/app/build/outputs/apk/universal/release -type f -name 'app-universal-release-unsigned.apk' | sort | head -n 1)
           test -n "$apk" && test -f "$apk"
-          unzip -l "$apk" | grep -q ' assets/index.html$'
-          unzip -p "$apk" assets/index.html | grep -q '<script'
+          native_lib='lib/arm64-v8a/libawo_desktop_shell_lib.so'
+          unzip -l "$apk" | grep -q " $native_lib$"
+          unzip -p "$apk" "$native_lib" | strings | grep -q 'index.html'
+          unzip -p "$apk" "$native_lib" | strings | grep -q 'react-vendor'
 
       - name: Create ephemeral candidate signing key and package Android candidates
         id: package
@@ -186,3 +188,99 @@ jobs:
           subject-path: |
             ${{ steps.package.outputs.artifact-directory }}/*.apk
             ${{ steps.package.outputs.artifact-directory }}/*.aab
+
+  android-emulator-smoke:
+    name: Smoke test NOVA Android WebView startup on x86_64 emulator
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Java 17 for Android emulator
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up stable Rust with Android x86_64 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+
+      - name: Set up Android command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK, NDK and emulator image
+        shell: bash
+        run: |
+          sdkmanager --install \
+            'platform-tools' \
+            'platforms;android-35' \
+            'build-tools;35.0.0' \
+            'ndk;27.2.12479018' \
+            'system-images;android-35;google_apis;x86_64'
+          export ANDROID_HOME="${ANDROID_HOME:-$HOME/.android/sdk}"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Install locked workspace dependencies
+        run: npm ci
+
+      - name: Build Workbench static assets for mobile WebView
+        run: npm run build --workspace=@awo/workbench
+
+      - name: Initialize Android Studio project
+        run: npm run android:init
+
+      - name: Build x86_64 APK for emulator startup test
+        run: npm exec --workspace=@awo/desktop-shell -- tauri android build --apk --target x86_64
+
+      - name: Install and open NOVA on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            mkdir -p "$RUNNER_TEMP/nova-android-emulator-smoke"
+            apk=$(find apps/desktop-shell/src-tauri/gen/android/app/build/outputs/apk/universal/release -type f -name 'app-universal-release-unsigned.apk' | sort | head -n 1)
+            test -n "$apk" && test -f "$apk"
+            build_tools_dir=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)
+            zipalign_bin="$ANDROID_HOME/build-tools/$build_tools_dir/zipalign"
+            apksigner_bin="$ANDROID_HOME/build-tools/$build_tools_dir/apksigner"
+            keystore="$RUNNER_TEMP/nova-android-emulator-smoke/nova-emulator-smoke.jks"
+            signed_apk="$RUNNER_TEMP/nova-android-emulator-smoke/NOVA-emulator-smoke.apk"
+            keytool -genkeypair -keystore "$keystore" -storepass android -keypass android -alias nova-emulator-smoke -keyalg RSA -keysize 2048 -validity 1 -dname 'CN=NOVA Emulator Smoke, O=NOVA, C=US' -noprompt
+            "$zipalign_bin" -f -p 4 "$apk" "$signed_apk.aligned"
+            "$apksigner_bin" sign --ks "$keystore" --ks-key-alias nova-emulator-smoke --ks-pass pass:android --key-pass pass:android --out "$signed_apk" "$signed_apk.aligned"
+            "$apksigner_bin" verify --verbose "$signed_apk"
+            rm -f "$signed_apk.aligned" "$keystore"
+            adb install -r "$signed_apk"
+            adb logcat -c
+            adb shell monkey -p com.bear20252026.nova 1
+            sleep 12
+            adb shell dumpsys window windows > "$RUNNER_TEMP/nova-android-emulator-smoke/window.txt"
+            adb shell uiautomator dump /sdcard/nova-ui.xml >/dev/null
+            adb pull /sdcard/nova-ui.xml "$RUNNER_TEMP/nova-android-emulator-smoke/nova-ui.xml"
+            adb exec-out screencap -p > "$RUNNER_TEMP/nova-android-emulator-smoke/nova-startup.png"
+            adb logcat -d -v threadtime > "$RUNNER_TEMP/nova-android-emulator-smoke/logcat.txt"
+            grep -q 'com.bear20252026.nova' "$RUNNER_TEMP/nova-android-emulator-smoke/window.txt"
+            if grep -E 'FATAL EXCEPTION|NOVA mobile shell failed to run|Unable to start activity' "$RUNNER_TEMP/nova-android-emulator-smoke/logcat.txt"; then
+              exit 1
+            fi
+
+      - name: Upload Android emulator startup evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nova-android-emulator-startup-evidence
+          if-no-files-found: error
+          path: ${{ runner.temp }}/nova-android-emulator-smoke

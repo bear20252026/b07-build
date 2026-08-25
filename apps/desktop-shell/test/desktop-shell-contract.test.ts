@@ -150,7 +150,8 @@ test('Android 候选构建链独立产出 NOVA aarch64 APK、universal AAB、临
     'Verify WebView asset payload before Android generation',
     'Verify Android WebView asset payload before signing',
     "apps/workbench/dist/index.html",
-    "assets/index.html",
+    "lib/arm64-v8a/libawo_desktop_shell_lib.so",
+    "react-vendor",
     'NOVA_${version}_aarch64-candidate.apk',
     'NOVA_${version}_universal-candidate.aab',
     'nova-android-candidate-manifest.json',
@@ -159,6 +160,12 @@ test('Android 候选构建链独立产出 NOVA aarch64 APK、universal AAB、临
     'includesWindowsGatewaySidecar',
     'includesLocalPythonSearchRuntime',
     'actions/attest@v4',
+    'android-emulator-smoke:',
+    'x86_64-linux-android',
+    'reactivecircus/android-emulator-runner@v2',
+    'nova-android-emulator-startup-evidence',
+    'nova-emulator-smoke.jks',
+    'apksigner_bin',
   ]) assert.ok(androidWorkflow.includes(expected), `Android workflow 缺少：${expected}`);
   assert.equal(androidWorkflow.includes('push:\n'), false, 'Android 候选工作流在稳定前不得因推送自动触发');
   assert.equal(androidWorkflow.includes('AI Work OS'), false, 'Android 候选工作流不得保留旧产品名称');
