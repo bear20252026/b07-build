@@ -6,8 +6,8 @@ evidence_dir="${RUNNER_TEMP:?RUNNER_TEMP is required}/nova-android-emulator-smok
 mkdir -p "$evidence_dir"
 
 capture_evidence() {
-  adb logcat -d -v threadtime > "$evidence_dir/logcat.txt" 2>&1 || true
-  adb exec-out screencap -p > "$evidence_dir/nova-startup.png" 2>/dev/null || true
+  timeout 20 adb logcat -d -v threadtime > "$evidence_dir/logcat.txt" 2>&1 || true
+  timeout 20 adb exec-out screencap -p > "$evidence_dir/nova-startup.png" 2>/dev/null || true
 }
 
 trap capture_evidence EXIT
@@ -27,13 +27,13 @@ keytool -genkeypair -keystore "$keystore" -storepass android -keypass android -a
 "$apksigner_bin" verify --verbose "$signed_apk"
 rm -f "$signed_apk.aligned" "$keystore"
 
-adb install -r "$signed_apk"
-adb logcat -c
-adb shell monkey -p com.bear20252026.nova 1
+timeout 60 adb install -r "$signed_apk"
+timeout 20 adb logcat -c
+timeout 30 adb shell monkey -p com.bear20252026.nova 1
 startup_deadline=90
 startup_elapsed=0
 while [ "$startup_elapsed" -lt "$startup_deadline" ]; do
-  adb shell dumpsys activity activities > "$evidence_dir/activity.txt" 2>&1 || true
+  timeout 10 adb shell dumpsys activity activities > "$evidence_dir/activity.txt" 2>&1 || true
   if grep -q 'com.bear20252026.nova/.MainActivity' "$evidence_dir/activity.txt"; then
     break
   fi
@@ -41,9 +41,9 @@ while [ "$startup_elapsed" -lt "$startup_deadline" ]; do
   startup_elapsed=$((startup_elapsed + 1))
 done
 
-adb shell dumpsys window windows > "$evidence_dir/window.txt"
-adb shell uiautomator dump /sdcard/nova-ui.xml >/dev/null 2>&1 || true
-adb pull /sdcard/nova-ui.xml "$evidence_dir/nova-ui.xml" >/dev/null 2>&1 || true
+timeout 20 adb shell dumpsys window windows > "$evidence_dir/window.txt" 2>&1 || true
+timeout 20 adb shell uiautomator dump /sdcard/nova-ui.xml >/dev/null 2>&1 || true
+timeout 20 adb pull /sdcard/nova-ui.xml "$evidence_dir/nova-ui.xml" >/dev/null 2>&1 || true
 capture_evidence
 
 grep -q 'com.bear20252026.nova/.MainActivity' "$evidence_dir/activity.txt"

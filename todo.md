@@ -221,3 +221,4 @@
 - [x] 排除 Android emulator 的 UiAutomation 服务崩溃噪声：UI XML 仅作为可选证据，不能把 `com.android.commands.uiautomator` 的 FATAL 当成 NOVA 应用崩溃；应用级验收改为进程仍存活、前台窗口为 NOVA、截图可读及应用自身错误日志无异常。
 - [x] 将模拟器启动断言从固定等待 12 秒改为最多 90 秒轮询 `MainActivity` 前台状态，并保留最终截图与进程/窗口证据；若仍停留 Splash，再针对 Tauri Android 启动路径修复。
 - [ ] 为 Android/桌面 Workbench 增加 HTML 静态首帧回退和 React 错误边界，避免模块加载或首屏渲染异常直接呈现无信息白屏；不改变 Provider 直连架构。
+- [ ] 为 Android 冒烟脚本的 ADB 状态查询增加命令级超时，避免 hosted emulator 的 system_server/UiAutomation 卡住时让整个验证作业无限等待；超时后仍需上传截图和 Logcat 证据。
