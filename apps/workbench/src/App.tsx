@@ -402,6 +402,7 @@ export function App() {
     setArtifactRailOpen(true);
   };
   const previewAssistantArtifact = async (entry: AssistantArtifactEntry): Promise<Readonly<{ content: string; logicalPath: string; byteSize: number; truncated: boolean }>> => invoke('read_assistant_markdown_artifact', { target: entry.target, logicalPath: entry.logicalPath });
+  const exportAssistantArtifact = async (entry: AssistantArtifactEntry): Promise<Readonly<{ exported: boolean; displayName: string; byteSize: number }>> => invoke('export_assistant_markdown_artifact', { target: entry.target, logicalPath: entry.logicalPath });
   const showTaskPreview = isTaskPage && !artifactRailOpen;
   if (isDesktopCompanionWindow) return <DesktopCompanionSurface />;
 
@@ -618,7 +619,7 @@ export function App() {
       {inspectorSurface === 'github-collaboration' && <WorkbenchOverlay description="GitHub 协作先展示本地变更，再由主人明确确认提交和推送。个人访问令牌只保存在当前 Windows 用户的本地应用数据中。" onClose={() => setInspectorSurface(undefined)} title="GitHub 代码协作" tone="api"><GitHubCollaborationPanel /></WorkbenchOverlay>}
       {inspectorSurface === 'artifacts' && <WorkbenchOverlay description="当前 task/run 的受控文件检查器。可查看 Markdown、代码、JSON、差异和用户发起的交付包，不读取任意本机目录。" onClose={() => setInspectorSurface(undefined)} title="项目产物" tone="artifacts"><PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} /></WorkbenchOverlay>}
       {inspectorSurface === 'companion' && <WorkbenchOverlay description="独立角色窗口。角色、对话与 API 连接保持分离；高影响能力仍需未来的单独权限设计。" onClose={() => setInspectorSurface(undefined)} title="Companion" tone="companion"><CompanionWindow gatewayAttached={gatewayAttached} preferences={companionPreferences} onOpenApi={() => { setInspectorSurface(undefined); setActivePage('models'); }} onOpenControls={() => { setInspectorSurface(undefined); setActivePage('companion'); }} /></WorkbenchOverlay>}
-      {artifactRailOpen && <ArtifactExtensionPanel assistantArtifacts={assistantArtifacts} onClose={() => setArtifactRailOpen(false)} onPreviewAssistantArtifact={previewAssistantArtifact} onPreviewTaskFile={taskExecution.loadFilePreview} onResize={updateArtifactRailWidth} taskFiles={taskFiles} width={artifactRailWidth} />}
+      {artifactRailOpen && <ArtifactExtensionPanel assistantArtifacts={assistantArtifacts} onClose={() => setArtifactRailOpen(false)} onExportAssistantArtifact={exportAssistantArtifact} onPreviewAssistantArtifact={previewAssistantArtifact} onPreviewTaskFile={taskExecution.loadFilePreview} onResize={updateArtifactRailWidth} taskFiles={taskFiles} width={artifactRailWidth} />}
       {showTaskPreview && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} />}
     </div>
     </Suspense>

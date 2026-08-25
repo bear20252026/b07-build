@@ -6,6 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 
 const APP_ARTIFACT_DIRECTORY: &str = "assistant-artifacts";
 const WORKSPACE_ARTIFACT_DIRECTORY: &str = ".ai-work-os/artifacts";
@@ -30,6 +31,14 @@ pub struct AssistantArtifactPreview {
     pub content: String,
     pub byte_size: usize,
     pub truncated: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantArtifactExportReceipt {
+    pub exported: bool,
+    pub display_name: String,
+    pub byte_size: usize,
 }
 
 fn validate_file_name(file_name: &str) -> Result<(), &'static str> {
@@ -84,6 +93,18 @@ fn artifact_path(root: &Path, logical_path: &str) -> Result<(PathBuf, String), &
         root.join(REPLY_DIRECTORY).join(file_name),
         file_name.to_string(),
     ))
+}
+
+fn validate_export_destination(path: &Path) -> Result<String, &'static str> {
+    if !path.is_absolute() {
+        return Err("assistant-artifact-export-destination-invalid");
+    }
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or("assistant-artifact-export-destination-invalid")?;
+    validate_file_name(file_name)?;
+    Ok(file_name.to_string())
 }
 
 fn bounded_preview(content: &str) -> (String, bool) {
@@ -161,14 +182,69 @@ pub fn read_assistant_markdown_artifact(
     })
 }
 
+/// Exports exactly one already-confirmed Markdown artifact after an explicit user click. The
+/// native Save As dialog selects the destination, while the WebView receives no destination path.
+#[tauri::command]
+pub fn export_assistant_markdown_artifact(
+    app: AppHandle,
+    workspace: State<'_, WorkspaceDirectoryState>,
+    target: String,
+    logical_path: String,
+) -> Result<AssistantArtifactExportReceipt, &'static str> {
+    let (root, _) = root_for_target(&app, &workspace, &target)?;
+    let (source, display_name) = artifact_path(&root, &logical_path)?;
+    let content = fs::read(&source).map_err(|_| "assistant-artifact-read-failed")?;
+    if content.is_empty() || content.len() > MAX_ARTIFACT_BYTES {
+        return Err("assistant-artifact-content-invalid");
+    }
+    let Some(selected) = app
+        .dialog()
+        .file()
+        .set_title("导出已保存的 Markdown 回复")
+        .set_file_name(&display_name)
+        .add_filter("Markdown", &["md"])
+        .blocking_save_file()
+    else {
+        return Ok(AssistantArtifactExportReceipt {
+            exported: false,
+            display_name,
+            byte_size: content.len(),
+        });
+    };
+    let destination = selected
+        .into_path()
+        .map_err(|_| "assistant-artifact-export-destination-invalid")?;
+    validate_export_destination(&destination)?;
+    if destination == source {
+        return Err("assistant-artifact-export-destination-invalid");
+    }
+    fs::write(destination, &content).map_err(|_| "assistant-artifact-export-write-failed")?;
+    Ok(AssistantArtifactExportReceipt {
+        exported: true,
+        display_name,
+        byte_size: content.len(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::validate_file_name;
+    use super::{validate_export_destination, validate_file_name};
+    use std::path::Path;
 
     #[test]
     fn accepts_only_bounded_markdown_leaf_names() {
         assert!(validate_file_name("ai-reply-20260824.md").is_ok());
         assert!(validate_file_name("../outside.md").is_err());
         assert!(validate_file_name("reply.txt").is_err());
+    }
+
+    #[test]
+    fn export_destination_keeps_an_absolute_bounded_markdown_leaf() {
+        let absolute = std::env::temp_dir().join("exported-reply.md");
+        assert!(validate_export_destination(&absolute).is_ok());
+        assert!(validate_export_destination(Path::new("relative.md")).is_err());
+        assert!(
+            validate_export_destination(&std::env::temp_dir().join("exported-reply.txt")).is_err()
+        );
     }
 }

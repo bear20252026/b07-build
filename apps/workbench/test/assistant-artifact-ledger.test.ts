@@ -22,7 +22,7 @@ test('右侧产物树仅合并既有任务回执与显式保存的本地回复',
   }], [{ artifactId: 'reply', logicalPath: 'assistant-replies/ai-reply-x.md', displayName: 'ai-reply-x.md', byteSize: 30, createdAt: 2, target: 'app-managed' }]);
   assert.deepEqual(entries.map((entry) => entry.id), ['assistant:reply', 'task:task-file']);
   const tree = projectArtifactRailTree(entries);
-  assert.deepEqual(tree.map((node) => node.name), ['assistant-replies', 'reports']);
-  assert.equal(tree[0]?.children[0]?.entry?.displayName, 'ai-reply-x.md');
-  assert.equal(tree[1]?.children[0]?.entry?.displayName, 'summary.md');
+  assert.deepEqual(tree.map((node) => node.name), ['已保存 Markdown', '任务 / 运行记录']);
+  assert.equal(tree[0]?.children[0]?.children[0]?.children[0]?.entry?.displayName, 'ai-reply-x.md');
+  assert.equal(tree[1]?.children[0]?.children[0]?.children[0]?.children[0]?.entry?.displayName, 'summary.md');
 });

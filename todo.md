@@ -185,7 +185,10 @@
 - [ ] 为 DeepSeek V4 Flash 首页面板展示、圆润设计令牌和优先页面 UI 回归补充测试／截图检查，确保 CSS 预算、reduced-motion 和普通聊天的 Tauri 原生 Provider HTTPS/SSE 直连保持通过。
 - [ ] 修复 Halo Search 打开后的 z-index、挂载层级和背景遮罩范围：搜索面板始终处于最上方，不被标题栏或工作区遮住；顶部标题栏／触发入口不应用 blur，背景其余区域保持非交互而不过度遮挡。
 - [x] 修复 Halo Search 打开后的 z-index、挂载层级和背景遮罩范围：搜索面板始终处于最上方，不被标题栏或工作区遮住；顶部标题栏／触发入口不应用 blur，背景其余区域保持非交互而不过度遮挡。
-- [ ] 将十来源上限、完整 URL／系统浏览器打开、连续会话历史保留、DeepSeek V4 Flash 首页候选、Halo Search 顶层修复和非聊天页面圆润化作为 NOVA 0.1.16 unsigned candidate 提交、推送，并由 GitHub hosted Windows runner 构建、核验 SHA-256 与 SLSA provenance。
-- [ ] 为用户已显式保存的 assistant Markdown 回执新增“导出”按钮：只导出该已确认文件，经受限原生命令写入用户明确选择的目标位置或系统保存对话框；不允许批量、任意路径、自动写入或读取未确认文件。
-- [ ] 将右侧受控项目产物框改为清晰的可展开层级：按项目／任务运行／assistant Markdown 回执分组，保留已确认历史、展开状态和点击后按需预览；只投影现有 metadata，不扫描任意目录或把文件正文默认为上下文。
-- [ ] 参考 AionUi 公开源码的文件身份、稳定树节点与按需预览职责，记录固定来源提交、许可证和修改说明；不复制未核验代码，不沿用其权限模型或文件访问范围。
+- [x] 将十来源上限、完整 URL／系统浏览器打开、连续会话历史保留、DeepSeek V4 Flash 首页候选、Halo Search 顶层修复和非聊天页面圆润化作为 NOVA 0.1.16 unsigned candidate 提交、推送，并由 GitHub hosted Windows runner 构建、核验 SHA-256 与 SLSA provenance。
+- [x] 为用户已显式保存的 assistant Markdown 回执新增“导出”按钮：只导出该已确认文件，经受限原生命令写入用户明确选择的目标位置或系统保存对话框；不允许批量、任意路径、自动写入或读取未确认文件。
+- [x] 将右侧受控项目产物框改为清晰的可展开层级：按项目／任务运行／assistant Markdown 回执分组，保留已确认历史、展开状态和点击后按需预览；只投影现有 metadata，不扫描任意目录或把文件正文默认为上下文。
+- [x] 参考 AionUi 公开源码的文件身份、稳定树节点与按需预览职责，记录固定来源提交、许可证和修改说明；不复制未核验代码，不沿用其权限模型或文件访问范围。
+- [x] 为受限单文件 Markdown 导出、分组历史投影、展开状态恢复与无通用文件权限边界补充单元／静态契约测试。
+- [ ] 经用户确认下一次版本范围后，将右侧 Markdown 导出与历史管理改动交由 GitHub hosted Windows runner 构建验证；不得使用用户本机工具链。
+- [ ] 将已验证的右侧 Markdown 导出、项目／任务运行／回复历史树与 AionUi 来源记录升级为下一 NOVA 候选版本，提交、推送并核验安装器 SHA-256 与 SLSA provenance。

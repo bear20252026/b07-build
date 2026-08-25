@@ -23,6 +23,9 @@ const providerDiagnostics = readFileSync(resolve(root, 'apps/workbench/src/runti
 const searchRunCard = readFileSync(resolve(root, 'apps/workbench/src/runtime/search-run-card.ts'), 'utf8');
 const webSearch = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/web_search.rs'), 'utf8');
 const externalUrl = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/external_url.rs'), 'utf8');
+const assistantArtifacts = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/assistant_artifacts.rs'), 'utf8');
+const artifactProjection = readFileSync(resolve(root, 'apps/workbench/src/components/preview/artifact-extension-projection.ts'), 'utf8');
+const artifactExtension = readFileSync(resolve(root, 'apps/workbench/src/components/preview/ArtifactExtensionPanel.tsx'), 'utf8');
 const directConversations = readFileSync(resolve(root, 'apps/workbench/src/runtime/use-direct-conversations.ts'), 'utf8');
 const workbenchCss = readFileSync(resolve(root, 'apps/workbench/src/workbench.css'), 'utf8');
 
@@ -147,6 +150,19 @@ test('联网搜索每轮最多向模型投影十个 URL，且来源可见并由�
 test('连续流式助手回复必须使用独立消息 ID，不能用会话固定占位 ID 覆盖前一轮完成回复', () => {
   for (const expected of ["const streamingMessageId = nextId('message')", 'mergeStreamingAssistantMessage', 'streamingAssistantMessage(streamingMessageId']) assert.ok(directConversations.includes(expected), `会话持久化缺少：${expected}`);
   assert.equal(directConversations.includes('`${conversationId}-stream`'), false, '不得复用每会话固定 stream ID');
+});
+
+test('已保存 Markdown 只能经原生单文件 Save As 导出，WebView 不获得通用文件或 dialog 插件权限', () => {
+  for (const expected of ['export_assistant_markdown_artifact', 'blocking_save_file()', 'validate_export_destination', 'assistant-artifact-export-write-failed', 'set_file_name(&display_name)']) assert.ok(assistantArtifacts.includes(expected), `Markdown 导出边界缺少：${expected}`);
+  assert.ok(desktopCore.includes('assistant_artifacts::export_assistant_markdown_artifact'));
+  assert.deepEqual(capability.permissions, ['core:default']);
+  for (const forbidden of ['dialog:allow-save', 'tauri_plugin_fs', 'read_dir', 'Command::new']) assert.equal(assistantArtifacts.includes(forbidden), false, `Markdown 导出不得引入：${forbidden}`);
+});
+
+test('右侧项目产物框以稳定 metadata 分组历史并持久化展开状态，只按需预览或导出已保存 Markdown', () => {
+  for (const expected of ['已保存 Markdown', '回复历史', '任务 / 运行记录', 'taskId', 'runId', 'createdAt']) assert.ok(artifactProjection.includes(expected), `产物历史投影缺少：${expected}`);
+  for (const expected of ['EXPANDED_STORAGE_KEY', 'loadExpandedFolders', 'onExportAssistantArtifact', '导出 MD', 'previewRequest']) assert.ok(artifactExtension.includes(expected), `产物历史交互缺少：${expected}`);
+  for (const forbidden of ['readDir(', 'readdir(', 'fetch(']) assert.equal(artifactExtension.includes(forbidden), false, `右侧历史不得自动扫描或联网：${forbidden}`);
 });
 
 test('Halo Search 必须位于最上层且不对标题栏施加模糊遮罩', () => {

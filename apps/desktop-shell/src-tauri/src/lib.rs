@@ -243,6 +243,7 @@ pub fn run() {
             project_memory::write_project_memory,
             assistant_artifacts::save_assistant_markdown_artifact,
             assistant_artifacts::read_assistant_markdown_artifact,
+            assistant_artifacts::export_assistant_markdown_artifact,
             github_collaboration::github_test_token,
             github_collaboration::github_workspace_status,
             github_collaboration::github_workspace_preflight,
