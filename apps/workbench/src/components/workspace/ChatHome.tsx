@@ -8,7 +8,7 @@ import { parseMathSegments } from './math-text';
 import { useChatAutoScroll } from './use-chat-auto-scroll';
 import type { DirectConversation, DirectConversationActivity, DirectConversationMessage } from '../../runtime/use-direct-conversations';
 import type { WorkbenchProviderConnection, WorkbenchProviderModelDiscovery } from '../../runtime/task-client';
-import { explicitHomeModelSelection, homeModelCapabilityHint, homeModelChoices, isSelectableHomeModel } from '../../runtime/home-model-switching';
+import { explicitHomeModelSelection, homeModelCapabilityHint, homeModelChoices, isSelectableHomeModel, resolveHomeModelSelection } from '../../runtime/home-model-switching';
 import { isSearchRunKind, searchRunLabel, searchRunMode, searchRunStatus, type SearchRunMode } from '../../runtime/search-run-card';
 import { recordSessionPerformance } from '../../runtime/session-performance-ledger';
 
@@ -85,8 +85,7 @@ function HomeModelSwitcher({
   onOpenContextBudget(): void;
   onOpenModels(): void;
 }>) {
-  const connection = connections.find((item) => item.providerId === selection?.providerId) ?? connections[0];
-  const selectedModel = selection?.providerId === connection?.providerId ? (selection.model ?? connection.defaultModel) : connection?.defaultModel;
+  const { connection, model: selectedModel } = resolveHomeModelSelection(connections, selection);
   const [modelDraft, setModelDraft] = useState(selectedModel ?? '');
   useEffect(() => setModelDraft(selectedModel ?? ''), [connection?.providerId, selectedModel]);
   if (!connection) return <section className="chat-home-provider" aria-label="第三方模型连接状态"><div><span>MODEL CONNECTION</span><strong>尚未连接模型</strong><p>请先添加任意厂商的 Provider 连接；首页不会回退到旧 Gateway 链路。</p></div><button onClick={onOpenModels} type="button">添加 API 连接</button></section>;

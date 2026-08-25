@@ -220,6 +220,9 @@
 - [x] 将 Android emulator runner 的启动等待预算扩展到 1200 秒，以覆盖 hosted runner 首次启动 Android 35 镜像的实际冷启动时长；该轮未执行 NOVA 安装/页面断言，不能作为白屏结论。
 - [x] 排除 Android emulator 的 UiAutomation 服务崩溃噪声：UI XML 仅作为可选证据，不能把 `com.android.commands.uiautomator` 的 FATAL 当成 NOVA 应用崩溃；应用级验收改为进程仍存活、前台窗口为 NOVA、截图可读及应用自身错误日志无异常。
 - [x] 将模拟器启动断言从固定等待 12 秒改为最多 90 秒轮询 `MainActivity` 前台状态，并保留最终截图与进程/窗口证据；若仍停留 Splash，再针对 Tauri Android 启动路径修复。
-- [ ] 为 Android/桌面 Workbench 增加 HTML 静态首帧回退和 React 错误边界，避免模块加载或首屏渲染异常直接呈现无信息白屏；不改变 Provider 直连架构。
-- [ ] 为 Android 冒烟脚本的 ADB 状态查询增加命令级超时，避免 hosted emulator 的 system_server/UiAutomation 卡住时让整个验证作业无限等待；超时后仍需上传截图和 Logcat 证据。
-- [ ] 处理 hosted Android emulator runner 的冷启动环境故障：`disable-animations` 的 settings ADB 调用出现 Broken pipe、在 NOVA 脚本前退出；关闭该非必要步骤，保留应用级截图/Logcat 验证，避免把 runner 故障误判为白屏。
+- [x] 为 Android/桌面 Workbench 增加 HTML 静态首帧回退和 React 错误边界，避免模块加载或首屏渲染异常直接呈现无信息白屏；不改变 Provider 直连架构。
+- [x] 为 Android 冒烟脚本的 ADB 状态查询增加命令级超时，避免 hosted emulator 的 system_server/UiAutomation 卡住时让整个验证作业无限等待；超时后仍需上传截图和 Logcat 证据。
+- [x] 处理 hosted Android emulator runner 的冷启动环境故障：`disable-animations` 的 settings ADB 调用出现 Broken pipe、在 NOVA 脚本前退出；关闭该非必要步骤，保留应用级截图/Logcat 验证，避免把 runner 故障误判为白屏。
+- [ ] 将 Android 冒烟脚本与 emulator runner 解耦：脚本即使 ADB 安装/诊断超时也必须写 `smoke-status.txt` 并正常返回，由后续独立步骤判定通过/失败；确保失败时截图和 Logcat 一定上传，避免 runner 直接退出导致无法诊断。
+- [x] 从源码层审计手机版实际入口和配置链：核对 Tauri Android 配置合并、生成工程 assets、Workbench frontendDist、React 入口与 Android 条件分支，确认代码/设置未被错误排除；不得继续仅凭 APK 外观推断白屏原因。
+- [x] 扫描并修复所有平台共用 Workbench 首屏代码中的全新安装空状态反模式：空 connections、undefined selection、空数组首项、持久化 JSON 损坏及保护条件晚于字段解引用；覆盖 Android、Windows、macOS 共用路径。

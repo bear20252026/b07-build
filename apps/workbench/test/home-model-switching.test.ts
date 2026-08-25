@@ -58,3 +58,24 @@ test('MiMo 图片能力提示要求显式选择视觉模型，不声称本地拦
   assert.match(homeModelCapabilityHint(mimo, 'mimo-v2.5-pro'), /显式切换到 mimo-v2.5/);
   assert.match(homeModelCapabilityHint(mimo, 'mimo-v2.5'), /图片将按当前/);
 });
+
+
+test('全新安装无连接和无选择时返回安全空状态，不读取 undefined.model', async () => {
+  const { resolveHomeModelSelection } = await import('../src/runtime/home-model-switching');
+  assert.deepEqual(resolveHomeModelSelection([], undefined), { connection: undefined, model: '' });
+});
+
+test('选择指向不存在连接时回退到首个真实连接的默认模型', async () => {
+  const { resolveHomeModelSelection } = await import('../src/runtime/home-model-switching');
+  assert.deepEqual(resolveHomeModelSelection([mimo], { providerId: 'missing', model: 'model-missing' }), { connection: mimo, model: 'mimo-v2.5-pro' });
+});
+
+test('存在连接但没有 selection 时使用连接默认模型', async () => {
+  const { resolveHomeModelSelection } = await import('../src/runtime/home-model-switching');
+  assert.deepEqual(resolveHomeModelSelection([mimo], undefined), { connection: mimo, model: 'mimo-v2.5-pro' });
+});
+
+test('选择匹配连接时保留用户选择的模型', async () => {
+  const { resolveHomeModelSelection } = await import('../src/runtime/home-model-switching');
+  assert.deepEqual(resolveHomeModelSelection([mimo], { providerId: mimo.providerId, model: 'mimo-custom' }), { connection: mimo, model: 'mimo-custom' });
+});

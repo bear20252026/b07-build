@@ -13,6 +13,16 @@ export function explicitHomeModelSelection(providerId: string, value: string): R
   return isSelectableHomeModel(model) ? { providerId, model } : undefined;
 }
 
+export function resolveHomeModelSelection(
+  connections: readonly WorkbenchProviderConnection[],
+  selection: Readonly<{ providerId: string; model?: string }> | undefined,
+): Readonly<{ connection: WorkbenchProviderConnection | undefined; model: string }> {
+  const connection = connections.find((item) => item.providerId === selection?.providerId) ?? connections[0];
+  if (!connection) return { connection: undefined, model: '' };
+  const model = selection?.providerId === connection.providerId ? (selection?.model ?? connection.defaultModel) : connection.defaultModel;
+  return { connection, model };
+}
+
 export function homeModelChoices(
   connection: WorkbenchProviderConnection | undefined,
   discovery: WorkbenchProviderModelDiscovery | undefined,
