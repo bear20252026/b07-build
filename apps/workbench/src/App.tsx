@@ -437,7 +437,7 @@ export function App() {
   return (
     <Suspense fallback={<div className="workbench-async-loading" role="status">正在加载所选工作面…</div>}>
     <StartupSplash />
-    <div className={`workbench-shell ${showTaskPreview ? 'with-preview' : 'focus-page'}${artifactRailOpen ? ' with-artifact-rail' : ''}${workbenchSurface === 'chat-home' ? ' chat-home-surface' : ''}${isSettings ? ' settings-open' : ''}${androidRuntime ? ' android-runtime' : ''} theme-${theme}`} style={androidRuntime ? { display: 'block', paddingBottom: 64 } : undefined}>
+    <div className={`workbench-shell ${showTaskPreview ? 'with-preview' : 'focus-page'}${artifactRailOpen ? ' with-artifact-rail' : ''}${workbenchSurface === 'chat-home' ? ' chat-home-surface' : ''}${isSettings ? ' settings-open' : ''}${androidRuntime ? ' android-runtime' : ''} theme-${theme}`} style={androidRuntime ? { paddingBottom: 64 } : undefined}>
       <Sider
         activePage={isSettings ? 'workspace' : activePage}
         hasActiveTask={Boolean(snapshot)}

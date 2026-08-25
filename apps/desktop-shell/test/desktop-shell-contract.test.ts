@@ -296,4 +296,6 @@ test('开屏仅是有界品牌过渡，尊重 reduced-motion 且不参与 Provid
   for (const forbidden of ['invoke(', 'directConversations', 'start_direct_provider_stream']) assert.equal(startupSplash.includes(forbidden), false, `开屏不得依赖：${forbidden}`);
   assert.ok(workbenchApp.includes('<StartupSplash />'));
   for (const expected of ['id="boot-fallback"', '正在加载工作台', 'WorkbenchErrorBoundary', 'Workbench render failed']) assert.ok(workbenchIndex.includes(expected) || workbenchMain.includes(expected), `Workbench 首帧保护缺少：${expected}`);
+  assert.ok(workbenchApp.includes("androidRuntime ? { paddingBottom: 64 } : undefined"), 'Android 根容器必须保留 Workbench grid，只添加底部导航空间');
+  assert.equal(workbenchApp.includes("androidRuntime ? { display: 'block', paddingBottom: 64 } : undefined"), false, 'Android 不得用 display:block 覆盖 Workbench grid');
 });
