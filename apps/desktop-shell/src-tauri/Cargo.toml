@@ -1,6 +1,6 @@
 [package]
 name = "awo-desktop-shell"
-version = "0.1.15"
+version = "0.1.16"
 description = "NOVA Windows desktop shell"
 authors = ["NOVA Development"]
 edition = "2021"

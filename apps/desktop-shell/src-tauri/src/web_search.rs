@@ -9,7 +9,7 @@ use std::time::Duration;
 use tokio::task::JoinSet;
 
 const EXA_MCP_URL: &str = "https://mcp.exa.ai/mcp?tools=web_search_exa";
-const MAX_RESULTS: usize = 100;
+const MAX_RESULTS: usize = 10;
 const MAX_PARALLEL_PAGE_FETCHES: usize = 8;
 const MAX_RAW_CONTENT_BYTES: usize = 1_000_000;
 
@@ -303,12 +303,12 @@ mod tests {
         assert_eq!(sources[0].url, "https://example.com/doc");
     }
     #[test]
-    fn keeps_up_to_one_hundred_distinct_sources() {
+    fn keeps_up_to_ten_distinct_sources() {
         let text = (0..120)
             .map(|index| format!("https://example.com/{index}"))
             .collect::<Vec<_>>()
             .join(" ");
-        assert_eq!(sources_from_text(&text).len(), MAX_RESULTS);
+        assert_eq!(sources_from_text(&text).len(), 10);
     }
     #[test]
     fn parses_json_rpc_content_when_remote_server_does_not_stream() {

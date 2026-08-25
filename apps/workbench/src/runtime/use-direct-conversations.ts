@@ -25,6 +25,7 @@ const MAX_PROVIDER_MESSAGES = 200;
 const MAX_PROVIDER_HISTORY_CHARS = 1_000_000;
 const AUTO_TEXT_FILE_THRESHOLD = 12_000;
 const STREAM_PERSIST_DELAY_MS = 280;
+const MAX_SEARCH_SOURCES_PER_TURN = 10;
 
 function validProjectId(value: unknown): value is string { return typeof value === 'string' && /^project-[a-f0-9-]{8,80}$/.test(value); }
 
@@ -40,7 +41,7 @@ function safeActivity(value: unknown): DirectConversationActivity | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const input = value as Partial<DirectConversationActivity>;
   if ((input.kind !== 'reasoning' && input.kind !== 'web-search' && input.kind !== 'research' && input.kind !== 'hybrid-search' && input.kind !== 'searxng' && input.kind !== 'attachment') || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 1_000_000 || typeof input.createdAt !== 'number' || !Number.isSafeInteger(input.createdAt)) return undefined;
-  const sources = Array.isArray(input.sources) ? input.sources.filter((source): source is WebSearchSource => Boolean(source && typeof source === 'object' && typeof (source as Partial<WebSearchSource>).title === 'string' && typeof (source as Partial<WebSearchSource>).url === 'string' && /^https?:\/\//.test((source as Partial<WebSearchSource>).url ?? ''))).slice(0, 100) : [];
+  const sources = Array.isArray(input.sources) ? input.sources.filter((source): source is WebSearchSource => Boolean(source && typeof source === 'object' && typeof (source as Partial<WebSearchSource>).title === 'string' && typeof (source as Partial<WebSearchSource>).url === 'string' && /^https?:\/\//.test((source as Partial<WebSearchSource>).url ?? ''))).slice(0, MAX_SEARCH_SOURCES_PER_TURN) : [];
   return { kind: input.kind, text: input.text, createdAt: input.createdAt, ...(sources.length ? { sources } : {}) };
 }
 
@@ -93,8 +94,12 @@ function persistCheckpoints(checkpoints: readonly DirectConversationCheckpoint[]
 
 function nextId(prefix: string): string { return `${prefix}-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`; }
 function titleFor(prompt: string): string { return prompt.trim().replace(/\s+/g, ' ').slice(0, 48) || '新对话'; }
-function streamingAssistantMessage(conversationId: string, text: string, createdAt: number, model?: string, reasoning?: string): DirectConversationMessage {
-  return { id: `${conversationId}-stream`, role: 'assistant', text: text || '…', createdAt, ...(model ? { model } : {}), ...(reasoning ? { activities: [{ kind: 'reasoning', text: reasoning.slice(0, 24_000), createdAt }] } : {}) };
+export function streamingAssistantMessage(messageId: string, text: string, createdAt: number, model?: string, reasoning?: string): DirectConversationMessage {
+  return { id: messageId, role: 'assistant', text: text || '…', createdAt, ...(model ? { model } : {}), ...(reasoning ? { activities: [{ kind: 'reasoning', text: reasoning.slice(0, 24_000), createdAt }] } : {}) };
+}
+
+export function mergeStreamingAssistantMessage(messages: readonly DirectConversationMessage[], streamingMessage: DirectConversationMessage): readonly DirectConversationMessage[] {
+  return [...messages.filter((message) => message.id !== streamingMessage.id), streamingMessage].slice(-MAX_MESSAGES);
 }
 
 /** 保持 user/assistant 顺序并仅传递会话可见文本；活动、密钥、URL 与项目 metadata 不进入 Provider 上下文。 */
@@ -281,7 +286,7 @@ export function useDirectConversations(): DirectConversations {
       try {
         const result = await searxngLocalClient.search(text);
         searxngSummary = result.rawContent;
-        searxngActivity = { kind: 'searxng', text: `已执行本地 SearXNG 检索“${result.query}”。${result.sources.length ? `已获取 ${result.sources.length} 个来源，原始正文仅传递给本轮模型。` : '服务未返回可解析来源。'}`, sources: result.sources, createdAt: now };
+        searxngActivity = { kind: 'searxng', text: `已执行本地 SearXNG 检索“${result.query}”。${result.sources.length ? `已选择 ${result.sources.length} 个来源（每轮最多 10 个 URL）传递给本轮模型。` : '服务未返回可解析来源。'}`, sources: result.sources, createdAt: now };
       } catch (searxngError: unknown) {
         searxngActivity = { kind: 'searxng', text: searxngErrorText(searxngError), createdAt: now };
       } finally {
@@ -293,7 +298,7 @@ export function useDirectConversations(): DirectConversations {
         const result = await hybridSearchClient.search(text);
         hybridSummary = result.rawContent;
         const receiptText = result.receipts.map((receipt) => `${receipt.backend}：${receipt.state === 'succeeded' ? '完成' : '失败'}；${receipt.detail}；来源 ${receipt.sourceCount} 条。`).join('\n');
-        hybridActivity = { kind: 'hybrid-search', text: `已并行执行混合检索“${result.query}”。\n${receiptText}\n原始正文仅传递给本轮模型，不写入聊天展示或持久化活动。`, sources: result.sources.map((source) => ({ title: `[${source.backend}] ${source.title}`, url: source.url })), createdAt: now };
+        hybridActivity = { kind: 'hybrid-search', text: `已并行执行混合检索“${result.query}”。\n${receiptText}\n已选择 ${result.sources.length} 个去重来源（每轮最多 10 个 URL）传递给本轮模型；原始正文不写入聊天展示或持久化活动。`, sources: result.sources.map((source) => ({ title: `[${source.backend}] ${source.title}`, url: source.url })), createdAt: now };
       } catch (hybridError: unknown) {
         hybridActivity = { kind: 'hybrid-search', text: hybridSearchErrorText(hybridError), createdAt: now };
       } finally {
@@ -304,7 +309,7 @@ export function useDirectConversations(): DirectConversations {
       try {
         const result = await last30daysClient.research(text, researchMode);
         researchSummary = result.rawContent;
-        researchActivity = { kind: 'research', text: `已执行${result.mode === 'last30days-cn' ? '中文' : '国际'}近 30 天研究“${result.query}”。${result.sources.length ? `已识别 ${result.sources.length} 个公开来源，原始正文仅传递给本轮模型。` : '研究器未在输出中识别到公开 URL。'}`, sources: result.sources, createdAt: now };
+        researchActivity = { kind: 'research', text: `已执行${result.mode === 'last30days-cn' ? '中文' : '国际'}近 30 天研究“${result.query}”。${result.sources.length ? `已选择 ${result.sources.length} 个公开来源（每轮最多 10 个 URL）传递给本轮模型。` : '研究器未在输出中识别到公开 URL。'}`, sources: result.sources, createdAt: now };
       } catch (researchError: unknown) {
         researchActivity = { kind: 'research', text: researchErrorText(researchError), createdAt: now };
       } finally {
@@ -315,7 +320,7 @@ export function useDirectConversations(): DirectConversations {
       try {
         const result = await webSearchClient.search(text);
         searchSummary = result.rawContent;
-        searchActivity = { kind: 'web-search', text: `已检索“${result.query}”。${result.sources.length ? `已获取 ${result.sources.length} 个来源的原始可读网页内容，并仅传递给本轮模型。` : '服务未返回可解析来源。'}`, sources: result.sources, createdAt: now };
+        searchActivity = { kind: 'web-search', text: `已检索“${result.query}”。${result.sources.length ? `已选择 ${result.sources.length} 个来源的原始可读网页内容（每轮最多 10 个 URL），并仅传递给本轮模型。` : '服务未返回可解析来源。'}`, sources: result.sources, createdAt: now };
       } catch (searchError: unknown) {
         searchActivity = { kind: 'web-search', text: searchErrorText(searchError), createdAt: now };
       } finally {
@@ -336,6 +341,7 @@ export function useDirectConversations(): DirectConversations {
     } catch { /* The current conversation remains usable if no workspace or memory file is available. */ }
     const providerContext = `${durableContext}${projectMemory}${supplementaryContext}`;
     const userMessage: DirectConversationMessage = { id: nextId('message'), role: 'user', text, ...(durableContext !== text ? { context: durableContext } : {}), createdAt: now, ...(searchActivity || researchActivity || hybridActivity || searxngActivity || attachmentActivity || autoTextActivity ? { activities: [searchActivity, researchActivity, hybridActivity, searxngActivity, autoTextActivity, attachmentActivity].filter((activity): activity is DirectConversationActivity => Boolean(activity)) } : {}) };
+    const streamingMessageId = nextId('message');
     const base: DirectConversation = existing ?? { schemaVersion: 1, id: conversationId, title: titleFor(text), selection, messages: [], ...(validProjectId(projectId) ? { projectId } : {}), createdAt: now, updatedAt: now };
     const providerUserMessage = providerContext === durableContext ? userMessage : { ...userMessage, context: providerContext };
     const history = providerHistory([...base.messages, providerUserMessage]);
@@ -351,7 +357,7 @@ export function useDirectConversations(): DirectConversations {
     try {
       const refreshStream = () => {
         const startedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
-        update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: [...conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), streamingAssistantMessage(conversationId, output, now, selection.model, reasoning)].slice(-MAX_MESSAGES), updatedAt: Date.now() })), 'deferred');
+        update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: mergeStreamingAssistantMessage(conversation.messages, streamingAssistantMessage(streamingMessageId, output, now, selection.model, reasoning)), updatedAt: Date.now() })), 'deferred');
         const endedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
         recordSessionPerformance({ kind: 'stream-refresh', elapsedMs: endedAt - startedAt, conversationCount: conversations.length, messageCount: Math.min(MAX_MESSAGES, (base.messages.length + 2)), renderedMessageCount: Math.min(60, base.messages.length + 2) });
       };
@@ -363,13 +369,13 @@ export function useDirectConversations(): DirectConversations {
       const completion = await directProviderClient.stream({ providerId: selection.providerId, model: selection.model, messages: messagesForProvider, onText: (chunk) => { firstByteAt ??= Date.now(); output += chunk; scheduleStreamRefresh(); }, onReasoning: (chunk) => { firstByteAt ??= Date.now(); reasoning += chunk; scheduleStreamRefresh(); } });
       recordProviderDiagnostic({ providerId: selection.providerId, model: completion.model ?? selection.model, stage: 'chat', outcome: 'succeeded', startedAt: providerStartedAt, firstByteAt, outputCharacters: output.length, conversationId, includedImages: images.length > 0, traceId: providerTraceId });
       if (streamRefreshTimer !== undefined) { window.clearTimeout(streamRefreshTimer); streamRefreshTimer = undefined; refreshStream(); }
-      update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== `${conversationId}-stream` ? message : { ...message, ...(completion.model ? { model: completion.model } : {}) }), updatedAt: Date.now() })));
+      update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== streamingMessageId ? message : { ...message, ...(completion.model ? { model: completion.model } : {}) }), updatedAt: Date.now() })));
       return true;
     } catch (nextError: unknown) {
       recordProviderDiagnostic({ providerId: selection.providerId, model: selection.model, stage: 'chat', outcome: 'failed', startedAt: providerStartedAt, error: nextError, conversationId, includedImages: images.length > 0, traceId: providerTraceId });
       if (streamRefreshTimer !== undefined) window.clearTimeout(streamRefreshTimer);
       setError(streamErrorText(nextError));
-      update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.filter((message) => message.id !== `${conversationId}-stream`), updatedAt: Date.now() })));
+      update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.filter((message) => message.id !== streamingMessageId), updatedAt: Date.now() })));
       return false;
     } finally { setStreaming(false); }
   }, [activeConversation, streaming, update]);

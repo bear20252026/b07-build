@@ -20,7 +20,7 @@ export function last30daysResultFrom(value: unknown): Last30DaysResult {
   if (!value || typeof value !== 'object') throw new Error('last30days-response-invalid');
   const result = value as Partial<Last30DaysResult>;
   if ((result.mode !== 'last30days' && result.mode !== 'last30days-cn') || typeof result.query !== 'string' || !result.query.trim() || typeof result.rawContent !== 'string' || !result.rawContent.trim() || result.rawContent.length > 1_000_000 || !Array.isArray(result.sources)) throw new Error('last30days-response-invalid');
-  return { query: result.query, mode: result.mode, rawContent: result.rawContent, sources: result.sources.filter(validSource).slice(0, 24) };
+  return { query: result.query, mode: result.mode, rawContent: result.rawContent, sources: result.sources.filter(validSource).slice(0, 10) };
 }
 
 export const last30daysClient = {

@@ -38,6 +38,12 @@ export const OFFICIAL_PROVIDER_PRESETS: readonly OfficialProviderPreset[] = [
   { id: 'anthropic', title: 'Anthropic Claude', description: 'Messages API', defaultModel: 'claude-opus-5', officialModels: [], defaultBaseUrls: { 'anthropic-compatible': 'https://api.anthropic.com' } },
 ];
 
-export function officialModelsForProvider(providerId: string): readonly string[] {
-  return OFFICIAL_PROVIDER_PRESETS.find((preset) => preset.id === providerId)?.officialModels ?? [];
+export function officialModelsForProvider(providerId: string, displayName = ''): readonly string[] {
+  const exact = OFFICIAL_PROVIDER_PRESETS.find((preset) => preset.id === providerId);
+  if (exact) return exact.officialModels;
+  // 旧版本和“自定义 API”会保留用户选择的连接 ID；仅用明确厂商品牌匹配离线候选，绝不改写该连接的地址、密钥、协议或已选模型。
+  const identity = `${providerId} ${displayName}`.toLocaleLowerCase();
+  if (identity.includes('deepseek')) return OFFICIAL_PROVIDER_PRESETS.find((preset) => preset.id === 'deepseek')?.officialModels ?? [];
+  if (identity.includes('moonshot') || identity.includes('kimi')) return OFFICIAL_PROVIDER_PRESETS.find((preset) => preset.id === 'kimi')?.officialModels ?? [];
+  return [];
 }

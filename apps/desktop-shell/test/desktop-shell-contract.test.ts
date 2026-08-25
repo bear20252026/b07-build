@@ -21,6 +21,10 @@ const chatHome = readFileSync(resolve(root, 'apps/workbench/src/components/works
 const homeModelSwitching = readFileSync(resolve(root, 'apps/workbench/src/runtime/home-model-switching.ts'), 'utf8');
 const providerDiagnostics = readFileSync(resolve(root, 'apps/workbench/src/runtime/provider-diagnostics.ts'), 'utf8');
 const searchRunCard = readFileSync(resolve(root, 'apps/workbench/src/runtime/search-run-card.ts'), 'utf8');
+const webSearch = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/web_search.rs'), 'utf8');
+const externalUrl = readFileSync(resolve(root, 'apps/desktop-shell/src-tauri/src/external_url.rs'), 'utf8');
+const directConversations = readFileSync(resolve(root, 'apps/workbench/src/runtime/use-direct-conversations.ts'), 'utf8');
+const workbenchCss = readFileSync(resolve(root, 'apps/workbench/src/workbench.css'), 'utf8');
 
 function csp(): string {
   const app = desktopConfig.app as Record<string, unknown>;
@@ -129,4 +133,28 @@ test('桌面 Workbench 使用静态 NOVA 图标而不引入要求 unsafe-eval �
   assert.ok(workbenchSider.includes("import novaIcon from '../../assets/nova-icon.png'"));
   assert.ok(workbenchSider.includes('src={novaIcon}'));
   assert.equal(workbenchSider.includes('@lobehub/icons'), false);
+});
+
+test('联网搜索每轮最多向模型投影十个 URL，且来源可见并由用户点击后在系统浏览器打开', () => {
+  assert.ok(webSearch.includes('const MAX_RESULTS: usize = 10;'));
+  assert.ok(searxngLocal.includes('const MAX_RESULTS: usize = 10;'));
+  assert.ok(desktopCore.includes('external_url::open_external_url'));
+  for (const expected of ['MAX_EXTERNAL_URL_CHARS', 'http://', 'https://', 'rundll32.exe', 'url.dll,FileProtocolHandler']) assert.ok(externalUrl.includes(expected), `外部 URL 打开边界缺少：${expected}`);
+  for (const forbidden of ['tauri_plugin_shell', 'Command::new("cmd")', 'powershell.exe']) assert.equal(externalUrl.includes(forbidden), false, `外部 URL 命令不得接受或依赖：${forbidden}`);
+  for (const expected of ['每轮最多 10 个 URL', 'onOpenSearchSource', 'openSearchSourceInSystemBrowser', 'overflowWrap']) assert.ok(chatHome.includes(expected) || workbenchApp.includes(expected) || directConversations.includes(expected), `来源展示或打开入口缺少：${expected}`);
+});
+
+test('连续流式助手回复必须使用独立消息 ID，不能用会话固定占位 ID 覆盖前一轮完成回复', () => {
+  for (const expected of ["const streamingMessageId = nextId('message')", 'mergeStreamingAssistantMessage', 'streamingAssistantMessage(streamingMessageId']) assert.ok(directConversations.includes(expected), `会话持久化缺少：${expected}`);
+  assert.equal(directConversations.includes('`${conversationId}-stream`'), false, '不得复用每会话固定 stream ID');
+});
+
+test('Halo Search 必须位于最上层且不对标题栏施加模糊遮罩', () => {
+  const layerStart = workbenchCss.indexOf('.command-palette-layer');
+  const layerEnd = workbenchCss.indexOf('.command-palette {', layerStart);
+  assert.notEqual(layerStart, -1);
+  assert.notEqual(layerEnd, -1);
+  const layer = workbenchCss.slice(layerStart, layerEnd);
+  assert.ok(layer.includes('z-index: 200'));
+  assert.equal(layer.includes('backdrop-filter'), false);
 });

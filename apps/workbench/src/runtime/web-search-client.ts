@@ -13,13 +13,13 @@ function resultFrom(value: unknown): WebSearchResult {
   if (!value || typeof value !== 'object') throw new Error('web-search-response-invalid');
   const result = value as Partial<WebSearchResult>;
   if (typeof result.query !== 'string' || typeof result.summary !== 'string' || !result.summary.trim() || typeof result.rawContent !== 'string' || !result.rawContent.trim() || result.rawContent.length > 1_000_000 || !Array.isArray(result.sources)) throw new Error('web-search-response-invalid');
-  return { query: result.query, summary: result.summary, rawContent: result.rawContent, sources: result.sources.filter(validSource).slice(0, 100) };
+  return { query: result.query, summary: result.summary, rawContent: result.rawContent, sources: result.sources.filter(validSource).slice(0, 10) };
 }
 
 export const webSearchClient = {
   async search(query: string): Promise<WebSearchResult> {
     const normalized = query.trim();
     if (!normalized || normalized.length > 2_000) throw new Error('web-search-query-invalid');
-    return resultFrom(await invoke('search_web', { request: { query: normalized, maxResults: 100 } }));
+    return resultFrom(await invoke('search_web', { request: { query: normalized, maxResults: 10 } }));
   },
 };

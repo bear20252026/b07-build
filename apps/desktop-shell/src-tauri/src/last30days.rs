@@ -6,7 +6,7 @@ use tokio::process::Command;
 
 const MAX_QUERY_CHARS: usize = 2_000;
 const MAX_RAW_CONTENT_CHARS: usize = 1_000_000;
-const MAX_SOURCES: usize = 100;
+const MAX_SOURCES: usize = 10;
 const RESEARCH_TIMEOUT_SECONDS: u64 = 180;
 
 #[derive(Deserialize)]

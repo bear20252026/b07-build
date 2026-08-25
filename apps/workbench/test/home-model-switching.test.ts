@@ -36,6 +36,11 @@ test('首页模型选择器提供 DeepSeek V4 Flash 与 Kimi 官方目录，但�
   assert.deepEqual(explicitHomeModelSelection('kimi', 'kimi-user-enabled-preview'), { providerId: 'kimi', model: 'kimi-user-enabled-preview' });
 });
 
+test('历史或自定义命名的 DeepSeek 连接仍投影 V4 Flash，不覆盖用户当前模型', () => {
+  const legacyDeepSeek = { ...mimo, providerId: 'custom-my-deepseek-7f9e', displayName: '我的 DeepSeek API', defaultModel: 'deepseek-chat' };
+  assert.deepEqual(homeModelChoices(legacyDeepSeek, undefined), ['deepseek-chat', 'deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp']);
+});
+
 test('首页模型选择器接受标准模型标识但拒绝不安全的空白或空格值', () => {
   assert.equal(isSelectableHomeModel('gpt-4.1-mini'), true);
   assert.equal(isSelectableHomeModel('mimo-v2.5/vision'), true);

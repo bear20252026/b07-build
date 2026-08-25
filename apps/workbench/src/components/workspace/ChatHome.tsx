@@ -56,6 +56,7 @@ export interface ChatHomeProps {
   profiles: Readonly<Record<AgentProfileId, { label: string; description: string }>>;
   onSelectTaskModel(selection: Readonly<{ providerId: string; model?: string }>): void;
   onPrepareSearchRetry(query: string, mode: SearchRunMode): void;
+  onOpenSearchSource(url: string): void;
   onOpenContextBudget(): void;
   onOpenCheckpoints(): void;
   onOpenUsageLedger(): void;
@@ -116,7 +117,7 @@ function ConversationModelControl({ connections, discoveredModels, selection, on
   return <details className="chat-home-model-drawer"><summary><span>模型</span><strong>{model || connection?.defaultModel || '未选择'}</strong><em>更改</em></summary><div><label>厂商连接<select aria-label="切换当前会话的厂商连接" onChange={(event) => { const next = connections.find((item) => item.providerId === event.target.value); setProviderId(event.target.value); setModel(next?.defaultModel ?? ''); if (next) onSelectTaskModel({ providerId: next.providerId, model: next.defaultModel }); }} value={providerId}>{connections.map((item) => <option key={item.providerId} value={item.providerId}>{item.displayName} · {item.driverId.replace('desktop-direct.', '')}</option>)}</select></label><label>模型标识<input aria-label="切换当前会话的模型" list="conversation-model-options" maxLength={128} onChange={(event) => { const nextValue = event.target.value; setModel(nextValue); const next = connection ? explicitHomeModelSelection(connection.providerId, nextValue) : undefined; if (next) onSelectTaskModel(next); }} value={model} /><datalist id="conversation-model-options">{choices.map((item) => <option key={item} value={item} />)}</datalist></label><button disabled={!connection || !isSelectableHomeModel(model)} onClick={() => { const next = connection ? explicitHomeModelSelection(connection.providerId, model) : undefined; if (next) onSelectTaskModel(next); }} type="button">使用此模型</button></div></details>;
 }
 
-function SearchRunCard({ activity, query, onPrepareSearchRetry }: Readonly<{ activity: DirectConversationActivity; query: string; onPrepareSearchRetry(query: string, mode: SearchRunMode): void }>) {
+function SearchRunCard({ activity, query, onOpenSearchSource, onPrepareSearchRetry }: Readonly<{ activity: DirectConversationActivity; query: string; onOpenSearchSource(url: string): void; onPrepareSearchRetry(query: string, mode: SearchRunMode): void }>) {
   const kind = activity.kind;
   if (!isSearchRunKind(kind)) return null;
   const state = searchRunStatus(activity.text);
@@ -124,7 +125,7 @@ function SearchRunCard({ activity, query, onPrepareSearchRetry }: Readonly<{ act
   return <section className={`chat-home-search-run ${state}`} aria-label={`${searchRunLabel(kind, activity.text)}运行状态`}>
     <div className="chat-home-search-run-heading"><div><span>SEARCH RUN</span><strong>{searchRunLabel(kind, activity.text)}</strong></div><b>{state === 'succeeded' ? `完成 · ${sourceCount} 来源` : '失败已隔离'}</b></div>
     <p>{activity.text}</p>
-    {sourceCount > 0 && <ol className="chat-home-search-sources">{activity.sources?.map((source) => <li key={source.url}><a href={source.url} rel="noreferrer" target="_blank">{source.title}</a></li>)}</ol>}
+    {sourceCount > 0 && <ol className="chat-home-search-sources">{activity.sources?.map((source) => <li key={source.url}><a href={source.url} onClick={(event) => { event.preventDefault(); onOpenSearchSource(source.url); }} title="在系统默认浏览器中打开此来源">{source.title}</a><small style={{ display: 'block', overflowWrap: 'anywhere' }}>{source.url}</small></li>)}</ol>}
     {state === 'failed' && <button onClick={() => onPrepareSearchRetry(query, searchRunMode(kind, activity.text))} type="button">准备以同一后端重试</button>}
   </section>;
 }
@@ -133,6 +134,7 @@ const ConversationMessageCard = memo(function ConversationMessageCard({
   message,
   taskModelLabel,
   onBranchFromMessage,
+  onOpenSearchSource,
   onPrepareSearchRetry,
   onSaveAssistantArtifact,
   savingAssistantArtifactId,
@@ -140,13 +142,14 @@ const ConversationMessageCard = memo(function ConversationMessageCard({
   message: DirectConversationMessage;
   taskModelLabel?: string;
   onBranchFromMessage(messageId: string): void;
+  onOpenSearchSource(url: string): void;
   onPrepareSearchRetry(query: string, mode: SearchRunMode): void;
   onSaveAssistantArtifact(message: DirectConversationMessage): void;
   savingAssistantArtifactId?: string;
 }>) {
   return <article className={`chat-home-message chat-home-message--${message.role}`}>
     <div className="chat-home-message-meta"><span className="chat-home-message-label">{message.role === 'user' ? 'YOU' : message.model ?? taskModelLabel ?? 'AI WORK OS'}</span><div>{message.role === 'assistant' && <button className="chat-home-message-copy" disabled={savingAssistantArtifactId === message.id} onClick={() => onSaveAssistantArtifact(message)} title="仅在你点击后，将这条已完成的 AI 回复写入受控 Markdown 产物。" type="button">{savingAssistantArtifactId === message.id ? '保存中' : '保存为 MD'}</button>}<button className="chat-home-message-copy" onClick={() => onBranchFromMessage(message.id)} title="从此条消息创建一个新的本地会话分支，原会话不变" type="button">分支</button><button className="chat-home-message-copy" onClick={() => { void copyMessageText(message.text); }} title="复制这一条对话的完整文本" type="button">复制</button></div></div>
-    {message.activities?.map((activity) => isSearchRunKind(activity.kind) ? <SearchRunCard activity={activity} key={`${message.id}-${activity.kind}`} onPrepareSearchRetry={onPrepareSearchRetry} query={message.text} /> : <details className="chat-home-message-process" key={`${message.id}-${activity.kind}`}><summary>{activity.kind === 'reasoning' ? '模型过程（供应商实际返回）' : '附件上下文与图片（本轮传递状态）'}</summary><pre>{activity.text}</pre></details>)}
+    {message.activities?.map((activity) => isSearchRunKind(activity.kind) ? <SearchRunCard activity={activity} key={`${message.id}-${activity.kind}`} onOpenSearchSource={onOpenSearchSource} onPrepareSearchRetry={onPrepareSearchRetry} query={message.text} /> : <details className="chat-home-message-process" key={`${message.id}-${activity.kind}`}><summary>{activity.kind === 'reasoning' ? '模型过程（供应商实际返回）' : '附件上下文与图片（本轮传递状态）'}</summary><pre>{activity.text}</pre></details>)}
     <div className="chat-home-message-content"><MessageText value={message.text} /></div>
   </article>;
 });
@@ -175,6 +178,7 @@ export function ChatHome({
   profiles,
   onSelectTaskModel,
   onPrepareSearchRetry,
+  onOpenSearchSource,
   onOpenContextBudget,
   onOpenCheckpoints,
   onOpenUsageLedger,
@@ -232,7 +236,7 @@ export function ChatHome({
           {hasConversationContent && activeConversation && <section className="chat-home-message-timeline" aria-live="polite" aria-label="当前对话消息" onScroll={onScroll} ref={timelineRef}>
             <div className="chat-home-timeline-tools"><span>当前会话 · {activeConversation.messages.length} 条消息</span><div><ConversationModelControl connections={connections} discoveredModels={discoveredModels} onSelectTaskModel={onSelectTaskModel} selection={taskModelSelection} /><button onClick={onOpenContextBudget} type="button">上下文预算</button><button onClick={onOpenUsageLedger} type="button">用量账本</button><button onClick={onOpenSessionPerformance} type="button">性能观察</button><button onClick={onOpenCheckpoints} type="button">检查点</button></div></div>
             {visibleStart > 0 && <button className="chat-home-load-history" onClick={() => setWindowStart((current) => Math.max(0, current - MESSAGE_RENDER_WINDOW))} type="button">加载更早的 {Math.min(MESSAGE_RENDER_WINDOW, visibleStart)} 条消息</button>}
-            {visibleMessages.map((message) => <ConversationMessageCard key={message.id} message={message} onBranchFromMessage={onBranchFromMessage} onPrepareSearchRetry={onPrepareSearchRetry} onSaveAssistantArtifact={onSaveAssistantArtifact} savingAssistantArtifactId={savingAssistantArtifactId} taskModelLabel={taskModelLabel} />)}
+            {visibleMessages.map((message) => <ConversationMessageCard key={message.id} message={message} onBranchFromMessage={onBranchFromMessage} onOpenSearchSource={onOpenSearchSource} onPrepareSearchRetry={onPrepareSearchRetry} onSaveAssistantArtifact={onSaveAssistantArtifact} savingAssistantArtifactId={savingAssistantArtifactId} taskModelLabel={taskModelLabel} />)}
             {showJumpToLatest && <button aria-label="跳到最新消息" className="chat-home-jump-latest" onClick={jumpToLatest} title="跳到最新消息" type="button">↓</button>}
           </section>}
           {directResponse && !activeConversation?.messages.length && <section className="chat-home-direct-response" aria-live="polite"><div><span>DIRECT MODEL RESPONSE</span><strong>{directResponse.model ?? taskModelLabel ?? '已选模型'}</strong><small>{directResponse.complete ? '流式回答完成' : '正在接收第三方文本分块…'}</small></div><pre>{directResponse.output || '正在等待模型返回首个文本分块…'}</pre></section>}

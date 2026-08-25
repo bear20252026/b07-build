@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use tauri::AppHandle;
 
 const MAX_CONTEXT_CHARS: usize = 1_000_000;
-const MAX_SOURCES: usize = 100;
+const MAX_SOURCES: usize = 10;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn retains_up_to_one_hundred_deduplicated_sources() {
+    fn retains_up_to_ten_deduplicated_sources() {
         let mut sources = Vec::new();
         let mut seen = BTreeSet::new();
         push_sources(
@@ -324,7 +324,7 @@ mod tests {
         assert_eq!(sources.len(), MAX_SOURCES);
         assert_eq!(
             sources.last().map(|source| source.url.as_str()),
-            Some("https://example.com/99")
+            Some("https://example.com/9")
         );
     }
 }

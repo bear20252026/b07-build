@@ -14,7 +14,7 @@ use tokio::process::{Child, Command};
 
 const STARTUP_TIMEOUT_SECONDS: u64 = 35;
 const REQUEST_TIMEOUT_SECONDS: u64 = 30;
-const MAX_RESULTS: usize = 100;
+const MAX_RESULTS: usize = 10;
 const MAX_RAW_CONTENT_CHARS: usize = 1_000_000;
 
 pub struct SearxngState(Mutex<Option<SearxngRuntime>>);

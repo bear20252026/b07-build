@@ -9,6 +9,8 @@ mod assistant_artifacts;
 #[cfg(not(mobile))]
 mod direct_provider;
 #[cfg(not(mobile))]
+mod external_url;
+#[cfg(not(mobile))]
 mod file_extract;
 #[cfg(not(mobile))]
 mod github_collaboration;
@@ -226,6 +228,7 @@ pub fn run() {
             direct_provider::discover_direct_provider,
             direct_provider::probe_direct_provider,
             direct_provider::start_direct_provider_stream,
+            external_url::open_external_url,
             web_search::search_web,
             last30days::run_last30days_research,
             hybrid_search::search_hybrid,

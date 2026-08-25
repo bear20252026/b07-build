@@ -21,7 +21,7 @@ export function hybridSearchResultFrom(value: unknown): HybridSearchResult {
   const result = value as Partial<HybridSearchResult>;
   if (typeof result.query !== 'string' || !result.query.trim() || typeof result.rawContent !== 'string' || !result.rawContent.trim() || result.rawContent.length > 1_000_000 || !Array.isArray(result.sources) || !Array.isArray(result.receipts)) throw new Error('hybrid-search-response-invalid');
   if (!result.receipts.every(validReceipt)) throw new Error('hybrid-search-response-invalid');
-  return { query: result.query, rawContent: result.rawContent, sources: result.sources.filter(validSource).slice(0, 32), receipts: result.receipts.slice(0, 8) };
+  return { query: result.query, rawContent: result.rawContent, sources: result.sources.filter(validSource).slice(0, 10), receipts: result.receipts.slice(0, 8) };
 }
 
 export const hybridSearchClient = {

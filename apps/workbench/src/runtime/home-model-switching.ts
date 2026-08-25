@@ -18,7 +18,7 @@ export function homeModelChoices(
   discovery: WorkbenchProviderModelDiscovery | undefined,
 ): readonly string[] {
   if (!connection) return [];
-  return [connection.defaultModel, ...officialModelsForProvider(connection.providerId), ...(discovery?.outcome === 'reachable' ? discovery.models : [])]
+  return [connection.defaultModel, ...officialModelsForProvider(connection.providerId, connection.displayName), ...(discovery?.outcome === 'reachable' ? discovery.models : [])]
     .filter((model, index, all) => Boolean(model) && all.indexOf(model) === index)
     .slice(0, 100);
 }
