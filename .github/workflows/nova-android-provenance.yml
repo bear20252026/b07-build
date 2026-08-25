@@ -91,7 +91,9 @@ jobs:
           zipalign_bin="$ANDROID_HOME/build-tools/$build_tools_dir/zipalign"
           apksigner_bin="$ANDROID_HOME/build-tools/$build_tools_dir/apksigner"
           test -x "$zipalign_bin" && test -x "$apksigner_bin"
-          apk=$(find apps/desktop-shell/src-tauri/gen/android/app/build/outputs/apk -type f -name '*aarch64*release-unsigned.apk' | sort | head -n 1)
+          # Tauri's aarch64-only APK still uses Gradle's universal output directory.
+          # The workflow controls the architecture through `tauri android build --target aarch64`.
+          apk=$(find apps/desktop-shell/src-tauri/gen/android/app/build/outputs/apk/universal/release -type f -name 'app-universal-release-unsigned.apk' | sort | head -n 1)
           test -n "$apk" && test -f "$apk"
           apk_output="$stage/NOVA_${version}_aarch64-candidate.apk"
           "$zipalign_bin" -f -p 4 "$apk" "$apk_output.aligned"
