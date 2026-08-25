@@ -24,26 +24,29 @@ pub fn open_external_url(url: String) -> Result<(), &'static str> {
         return tauri_plugin_opener::open_url(url, None::<&str>)
             .map_err(|_| "external-url-open-failed");
     }
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut command = std::process::Command::new("rundll32.exe");
-        command.args(["url.dll,FileProtocolHandler", url]);
-        command
-    };
-    #[cfg(target_os = "macos")]
-    let mut command = {
-        let mut command = std::process::Command::new("open");
-        command.arg(url);
-        command
-    };
-    #[cfg(all(not(mobile), not(target_os = "windows"), not(target_os = "macos")))]
-    let mut command = {
-        let mut command = std::process::Command::new("xdg-open");
-        command.arg(url);
-        command
-    };
-    command.spawn().map_err(|_| "external-url-open-failed")?;
-    Ok(())
+    #[cfg(not(mobile))]
+    {
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut command = std::process::Command::new("rundll32.exe");
+            command.arg("url.dll,FileProtocolHandler").arg(url);
+            command
+        };
+        #[cfg(target_os = "macos")]
+        let mut command = {
+            let mut command = std::process::Command::new("open");
+            command.arg(url);
+            command
+        };
+        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+        let mut command = {
+            let mut command = std::process::Command::new("xdg-open");
+            command.arg(url);
+            command
+        };
+        command.spawn().map_err(|_| "external-url-open-failed")?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

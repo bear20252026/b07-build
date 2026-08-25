@@ -129,7 +129,9 @@ test('Android 移动入口复用 Rust 直接 Provider HTTPS/SSE 与受限 HTTP(S
   const mobile = desktopCore.slice(mobileStart);
   for (const expected of ['tauri_plugin_opener::init()', 'DirectProviderState::new()', 'configure_direct_provider', 'discover_direct_provider', 'probe_direct_provider', 'start_direct_provider_stream', 'external_url::open_external_url', 'native_runtime_platform']) assert.ok(mobile.includes(expected), `Android 移动入口缺少：${expected}`);
   for (const forbidden of ['terminal::', 'show_desktop_companion', 'assistant_artifacts::', 'searxng_local::', 'last30days::', 'hybrid_search::', 'tauri_plugin_dialog::init()']) assert.equal(mobile.includes(forbidden), false, `Android 移动入口不得注册桌面能力：${forbidden}`);
+  assert.equal(mobile.includes('MAIN_WINDOW_LABEL'), false, 'Android 移动入口不得引用桌面主窗口常量');
   assert.ok(externalUrl.includes('tauri_plugin_opener::open_url'));
+  assert.ok(externalUrl.includes('#[cfg(not(mobile))]'));
   assert.ok(externalUrl.includes('external-url-invalid'));
   assert.ok(cargoManifest.includes('tauri-plugin-opener'));
   for (const expected of ['platform: "android"', 'supports_direct_provider: true', 'supports_terminal: false', 'supports_desktop_companion: false', 'supports_desktop_save_as: false', 'supports_local_python_research: false']) assert.ok(desktopCore.includes(expected), `Android 能力回执缺少：${expected}`);

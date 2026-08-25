@@ -358,13 +358,6 @@ pub fn run() {
             native_runtime_platform,
             exit_ai_work_os
         ])
-        .setup(|app| {
-            let main_window = app
-                .get_webview_window(MAIN_WINDOW_LABEL)
-                .ok_or("mobile configuration must define the main window")?;
-            main_window.set_focus()?;
-            Ok(())
-        })
         .run(tauri::generate_context!())
         .expect("NOVA mobile shell failed to run");
 }
