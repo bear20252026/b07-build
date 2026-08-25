@@ -124,7 +124,7 @@ test('桌面 Rust 核心提供直接 OpenAI/Anthropic Provider、模型查询、
 });
 
 test('Android 移动入口复用 Rust 直接 Provider HTTPS/SSE 与受限 HTTP(S) 外部链接，但不注册桌面命令', () => {
-  const mobileStart = desktopCore.indexOf('#[cfg(mobile)]\n#[tauri::mobile_entry_point]');
+  const mobileStart = desktopCore.search(/#\[cfg\(mobile\)\]\r?\n#\[tauri::mobile_entry_point\]/);
   assert.notEqual(mobileStart, -1, '缺少 Android/iOS Tauri 入口');
   const mobile = desktopCore.slice(mobileStart);
   for (const expected of ['tauri_plugin_opener::init()', 'DirectProviderState::new()', 'configure_direct_provider', 'discover_direct_provider', 'probe_direct_provider', 'start_direct_provider_stream', 'external_url::open_external_url', 'native_runtime_platform']) assert.ok(mobile.includes(expected), `Android 移动入口缺少：${expected}`);
