@@ -167,6 +167,7 @@ test('Android 候选构建链独立产出 NOVA aarch64 APK、universal AAB、临
     'x86_64-linux-android',
     'reactivecircus/android-emulator-runner@v2',
     'emulator-boot-timeout: 1200',
+    'disable-animations: false',
     'nova-android-emulator-startup-evidence',
     'Prepare Android emulator startup evidence directory',
     'script: sh .github/scripts/run-nova-android-emulator-smoke.sh',

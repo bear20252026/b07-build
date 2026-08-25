@@ -222,3 +222,4 @@
 - [x] 将模拟器启动断言从固定等待 12 秒改为最多 90 秒轮询 `MainActivity` 前台状态，并保留最终截图与进程/窗口证据；若仍停留 Splash，再针对 Tauri Android 启动路径修复。
 - [ ] 为 Android/桌面 Workbench 增加 HTML 静态首帧回退和 React 错误边界，避免模块加载或首屏渲染异常直接呈现无信息白屏；不改变 Provider 直连架构。
 - [ ] 为 Android 冒烟脚本的 ADB 状态查询增加命令级超时，避免 hosted emulator 的 system_server/UiAutomation 卡住时让整个验证作业无限等待；超时后仍需上传截图和 Logcat 证据。
+- [ ] 处理 hosted Android emulator runner 的冷启动环境故障：`disable-animations` 的 settings ADB 调用出现 Broken pipe、在 NOVA 脚本前退出；关闭该非必要步骤，保留应用级截图/Logcat 验证，避免把 runner 故障误判为白屏。
