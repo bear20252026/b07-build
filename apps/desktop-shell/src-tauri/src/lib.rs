@@ -36,7 +36,9 @@ use tauri::{
     AppHandle, Manager,
 };
 #[cfg(not(mobile))]
-use tauri::{State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{State, WindowEvent};
+#[cfg(not(target_os = "macos"))]
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 #[cfg(not(mobile))]
 use tauri_plugin_dialog::DialogExt;
 #[cfg(not(mobile))]
