@@ -795,7 +795,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .run-workspace-error { color: var(--danger); }
 @media (max-width: 760px) { .run-workspace-heading { flex-direction: column; } .run-workspace-counts { justify-content: flex-start; } .run-workspace-columns { grid-template-columns: 1fr; } }
 
-/* P12：工作区态/设置态双层导航。设置页仅替换阅读层级，不改变 Gateway 权限。 */
+/* P12：工作区态/设置态双层导航。设置页仅替换阅读层级，不改变 本机能力服务 权限。 */
 .sider.settings-mode { background: color-mix(in srgb, var(--panel) 82%, var(--accent-soft)); }
 .sider-back-workspace, .sider-settings-entry { width: 100%; min-height: 34px; padding: 0 9px; display: flex; align-items: center; gap: 7px; color: var(--muted-strong); font: inherit; font-size: 12px; font-weight: 620; text-align: left; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
 .sider-back-workspace:hover, .sider-settings-entry:hover { color: var(--text-strong); border-color: var(--border-strong); background: var(--panel-subtle); }
@@ -863,7 +863,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 @media (max-width: 1160px) { .task-storyboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .task-storyboard { padding: 13px; border-radius: 13px; } .task-storyboard-heading { flex-direction: column; gap: 10px; } .task-storyboard-scope { margin-top: 0; } .task-storyboard-grid { grid-template-columns: 1fr; } .task-storyboard-block { min-height: 142px; } }
 
-/* P20：原创轻量聊天首页。设置与运维项迁入二级页面，不修改 Gateway、任务或凭据边界。 */
+/* P20：原创轻量聊天首页。设置与运维项迁入二级页面，不修改 本机能力服务、任务或凭据边界。 */
 .chat-home { min-height: min(620px, calc(100vh - 182px)); display: flex; flex-direction: column; justify-content: center; padding: clamp(22px, 6vh, 72px) 0 clamp(18px, 4vh, 44px); }
 .chat-home-hero { max-width: 650px; text-align: center; }
 .chat-home-hero > span, .chat-home-section-heading > span, .chat-home-provider > div > span, .chat-home-suggestions > span { color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .1em; }
@@ -1300,7 +1300,7 @@ body:has(.workbench-shell.chat-home-surface.theme-dark) { background: #000; }
 .workbench-shell.chat-home-surface .titlebar-icon-button { border-radius: 12px; }
 .workbench-shell.chat-home-surface .titlebar-surface-actions { display: none; }
 .workbench-shell.chat-home-surface .home-floating-companion { display: none; }
-.workbench-shell.chat-home-surface .gateway-attach-button.attached {
+.workbench-shell.chat-home-surface .localService-attach-button.attached {
   min-height: 31px;
   padding: 0 9px;
   color: #007aff;

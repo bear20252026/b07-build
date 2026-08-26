@@ -23,7 +23,7 @@ export interface TaskOutcomeProjection {
 /**
  * P21 成果 metadata 的纯投影。
  *
- * 文件正文、哈希、task/run 标识、Gateway client 与任何副作用均不能跨越此模块；它只整理
+ * 文件正文、哈希、task/run 标识、本机能力服务 client 与任何副作用均不能跨越此模块；它只整理
  * 父组件已水合的 task/run 专属 metadata，以供可扫描的成果块呈现。
  */
 export function createTaskOutcomeProjection(

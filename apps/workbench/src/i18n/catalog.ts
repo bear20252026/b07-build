@@ -72,7 +72,7 @@ export const catalog = {
       profileLabel: '选择工作方式',
       providerReady: (count: number) => `${count} 个模型连接可用`,
       providerWaiting: '先连接第三方模型',
-      providerDescription: '第三方请求仅由本机 Gateway 在你明确提交任务后发起。',
+      providerDescription: '第三方请求仅由本机 本机能力服务 在你明确提交任务后发起。',
       openModels: '连接第三方 API',
       settingsHint: '模型、运行记录、扩展与安全设置已收进左下角设置。',
       suggestionLabel: '试试这些任务',
@@ -190,7 +190,7 @@ export const catalog = {
       selectAria: 'Select Agent Profile',
     },
     task: {
-      title: 'Task workbench', controlPlane: 'LOCAL CONTROL PLANE', initialGoal: 'Connect a third-party API, then submit a goal to start a recoverable controlled task.', currentCapabilities: 'Current capabilities', eventProtocol: 'Event protocol v1.0', leastPrivilege: 'Least privilege', sqliteSnapshot: 'SQLite snapshots', welcomeEyebrow: 'NOVA · THIRD-PARTY API', welcomeTitle: 'What outcome will you move forward today?', eventStreamAria: 'Task event stream', snapshotAria: 'Current task snapshot', runtimeSnapshot: 'Live runtime snapshot', noTask: 'No task yet', noTaskDescription: 'SQLite-persisted task state will appear here after you submit a goal.', provenance: (count: number, untrusted: number) => `${count} input provenance summaries · ${untrusted} untrusted inputs isolated`, provenanceNote: 'Input provenance is recorded only as a digest. Untrusted content cannot directly trigger writes, network access, Shell, or browser control.', attempt: (attempt: number, nodes: number) => `Attempt ${attempt} · ${nodes} nodes`, concurrencyPeak: (count: number) => `Concurrency peak ${count}`, approveAndResume: (nodeId: string) => `Approve and resume ${nodeId}`, resume: 'Resume from snapshot', activity: 'Task activity', eventCount: (count: number) => `${count} live events`, noEvents: 'No runtime events yet. Start the local gateway and submit a goal.', goalAria: 'Task goal', goalPlaceholder: 'Describe the desired outcome; the connected third-party API will produce an explainable, recoverable controlled plan…', composerHint: 'Ctrl / ⌘ + Enter to submit. High-risk actions enter approval.', submit: 'Start task', submitting: 'Submitting…', status: { created: 'Created', running: 'Running', blocked: 'Awaiting approval', completed: 'Completed', failed: 'Failed', idle: 'Awaiting task' }, error: { connect: 'Unable to reach the local task service', resume: 'Unable to resume task', approve: 'Approval or task resume failed' },
+      title: 'Task workbench', controlPlane: 'LOCAL CONTROL PLANE', initialGoal: 'Connect a third-party API, then submit a goal to start a recoverable controlled task.', currentCapabilities: 'Current capabilities', eventProtocol: 'Event protocol v1.0', leastPrivilege: 'Least privilege', sqliteSnapshot: 'SQLite snapshots', welcomeEyebrow: 'NOVA · THIRD-PARTY API', welcomeTitle: 'What outcome will you move forward today?', eventStreamAria: 'Task event stream', snapshotAria: 'Current task snapshot', runtimeSnapshot: 'Live runtime snapshot', noTask: 'No task yet', noTaskDescription: 'SQLite-persisted task state will appear here after you submit a goal.', provenance: (count: number, untrusted: number) => `${count} input provenance summaries · ${untrusted} untrusted inputs isolated`, provenanceNote: 'Input provenance is recorded only as a digest. Untrusted content cannot directly trigger writes, network access, Shell, or browser control.', attempt: (attempt: number, nodes: number) => `Attempt ${attempt} · ${nodes} nodes`, concurrencyPeak: (count: number) => `Concurrency peak ${count}`, approveAndResume: (nodeId: string) => `Approve and resume ${nodeId}`, resume: 'Resume from snapshot', activity: 'Task activity', eventCount: (count: number) => `${count} live events`, noEvents: 'No runtime events yet. Start the local localService and submit a goal.', goalAria: 'Task goal', goalPlaceholder: 'Describe the desired outcome; the connected third-party API will produce an explainable, recoverable controlled plan…', composerHint: 'Ctrl / ⌘ + Enter to submit. High-risk actions enter approval.', submit: 'Start task', submitting: 'Submitting…', status: { created: 'Created', running: 'Running', blocked: 'Awaiting approval', completed: 'Completed', failed: 'Failed', idle: 'Awaiting task' }, error: { connect: 'Unable to reach the local task service', resume: 'Unable to resume task', approve: 'Approval or task resume failed' },
     },
     home: {
       eyebrow: 'NOVA · THIRD-PARTY API',
@@ -199,7 +199,7 @@ export const catalog = {
       profileLabel: 'Choose a working mode',
       providerReady: (count: number) => `${count} model connections available`,
       providerWaiting: 'Connect a third-party model first',
-      providerDescription: 'The local Gateway only sends a third-party request after you explicitly submit a task.',
+      providerDescription: 'The local 本机能力服务 only sends a third-party request after you explicitly submit a task.',
       openModels: 'Connect third-party API',
       settingsHint: 'Models, run records, extensions, and security controls are kept in the Settings entry at lower left.',
       suggestionLabel: 'Try one of these tasks',
@@ -280,7 +280,7 @@ export const catalog = {
     },
     extensionCenter: {
       aria: 'Extension control plane', eyebrow: 'CONTROLLED EXTENSIONS', title: 'Extension center', refresh: 'Refresh', loading: 'Reading local control plane…', empty: 'No extension is registered. An extension must pass source review and digest verification before it can enter an activation plan.',
-      note: 'This panel only reads gateway DTOs. It cannot download, load, start extensions, read secrets, or grant tool permissions.',
+      note: 'This panel only reads localService DTOs. It cannot download, load, start extensions, read secrets, or grant tool permissions.',
       summary: (installed: number, total: number) => `${installed}/${total} extensions verified and installed`,
       extensions: 'Extension manifest', diagnostics: 'Diagnostics', profiles: 'Provider profiles', plans: 'Activation plans', noDiagnostics: 'No extension diagnostics need attention.', noProfiles: 'No provider profile is registered.', noPlans: 'No extension activation plan exists for the current task.',
       source: 'Source', boundary: 'Data boundary', declared: 'Declared capabilities', requested: 'Requested permissions', budget: 'Resource budget', reviewer: 'Reviewer', entry: 'Entry', credentialRef: 'Credential reference', drivers: 'Driver allowlist',

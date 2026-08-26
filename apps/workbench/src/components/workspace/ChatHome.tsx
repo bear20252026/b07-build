@@ -88,7 +88,7 @@ function HomeModelSwitcher({
   const { connection, model: selectedModel } = resolveHomeModelSelection(connections, selection);
   const [modelDraft, setModelDraft] = useState(selectedModel ?? '');
   useEffect(() => setModelDraft(selectedModel ?? ''), [connection?.providerId, selectedModel]);
-  if (!connection) return <section className="chat-home-provider" aria-label="第三方模型连接状态"><div><span>MODEL CONNECTION</span><strong>尚未连接模型</strong><p>请先添加任意厂商的 Provider 连接；首页不会回退到旧 Gateway 链路。</p></div><button onClick={onOpenModels} type="button">添加 API 连接</button></section>;
+  if (!connection) return <section className="chat-home-provider" aria-label="第三方模型连接状态"><div><span>MODEL CONNECTION</span><strong>尚未连接模型</strong><p>请先添加任意厂商的 Provider 连接；首页不会回退到旧 本机能力服务 链路。</p></div><button onClick={onOpenModels} type="button">添加 API 连接</button></section>;
   const choices = homeModelChoices(connection, discoveredModels[connection.providerId]);
   const visibleChoices = [modelDraft, ...choices].filter((model, index, all) => Boolean(model) && all.indexOf(model) === index);
   const applyModel = (): void => {

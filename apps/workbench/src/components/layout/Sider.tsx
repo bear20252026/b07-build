@@ -9,7 +9,7 @@ import type { WorkbenchPage } from './workbench-page';
 import type { WorkbenchProject } from '../../runtime/project-client';
 import type { DirectConversation } from '../../runtime/use-direct-conversations';
 
-/** 工作区与设置页均是显式前端意图；不授予 Gateway、文件或执行权限。 */
+/** 工作区与设置页均是显式前端意图；不授予 本机能力服务、文件或执行权限。 */
 export type { WorkbenchPage } from './workbench-page';
 
 type NavItem = { key: WorkbenchPage; icon: string; label: string; description: string };
@@ -79,7 +79,7 @@ function useFreshListItems(projects: readonly WorkbenchProject[], conversations:
 
 /**
  * 参考 AionUi 的两态侧栏：主工作区只承载任务入口，设置状态替换为二级设置导航。
- * 这仅改变阅读与跳转层级；所有 Gateway 请求仍必须由用户明确点击的页面动作触发。
+ * 这仅改变阅读与跳转层级；所有 本机能力服务 请求仍必须由用户明确点击的页面动作触发。
  */
 export function Sider({ activePage, hasActiveTask, projects, selectedProjectId, conversations, activeConversationId, mobileNavigation = false, theme, onThemeToggle, onNewTask, onNavigate, onShowWorkspaceConversations, onSelectProject, onSelectConversation, onNewConversation, onRenameConversation, onRemoveConversation }: SiderProps) {
   const { locale, messages, setLocale } = useLocale();

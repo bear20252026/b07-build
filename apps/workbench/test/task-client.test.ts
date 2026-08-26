@@ -99,7 +99,7 @@ test('运行轨迹客户端只读取经验证的不可执行 metadata 并按 seq
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => Response.json([
     { schemaVersion: 1, trajectoryEventId: 'trajectory-2', taskId: 'task-1', runId: 'run-1', sequence: 2, at: 2, source: 'task-runtime', kind: 'task.completed', attributes: { completed: true }, canReplaySideEffects: false },
-    { schemaVersion: 1, trajectoryEventId: 'trajectory-1', taskId: 'task-1', runId: 'run-1', sequence: 1, at: 1, source: 'gateway.intent', kind: 'task.created', attributes: { goalDigest: 'abc' }, canReplaySideEffects: false },
+    { schemaVersion: 1, trajectoryEventId: 'trajectory-1', taskId: 'task-1', runId: 'run-1', sequence: 1, at: 1, source: 'localService.intent', kind: 'task.created', attributes: { goalDigest: 'abc' }, canReplaySideEffects: false },
   ])) as typeof fetch;
   try {
     const trajectory = await new HttpWorkbenchTaskClient().trajectory('task-1', 'run-1');

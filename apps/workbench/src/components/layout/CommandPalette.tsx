@@ -11,7 +11,7 @@ export interface CommandPaletteProps {
  * P23 原创本地命令面板。
  *
  * 它只渲染和筛选父组件传入的导航命令。键盘快捷键与点击只会调用 `onExecute`；组件本身不导入
- * Gateway client、不访问文件、Provider、SQLite，也不能成为静默自动化入口。
+ * 本机能力服务 client、不访问文件、Provider、SQLite，也不能成为静默自动化入口。
  */
 export function CommandPalette({ commands, onExecute }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);

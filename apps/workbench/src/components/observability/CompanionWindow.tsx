@@ -1,15 +1,15 @@
 import type { CompanionPreferencesV1 } from '../../runtime/companion-preferences';
 import { ProceduralCompanionStage } from './ProceduralCompanionStage';
 
-export function CompanionWindow({ gatewayAttached, preferences, onOpenApi, onOpenControls }: {
-  gatewayAttached: boolean;
+export function CompanionWindow({ localServiceReady, preferences, onOpenApi, onOpenControls }: {
+  localServiceReady: boolean;
   preferences: CompanionPreferencesV1;
   onOpenApi(): void;
   onOpenControls(): void;
 }) {
   const voiceStatus = !preferences.voiceEnabled
     ? '语音输出关闭'
-    : gatewayAttached
+    : localServiceReady
       ? '等待一次明确试听'
       : '需要先连接 MiMo TTS';
   const visualStatus = !preferences.visualEnabled

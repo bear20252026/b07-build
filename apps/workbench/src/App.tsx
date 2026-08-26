@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 /* Unsloth-inspired UI alignment only: preserve direct Provider and streaming behaviour. */
-import './components/observability/GatewayAttachment.css';
+import './components/observability/LocalServiceAttachment.css';
 import { invoke } from '@tauri-apps/api/core';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider, type WorkbenchPage } from './components/layout/Sider';
@@ -151,17 +151,17 @@ function statusLabel(status: WorkbenchTaskSnapshot['status'] | undefined, messag
   return messages.task.status[status];
 }
 
-function gatewayErrorText(error: unknown): string {
+function localServiceErrorText(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? '');
-  if (/Failed to fetch|DOCTYPE|Unexpected token|JSON/i.test(message)) return '未收到可用的 Gateway 响应。应用会在连接模型时按需启动本机服务；请稍候或重试。';
-  if (/aborted|timeout/i.test(message)) return '本机 Gateway 暂未就绪或供应商响应超时。请稍候重试，并检查模型名称和 API key。';
-  return message && !/[<{]/.test(message) ? message : '连接请求未完成。请检查 Gateway 状态后重试。';
+  if (/Failed to fetch|DOCTYPE|Unexpected token|JSON/i.test(message)) return '未收到可用的 本机能力服务 响应。应用会在连接模型时按需启动本机服务；请稍候或重试。';
+  if (/aborted|timeout/i.test(message)) return '本机 本机能力服务 暂未就绪或供应商响应超时。请稍候重试，并检查模型名称和 API key。';
+  return message && !/[<{]/.test(message) ? message : '连接请求未完成。请检查 本机能力服务 状态后重试。';
 }
 
 export function App() {
   const [activePage, setActivePage] = useState<WorkbenchPage>('workspace');
   const [nativeRuntimePlatform, setNativeRuntimePlatform] = useState<NativeRuntimePlatform>('web');
-  const [gatewayAttached] = useState(false);
+  const [localServiceReady] = useState(false);
   const [localModels, setLocalModels] = useState<readonly WorkbenchLocalModelHealth[]>();
   const [localModelError, setLocalModelError] = useState<string>();
   const [controlPlaneDiagnostics, setControlPlaneDiagnostics] = useState<WorkbenchControlPlaneDiagnostics>();
@@ -207,14 +207,14 @@ export function App() {
     return () => { disposed = true; };
   }, []);
   const androidRuntime = nativeRuntimePlatform === 'android';
-  const taskExecution = useTaskExecution(gatewayAttached, {
-    gatewayRequired: '请先显式附着本机 Gateway；桌面应用不会自动启动或连接服务。',
+  const taskExecution = useTaskExecution(localServiceReady, {
+    localServiceRequired: '请先显式附着本机 本机能力服务；桌面应用不会自动启动或连接服务。',
     submitFailed: messages.task.error.connect,
     resumeFailed: messages.task.error.resume,
     approvalFailed: messages.task.error.approve,
   }, localTaskClient);
   const { snapshot, events, trajectory, workspaceArtifacts, checkpoints, taskFiles, deliveries, pending, deliveryPending, error: serviceError } = taskExecution;
-  const projectWorkspace = useProjectWorkspace(activePage, gatewayErrorText, localProjectClient);
+  const projectWorkspace = useProjectWorkspace(activePage, localServiceErrorText, localProjectClient);
   const providerControl = useProviderControlPlane();
   const directConversations = useDirectConversations();
   const profiles = profileUi(messages);
@@ -287,25 +287,25 @@ export function App() {
   const commandCatalog = createWorkbenchCommandCatalog({ hasActiveTask: Boolean(snapshot) });
 
   useEffect(() => {
-    if (!gatewayAttached || activePage !== 'capabilities') return;
+    if (!localServiceReady || activePage !== 'capabilities') return;
     let disposed = false;
-    void localTaskClient.localModelHealth().then((models) => { if (!disposed) setLocalModels(models); }).catch((error: unknown) => { if (!disposed) setLocalModelError(gatewayErrorText(error)); });
-    void localTaskClient.controlPlaneDiagnostics().then((report) => { if (!disposed) setControlPlaneDiagnostics(report); }).catch((error: unknown) => { if (!disposed) setControlPlaneDiagnosticError(gatewayErrorText(error)); });
+    void localTaskClient.localModelHealth().then((models) => { if (!disposed) setLocalModels(models); }).catch((error: unknown) => { if (!disposed) setLocalModelError(localServiceErrorText(error)); });
+    void localTaskClient.controlPlaneDiagnostics().then((report) => { if (!disposed) setControlPlaneDiagnostics(report); }).catch((error: unknown) => { if (!disposed) setControlPlaneDiagnosticError(localServiceErrorText(error)); });
     return () => { disposed = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gatewayAttached, activePage]);
+  }, [localServiceReady, activePage]);
 
   useEffect(() => {
-    if (!gatewayAttached || activePage !== 'security') return;
+    if (!localServiceReady || activePage !== 'security') return;
     let disposed = false;
-    void localTaskClient.securityPostureAudit().then((report) => { if (!disposed) setSecurityPostureAudit(report); }).catch((error: unknown) => { if (!disposed) setSecurityPostureAuditError(gatewayErrorText(error)); });
-    void localTaskClient.componentLockReport().then((report) => { if (!disposed) setComponentLockReport(report); }).catch((error: unknown) => { if (!disposed) setComponentLockReportError(gatewayErrorText(error)); });
-    void localTaskClient.componentManagementReport().then((report) => { if (!disposed) setComponentManagementReport(report); }).catch((error: unknown) => { if (!disposed) setComponentManagementReportError(gatewayErrorText(error)); });
-    void localTaskClient.nativeHostAuthenticationReport().then((report) => { if (!disposed) setNativeHostAuthenticationReport(report); }).catch((error: unknown) => { if (!disposed) setNativeHostAuthenticationReportError(gatewayErrorText(error)); });
-    void localTaskClient.windowsNativeReleaseReport().then((report) => { if (!disposed) setWindowsNativeReleaseReport(report); }).catch((error: unknown) => { if (!disposed) setWindowsNativeReleaseReportError(gatewayErrorText(error)); });
+    void localTaskClient.securityPostureAudit().then((report) => { if (!disposed) setSecurityPostureAudit(report); }).catch((error: unknown) => { if (!disposed) setSecurityPostureAuditError(localServiceErrorText(error)); });
+    void localTaskClient.componentLockReport().then((report) => { if (!disposed) setComponentLockReport(report); }).catch((error: unknown) => { if (!disposed) setComponentLockReportError(localServiceErrorText(error)); });
+    void localTaskClient.componentManagementReport().then((report) => { if (!disposed) setComponentManagementReport(report); }).catch((error: unknown) => { if (!disposed) setComponentManagementReportError(localServiceErrorText(error)); });
+    void localTaskClient.nativeHostAuthenticationReport().then((report) => { if (!disposed) setNativeHostAuthenticationReport(report); }).catch((error: unknown) => { if (!disposed) setNativeHostAuthenticationReportError(localServiceErrorText(error)); });
+    void localTaskClient.windowsNativeReleaseReport().then((report) => { if (!disposed) setWindowsNativeReleaseReport(report); }).catch((error: unknown) => { if (!disposed) setWindowsNativeReleaseReportError(localServiceErrorText(error)); });
     return () => { disposed = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gatewayAttached, activePage]);
+  }, [localServiceReady, activePage]);
 
   useEffect(() => {
     if (activePage !== 'connections') return;
@@ -329,7 +329,7 @@ export function App() {
       return;
     }
     if (!taskModelSelection || !selectedTaskConnection) {
-      setDirectSetupError('请先在 API 连接中完成模型连接并选择任务模型；首页不会回退到旧的本机 Gateway 链路。');
+      setDirectSetupError('请先在 API 连接中完成模型连接并选择任务模型；首页不会回退到旧的本机 本机能力服务 链路。');
       return;
     }
     setDirectSetupError(undefined);
@@ -402,7 +402,7 @@ export function App() {
   };
 
   const isDesktopCompanionWindow = typeof window !== 'undefined' && (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } }).__TAURI_INTERNALS__?.metadata?.currentWindow?.label === 'desktop-companion';
-  const openDesktopCompanion = (): void => { void invoke('show_desktop_companion').catch((error: unknown) => setDirectSetupError(gatewayErrorText(error))); };
+  const openDesktopCompanion = (): void => { void invoke('show_desktop_companion').catch((error: unknown) => setDirectSetupError(localServiceErrorText(error))); };
   const openArtifactExtension = (): void => {
     if (window.matchMedia('(max-width: 1120px)').matches) {
       setInspectorSurface('artifacts');
@@ -420,12 +420,12 @@ export function App() {
     {activePage === 'connections' && <section className="page-stack"><div className="page-heading"><span>CONNECTED MODELS</span><h1>已连接模型</h1><p>保存连接后，在此页查询模型目录、选择模型、检查连接状态，或发送一次受限文本请求。</p></div><ProviderConnectionCenter connections={providerControl.connections} probes={providerControl.probes} discoveredModels={providerControl.discoveredModels} inferences={providerControl.inferences} streaming={providerControl.streaming} desktopDiagnostics={desktopDiagnostics} taskModelSelection={taskModelSelection} error={providerControl.error} pendingProviderId={providerControl.pendingProviderId} onRefresh={providerControl.refresh} onProbe={providerControl.probe} onDiscoverModels={providerControl.discoverModels} onSelectTaskModel={selectTaskModel} onInfer={providerControl.infer} onStream={providerControl.stream} /></section>}
     {activePage === 'workspace-files' && <WorkspaceFilesPage preferences={workspaceFilePreferences} onChange={updateWorkspaceFiles} />}
     {activePage === 'terminal-coding' && <TerminalCodingPage workspace={workspaceFilePreferences} />}
-    {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><ApiUsageSummaryCard gatewayAttached={gatewayAttached} onOpen={() => setActivePage('api-usage')} /><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /></section>}
-    {activePage === 'api-usage' && <ApiUsageAuditPage gatewayAttached={gatewayAttached} onBack={() => setActivePage('operations')} />}
-    {activePage === 'capabilities' && <section className="page-stack"><div className="page-heading"><span>EXTENSIONS & CAPABILITIES</span><h1>扩展与能力</h1><p>按需读取扩展、本地模型与控制面摘要；此页不会启动模型、修改 Provider 或读取密钥。</p></div><CompanionSummaryCard preferences={companionPreferences} onOpen={() => setActivePage('companion')} /><CompanionStudioSummary preferences={companionStudioPreferences} onOpen={(section) => setActivePage(`companion-${section}` as WorkbenchPage)} /><BrowserSessionSummaryCard gatewayAttached={gatewayAttached} onOpen={() => setActivePage('browser-sessions')} /><section className="agency-role-entry"><div><span className="panel-eyebrow">LICENSED ROLE CATALOG</span><h2>预置专业角色</h2><p>浏览带 MIT 归因的专业角色，并仅在你明确操作后将某个角色添加为待审查的 Skill Pack 候选。</p></div><button title="进入三级角色目录，查看来源、版权、角色原文和候选添加动作。" onClick={() => setActivePage('agency-roles')} type="button">浏览角色目录 →</button></section><KnowledgeImportPanel gatewayAttached={gatewayAttached} /><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /></section>}
-    {activePage === 'agency-roles' && <AgencyRoleCatalogPage gatewayAttached={gatewayAttached} onBack={() => setActivePage('capabilities')} />}
-    {activePage === 'browser-sessions' && <BrowserSessionControlPage gatewayAttached={gatewayAttached} onBack={() => setActivePage('capabilities')} />}
-    {activePage === 'companion' && <CompanionControlPage gatewayAttached={gatewayAttached} preferences={companionPreferences} onBack={() => setActivePage('capabilities')} onUpdate={updateCompanion} />}
+    {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><ApiUsageSummaryCard localServiceReady={localServiceReady} onOpen={() => setActivePage('api-usage')} /><RunWorkspaceBoard artifacts={workspaceArtifacts} checkpoints={checkpoints} /><TrajectoryBoard events={trajectory} messages={messages} /></section>}
+    {activePage === 'api-usage' && <ApiUsageAuditPage localServiceReady={localServiceReady} onBack={() => setActivePage('operations')} />}
+    {activePage === 'capabilities' && <section className="page-stack"><div className="page-heading"><span>EXTENSIONS & CAPABILITIES</span><h1>扩展与能力</h1><p>按需读取扩展、本地模型与控制面摘要；此页不会启动模型、修改 Provider 或读取密钥。</p></div><CompanionSummaryCard preferences={companionPreferences} onOpen={() => setActivePage('companion')} /><CompanionStudioSummary preferences={companionStudioPreferences} onOpen={(section) => setActivePage(`companion-${section}` as WorkbenchPage)} /><BrowserSessionSummaryCard localServiceReady={localServiceReady} onOpen={() => setActivePage('browser-sessions')} /><section className="agency-role-entry"><div><span className="panel-eyebrow">LICENSED ROLE CATALOG</span><h2>预置专业角色</h2><p>浏览带 MIT 归因的专业角色，并仅在你明确操作后将某个角色添加为待审查的 Skill Pack 候选。</p></div><button title="进入三级角色目录，查看来源、版权、角色原文和候选添加动作。" onClick={() => setActivePage('agency-roles')} type="button">浏览角色目录 →</button></section><KnowledgeImportPanel localServiceReady={localServiceReady} /><ExtensionCenter taskId={snapshot?.taskId} runId={snapshot?.runId} /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /></section>}
+    {activePage === 'agency-roles' && <AgencyRoleCatalogPage localServiceReady={localServiceReady} onBack={() => setActivePage('capabilities')} />}
+    {activePage === 'browser-sessions' && <BrowserSessionControlPage localServiceReady={localServiceReady} onBack={() => setActivePage('capabilities')} />}
+    {activePage === 'companion' && <CompanionControlPage localServiceReady={localServiceReady} preferences={companionPreferences} onBack={() => setActivePage('capabilities')} onUpdate={updateCompanion} />}
     {activePage === 'companion-service-sources' && <CompanionStudioPage preferences={companionStudioPreferences} section="service-sources" onBack={() => setActivePage('companion')} onUpdate={updateCompanionStudio} />}
     {activePage === 'companion-body-modules' && <CompanionStudioPage preferences={companionStudioPreferences} section="body-modules" onBack={() => setActivePage('companion')} onUpdate={updateCompanionStudio} />}
     {activePage === 'companion-character-models' && <CompanionStudioPage preferences={companionStudioPreferences} section="character-models" onBack={() => setActivePage('companion')} onUpdate={updateCompanionStudio} />}
@@ -486,7 +486,7 @@ export function App() {
               <button aria-label="打开右侧项目产物扩展框" className="titlebar-icon-button" onClick={openArtifactExtension} title="打开可伸缩右侧项目产物扩展框；只显示受控文件投影与已确认保存的 Markdown 回复。" type="button">▧</button>
               {!androidRuntime && <button aria-label="打开 Companion 独立窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('companion')} title="打开独立 Companion 角色窗口；不会切换模型或授予权限。" type="button">◉</button>}
             </div>
-            {activePage !== 'models' && <button className="gateway-attach-button attached" type="button" onClick={() => setActivePage('models')}>管理 API 连接</button>}
+            {activePage !== 'models' && <button className="localService-attach-button attached" type="button" onClick={() => setActivePage('models')}>管理 API 连接</button>}
             {androidRuntime && <span className="status-chip muted" title="Android 保留第三方 Provider 原生直连与用户点击的 HTTP(S) 外部链接；终端、桌面 Companion、桌面 Save As 与本地 Python 搜索不可用。">Android · 直连</span>}
             {isTaskPage && <><div className="profile-switcher" aria-label={messages.profile.selectAria}>
               {WORKBENCH_PROFILE_IDS.map((profileId) => (
@@ -543,7 +543,7 @@ export function App() {
               <div><span>MODEL READYNESS</span><strong>{providerControl.connections.length > 0 ? '选择一个已连接模型，开始你的第一个任务' : '先连接第三方模型，再开始工作'}</strong><p>{providerControl.connections.length > 0 ? '模型连接、测试和模型选择已移动到设置；这里保留任务对话。' : '无需安装本地模型：OpenAI-compatible 和 Anthropic-compatible 均可用。'}</p></div>
               <button type="button" onClick={() => setActivePage('models')}>{providerControl.connections.length > 0 ? '管理模型' : '连接第三方 API'}</button>
             </section>
-            <LocalDataFlowBoard connectedProviderCount={providerControl.connections?.length ?? 0} gatewayAttached={gatewayAttached} onOpenModels={() => setActivePage('models')} taskFileCount={taskFiles.length} />
+            <LocalDataFlowBoard connectedProviderCount={providerControl.connections?.length ?? 0} localServiceReady={localServiceReady} onOpenModels={() => setActivePage('models')} taskFileCount={taskFiles.length} />
             <TaskStoryboard deliveryCount={deliveries.length} eventCount={events.length} onOpenInspector={focusTaskInspector} snapshot={snapshot} taskFileCount={taskFiles.length} />
             <TaskOutcomeBoard deliveries={deliveries} deliveryPending={deliveryPending} files={taskFiles} onCreateDelivery={taskExecution.requestDelivery} onOpenInspector={focusTaskInspector} />
             {serviceError && <div className="runtime-error" role="alert">{messages.common.local}: {serviceError}</div>}
@@ -629,10 +629,10 @@ export function App() {
       {inspectorSurface === 'real-progress' && <WorkbenchOverlay description="真实阶段状态只汇总已有原生连接回执、显式本地知识库索引与当前聊天接收状态；打开不会启动连接、上传、检索或自动推进步骤。" onClose={() => setInspectorSurface(undefined)} title="真实阶段状态" tone="artifacts"><RealProgressPanel chatError={directSetupError ?? directConversations.error} connectionCount={providerControl.connections.length} messageCount={directConversations.activeConversation?.messages.length ?? 0} pendingProviderId={providerControl.pendingProviderId} streaming={directConversations.streaming} /></WorkbenchOverlay>}
       {inspectorSurface === 'local-knowledge' && <WorkbenchOverlay description="本地知识库只处理主人明确粘贴或选择的资料；仅保存有界术语索引和来源预览，不自动扫描、上传或加入 Provider 上下文。" onClose={() => setInspectorSurface(undefined)} title="本地知识库" tone="artifacts"><LocalKnowledgePanel projectId={projectWorkspace.selectedProjectId} /></WorkbenchOverlay>}
       {inspectorSurface === 'github-collaboration' && <WorkbenchOverlay description="GitHub 协作先展示本地变更，再由主人明确确认提交和推送。个人访问令牌只保存在当前 Windows 用户的本地应用数据中。" onClose={() => setInspectorSurface(undefined)} title="GitHub 代码协作" tone="api"><GitHubCollaborationPanel /></WorkbenchOverlay>}
-      {inspectorSurface === 'artifacts' && <WorkbenchOverlay description="当前 task/run 的受控文件检查器。可查看 Markdown、代码、JSON、差异和用户发起的交付包，不读取任意本机目录。" onClose={() => setInspectorSurface(undefined)} title="项目产物" tone="artifacts"><PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} /></WorkbenchOverlay>}
-      {inspectorSurface === 'companion' && <WorkbenchOverlay description="独立角色窗口。角色、对话与 API 连接保持分离；高影响能力仍需未来的单独权限设计。" onClose={() => setInspectorSurface(undefined)} title="Companion" tone="companion"><CompanionWindow gatewayAttached={gatewayAttached} preferences={companionPreferences} onOpenApi={() => { setInspectorSurface(undefined); setActivePage('models'); }} onOpenControls={() => { setInspectorSurface(undefined); setActivePage('companion'); }} /></WorkbenchOverlay>}
+      {inspectorSurface === 'artifacts' && <WorkbenchOverlay description="当前 task/run 的受控文件检查器。可查看 Markdown、代码、JSON、差异和用户发起的交付包，不读取任意本机目录。" onClose={() => setInspectorSurface(undefined)} title="项目产物" tone="artifacts"><PreviewPanel localServiceReady={localServiceReady} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} /></WorkbenchOverlay>}
+      {inspectorSurface === 'companion' && <WorkbenchOverlay description="独立角色窗口。角色、对话与 API 连接保持分离；高影响能力仍需未来的单独权限设计。" onClose={() => setInspectorSurface(undefined)} title="Companion" tone="companion"><CompanionWindow localServiceReady={localServiceReady} preferences={companionPreferences} onOpenApi={() => { setInspectorSurface(undefined); setActivePage('models'); }} onOpenControls={() => { setInspectorSurface(undefined); setActivePage('companion'); }} /></WorkbenchOverlay>}
       {artifactRailOpen && <ArtifactExtensionPanel assistantArtifacts={assistantArtifacts} onClose={() => setArtifactRailOpen(false)} onExportAssistantArtifact={exportAssistantArtifact} onPreviewAssistantArtifact={previewAssistantArtifact} onPreviewTaskFile={taskExecution.loadFilePreview} onResize={updateArtifactRailWidth} taskFiles={taskFiles} width={artifactRailWidth} />}
-      {showTaskPreview && <PreviewPanel gatewayAttached={gatewayAttached} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} />}
+      {showTaskPreview && <PreviewPanel localServiceReady={localServiceReady} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} />}
     </div>
     </Suspense>
   );

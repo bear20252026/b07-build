@@ -1,7 +1,7 @@
 /**
  * Workbench 唯一的前端页面意图集合。
  *
- * 该纯 TypeScript 模块可被布局投影、测试和 React 侧栏共同使用；它不携带路由、Gateway
+ * 该纯 TypeScript 模块可被布局投影、测试和 React 侧栏共同使用；它不携带路由、本机能力服务
  * 或权限逻辑，避免非 JSX TypeScript 构建依赖 TSX 组件实现。
  */
 export type WorkbenchPage = 'workspace' | 'projects' | 'task' | 'models' | 'connections' | 'operations' | 'api-usage' | 'workspace-files' | 'terminal-coding' | 'capabilities' | 'agency-roles' | 'browser-sessions' | 'companion' | 'companion-service-sources' | 'companion-body-modules' | 'companion-character-models' | 'companion-character-cards' | 'companion-system' | 'security';

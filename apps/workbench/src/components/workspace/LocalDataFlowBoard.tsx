@@ -1,5 +1,5 @@
 export interface LocalDataFlowBoardProps {
-  gatewayAttached: boolean;
+  localServiceReady: boolean;
   connectedProviderCount: number;
   taskFileCount: number;
   onOpenModels(): void;
@@ -14,10 +14,10 @@ type FlowBlock = {
 
 /**
  * P15 本地数据流说明块。
- * 它只呈现 App 已拥有的脱敏状态，不能附着 Gateway、读取凭据、发起 Provider 请求或读取文件内容。
+ * 它只呈现 App 已拥有的脱敏状态，不能附着 本机能力服务、读取凭据、发起 Provider 请求或读取文件内容。
  */
-export function LocalDataFlowBoard({ gatewayAttached, connectedProviderCount, taskFileCount, onOpenModels }: LocalDataFlowBoardProps) {
-  const gatewayTitle = gatewayAttached ? '本机策略边界已就绪' : '等待显式附着';
+export function LocalDataFlowBoard({ localServiceReady, connectedProviderCount, taskFileCount, onOpenModels }: LocalDataFlowBoardProps) {
+  const localServiceTitle = localServiceReady ? '本机策略边界已就绪' : '等待显式附着';
   const providerTitle = connectedProviderCount > 0 ? `${connectedProviderCount} 个模型连接可用` : '尚未配置会话连接';
   const blocks: readonly FlowBlock[] = [
     {
@@ -28,9 +28,9 @@ export function LocalDataFlowBoard({ gatewayAttached, connectedProviderCount, ta
     },
     {
       eyebrow: 'GATEWAY',
-      title: gatewayTitle,
-      description: gatewayAttached ? '会话凭据、允许列表、审批和预算策略均在本机 Gateway 内执行。' : '桌面应用不会自动启动后台服务；请在需要时明确附着本机 Gateway。',
-      state: gatewayAttached ? 'ready' : 'waiting',
+      title: localServiceTitle,
+      description: localServiceReady ? '会话凭据、允许列表、审批和预算策略均在本机 本机能力服务 内执行。' : '桌面应用不会自动启动后台服务；请在需要时明确附着本机 本机能力服务。',
+      state: localServiceReady ? 'ready' : 'waiting',
     },
     {
       eyebrow: 'PROVIDER',
@@ -51,8 +51,8 @@ export function LocalDataFlowBoard({ gatewayAttached, connectedProviderCount, ta
       <header className="local-data-flow-heading">
         <div>
           <span>API CONNECTION FLOW</span>
-          <h2>第三方 API 优先，由本机 Gateway 受控接入</h2>
-          <p>真实模型服务由 DeepSeek 等第三方 API 提供；本机 Gateway 仅负责会话密钥、策略控制和受控结果回传。</p>
+          <h2>第三方 API 优先，由本机 本机能力服务 受控接入</h2>
+          <p>真实模型服务由 DeepSeek 等第三方 API 提供；本机 本机能力服务 仅负责会话密钥、策略控制和受控结果回传。</p>
         </div>
         <button className="local-data-flow-action" onClick={onOpenModels} type="button">查看模型连接</button>
       </header>
@@ -66,7 +66,7 @@ export function LocalDataFlowBoard({ gatewayAttached, connectedProviderCount, ta
           </article>
         ))}
       </div>
-      <p className="local-data-flow-note">第三方 API 优先不等于隐式联网：仅当你明确发起模型请求时，本机 Gateway 才会向已连接的第三方 API 发送该请求所需数据。</p>
+      <p className="local-data-flow-note">第三方 API 优先不等于隐式联网：仅当你明确发起模型请求时，本机 本机能力服务 才会向已连接的第三方 API 发送该请求所需数据。</p>
     </section>
   );
 }

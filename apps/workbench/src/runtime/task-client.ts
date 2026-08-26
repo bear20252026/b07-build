@@ -6,7 +6,7 @@ export type WorkbenchNodeOutcome = 'ok' | 'failed' | 'blocked';
 
 export interface WorkbenchRecordedInputProvenance extends InputProvenanceV1 {}
 
-/** 浏览器只可提交外部/派生的 taint 摘要；可信输入由 Gateway 内部构造。 */
+/** 浏览器只可提交外部/派生的 taint 摘要；可信输入由 本机能力服务 内部构造。 */
 export type WorkbenchExternalInputProvenance = Omit<InputProvenanceV1, 'trust' | 'sourceKind'> & {
   trust: 'external-untrusted' | 'derived-untrusted';
   sourceKind: 'web' | 'upload' | 'knowledge' | 'tool-output' | 'provider-output';
@@ -38,7 +38,7 @@ export type WorkbenchAuthorityMode = Exclude<ExecutionAuthorityMode, 'admin'>;
 export interface WorkbenchTaskUpload {
   id: string;
   name: string;
-  /** 仅在用户发起任务时发送给 loopback Gateway；Gateway 重算 SHA-256，不信任浏览器摘要。 */
+  /** 仅在用户发起任务时发送给 loopback 本机能力服务；本机能力服务 重算 SHA-256，不信任浏览器摘要。 */
   contentBase64: string;
 }
 
@@ -247,7 +247,7 @@ export interface WorkbenchRunTrajectoryEvent {
   runId: string;
   sequence: number;
   at: number;
-  source: 'task-runtime' | 'gateway.intent' | 'approval';
+  source: 'task-runtime' | 'localService.intent' | 'approval';
   kind: string;
   attributes: Readonly<Record<string, string | number | boolean>>;
   canReplaySideEffects: false;
@@ -645,7 +645,7 @@ function assertComponentManagementReport(value: unknown): asserts value is Workb
 function assertTrajectoryEvent(value: unknown): asserts value is WorkbenchRunTrajectoryEvent {
   if (!value || typeof value !== 'object') throw new Error('运行轨迹包含无效事件');
   const event = value as Partial<WorkbenchRunTrajectoryEvent>;
-  if (event.schemaVersion !== 1 || typeof event.trajectoryEventId !== 'string' || typeof event.taskId !== 'string' || typeof event.runId !== 'string' || typeof event.sequence !== 'number' || !Number.isSafeInteger(event.sequence) || event.sequence < 1 || typeof event.at !== 'number' || !Number.isSafeInteger(event.at) || !['task-runtime', 'gateway.intent', 'approval'].includes(String(event.source)) || typeof event.kind !== 'string' || !event.attributes || typeof event.attributes !== 'object' || event.canReplaySideEffects !== false) {
+  if (event.schemaVersion !== 1 || typeof event.trajectoryEventId !== 'string' || typeof event.taskId !== 'string' || typeof event.runId !== 'string' || typeof event.sequence !== 'number' || !Number.isSafeInteger(event.sequence) || event.sequence < 1 || typeof event.at !== 'number' || !Number.isSafeInteger(event.at) || !['task-runtime', 'localService.intent', 'approval'].includes(String(event.source)) || typeof event.kind !== 'string' || !event.attributes || typeof event.attributes !== 'object' || event.canReplaySideEffects !== false) {
     throw new Error('运行轨迹返回了不兼容的 metadata contract');
   }
 }
@@ -794,7 +794,7 @@ export class HttpWorkbenchTaskClient implements WorkbenchTaskClient {
     const uploads = intent.uploads ?? [];
     if (inputProvenance.length > 16) throw new Error('浏览器最多可提交 16 条 external/derived provenance 摘要');
     inputProvenance.forEach(assertBrowserExternalProvenance);
-    if (inputProvenance.some((input) => input.sourceKind === 'upload')) throw new Error('上传 provenance 必须由本机 Gateway 从实际文件字节生成');
+    if (inputProvenance.some((input) => input.sourceKind === 'upload')) throw new Error('上传 provenance 必须由本机 本机能力服务 从实际文件字节生成');
     if (new Set(inputProvenance.map((input) => input.inputId)).size !== inputProvenance.length) throw new Error('浏览器 provenance inputId 不可重复');
     if (uploads.length > 8 || new Set(uploads.map((upload) => upload.id)).size !== uploads.length) throw new Error('聊天最多可提交 8 个不重复文件');
     uploads.forEach((upload) => {

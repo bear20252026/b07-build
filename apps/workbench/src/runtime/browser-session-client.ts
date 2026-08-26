@@ -2,7 +2,7 @@ export type WorkbenchBrowserSessionStatus = 'requested' | 'authorized' | 'paused
 export type WorkbenchBrowserSessionEventType = 'requested' | 'authorized' | 'paused' | 'resumed' | 'ended' | 'failed';
 
 /**
- * 浏览器侧只接受 Gateway 的脱敏会话投影；不会携带完整 URL、页面内容、cookie、密码或任何执行权限。
+ * 浏览器侧只接受 本机能力服务 的脱敏会话投影；不会携带完整 URL、页面内容、cookie、密码或任何执行权限。
  */
 export interface WorkbenchBrowserSession {
   schemaVersion: 1;

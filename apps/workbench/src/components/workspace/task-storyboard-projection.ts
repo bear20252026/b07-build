@@ -40,7 +40,7 @@ function executionTone(snapshot: WorkbenchTaskSnapshot): TaskStoryboardTone {
 /**
  * P19 的唯一任务故事板投影。
  *
- * 它仅从 Workbench 已持有且经过 Gateway 校验的摘要 DTO 中派生文案；不读取文件内容、
+ * 它仅从 Workbench 已持有且经过 本机能力服务 校验的摘要 DTO 中派生文案；不读取文件内容、
  * 不包含 goal、URL、凭据、绝对路径或任何可以改变任务状态的操作。
  */
 export function createTaskStoryboardProjection({
@@ -115,7 +115,7 @@ export function createTaskStoryboardProjection({
 
   return {
     heading: '任务故事板',
-    description: '将本次任务的状态、执行、人工决策和交付结果置于同一阅读顺序；所有内容均来自本机 Gateway 已验证的脱敏摘要。',
+    description: '将本次任务的状态、执行、人工决策和交付结果置于同一阅读顺序；所有内容均来自本机 本机能力服务 已验证的脱敏摘要。',
     blocks: [
       {
         id: 'context',

@@ -301,5 +301,5 @@ test('开屏仅是有界品牌过渡，尊重 reduced-motion 且不参与 Provid
   assert.equal(workbenchApp.includes('gatewayAttached={providerControl.connections.length > 0}'), false, 'Provider 连接数量不得伪装成 Gateway 附着状态');
   assert.ok(workbenchApp.includes('providerReady={providerControl.connections.length > 0}'), '首页必须使用 Provider 就绪状态而不是 Gateway 状态');
   assert.equal(chatHome.includes('gatewayAttached'), false, 'ChatHome 不得继续依赖 Gateway 命名');
-  assert.equal(workbenchApp.includes('const [gatewayAttached] = useState(false)'), true, '当前直接 Provider 架构必须默认不依赖 Gateway');
+  assert.ok(workbenchApp.includes('const [localServiceReady] = useState(false)'), '当前直接 Provider 架构的本机辅助服务必须默认关闭');
 });

@@ -35,7 +35,7 @@ function StoryboardBlock({ block, onOpenInspector }: { block: TaskStoryboardBloc
  * P19 原创任务故事板。
  *
  * 参考块式工作区的阅读顺序与任务细节的职责隔离，但未复制 AFFiNE 或 LobeHub 源码。
- * 输入局限于父组件已经持有的脱敏任务 DTO；组件不能请求 Gateway、Provider、SQLite 或文件内容。
+ * 输入局限于父组件已经持有的脱敏任务 DTO；组件不能请求 本机能力服务、Provider、SQLite 或文件内容。
  */
 export function TaskStoryboard({ snapshot, eventCount, taskFileCount, deliveryCount, onOpenInspector }: TaskStoryboardProps) {
   const projection = createTaskStoryboardProjection({ snapshot, eventCount, taskFileCount, deliveryCount });
@@ -55,7 +55,7 @@ export function TaskStoryboard({ snapshot, eventCount, taskFileCount, deliveryCo
       <div className="task-storyboard-grid">
         {projection.blocks.map((block) => <StoryboardBlock block={block} key={block.id} onOpenInspector={onOpenInspector} />)}
       </div>
-      <p className="task-storyboard-note">故事板用于解释当前任务，不会启动 Gateway、调用第三方 API、执行文件或绕过审批；成果仍须在右侧检查器中逐项审查。</p>
+      <p className="task-storyboard-note">故事板用于解释当前任务，不会启动 本机能力服务、调用第三方 API、执行文件或绕过审批；成果仍须在右侧检查器中逐项审查。</p>
     </section>
   );
 }

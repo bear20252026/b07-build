@@ -32,7 +32,7 @@ async function encodeChatUploads(attachments: readonly PendingChatUpload[]): Pro
 }
 
 export interface TaskExecutionMessages {
-  readonly gatewayRequired: string;
+  readonly localServiceRequired: string;
   readonly submitFailed: string;
   readonly resumeFailed: string;
   readonly approvalFailed: string;
@@ -61,11 +61,11 @@ export interface TaskExecutionController {
 }
 
 /**
- * task/run 的所有网络操作都保留在这个 renderer controller 中，并只通过本机 Gateway client 访问。
- * 它不保存 API key、端点、文件绝对路径或工具权限；所有副作用仍由 Gateway 的任务和文件账本执行。
+ * task/run 的所有网络操作都保留在这个 renderer controller 中，并只通过本机 本机能力服务 client 访问。
+ * 它不保存 API key、端点、文件绝对路径或工具权限；所有副作用仍由 本机能力服务 的任务和文件账本执行。
  */
 export function useTaskExecution(
-  gatewayAttached: boolean,
+  localServiceReady: boolean,
   messages: TaskExecutionMessages,
   client = new HttpWorkbenchTaskClient(),
 ): TaskExecutionController {
@@ -100,8 +100,8 @@ export function useTaskExecution(
 
   const submit = useCallback(async (goal: string, profileId: AgentProfileId, authorityMode: WorkbenchAuthorityMode, uploads: readonly PendingChatUpload[] = [], modelSelection?: Readonly<{ providerId: string; model?: string }>): Promise<boolean> => {
     if (!goal.trim() || pending) return false;
-    if (!gatewayAttached) {
-      setError(messages.gatewayRequired);
+    if (!localServiceReady) {
+      setError(messages.localServiceRequired);
       return false;
     }
     setPending(true);
@@ -115,7 +115,7 @@ export function useTaskExecution(
     } finally {
       setPending(false);
     }
-  }, [client, gatewayAttached, hydrate, messages.gatewayRequired, messages.submitFailed, pending]);
+  }, [client, localServiceReady, hydrate, messages.localServiceRequired, messages.submitFailed, pending]);
 
   const resume = useCallback(async (): Promise<void> => {
     if (!snapshot || pending) return;

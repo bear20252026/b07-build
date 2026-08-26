@@ -15,7 +15,7 @@ const knowledgeClient = new HttpKnowledgeSearchClient();
 const TABS: readonly ViewKey[] = ['files', 'code', 'diff', 'delivery', 'citations'];
 
 export interface PreviewPanelProps {
-  gatewayAttached: boolean;
+  localServiceReady: boolean;
   taskId: string | undefined;
   runId: string | undefined;
   files: readonly WorkbenchTaskFile[];
@@ -33,7 +33,7 @@ function formatBytes(bytes: number): string {
 }
 
 export function PreviewPanel({
-  gatewayAttached,
+  localServiceReady,
   taskId,
   runId,
   files,
@@ -117,7 +117,7 @@ export function PreviewPanel({
           <div className="preview-title">{messages.preview.title}</div>
           <div className="preview-subtitle">{messages.preview.subtitle}</div>
         </div>
-        <span className={`status-chip${gatewayAttached ? '' : ' muted'}`}><span className="status-dot" />{gatewayAttached ? `${files.length} files` : messages.common.local}</span>
+        <span className={`status-chip${localServiceReady ? '' : ' muted'}`}><span className="status-dot" />{localServiceReady ? `${files.length} files` : messages.common.local}</span>
       </header>
       <div className="preview-tabs" role="tablist" aria-label={messages.preview.tabsAria}>
         {TABS.map((tab) => (
@@ -168,7 +168,7 @@ export function PreviewPanel({
         </section>
       ) : (
         <section className="preview-canvas delivery-canvas" aria-label={messages.preview.delivery.title}>
-          <div className="preview-draft-heading"><div><div className="preview-artifact-type">USER-INITIATED ZIP</div><h2>{messages.preview.delivery.title}</h2></div><button className="delivery-create" disabled={!gatewayAttached || files.length === 0 || creatingDelivery} onClick={() => void createDelivery()} type="button">{creatingDelivery ? messages.preview.delivery.creating : messages.preview.delivery.create}</button></div>
+          <div className="preview-draft-heading"><div><div className="preview-artifact-type">USER-INITIATED ZIP</div><h2>{messages.preview.delivery.title}</h2></div><button className="delivery-create" disabled={!localServiceReady || files.length === 0 || creatingDelivery} onClick={() => void createDelivery()} type="button">{creatingDelivery ? messages.preview.delivery.creating : messages.preview.delivery.create}</button></div>
           <p className="delivery-description">{messages.preview.delivery.description}</p>
           {deliveries.length === 0 ? <p className="preview-empty">{messages.preview.delivery.empty}</p> : <div className="delivery-list">{deliveries.map((receipt) => <article className="delivery-card" key={receipt.deliveryId}><div><strong>NOVA delivery</strong><span>{messages.preview.delivery.receipt(receipt.fileCount, receipt.byteSize)} · SHA-256 {receipt.sha256.slice(0, 12)}…</span></div><a className="delivery-download" download href={deliveryDownloadUrl(receipt.deliveryId)}>{messages.preview.delivery.download}</a></article>)}</div>}
         </section>
