@@ -88,11 +88,18 @@ if grep -E 'Process: com\.bear20252026\.nova|NOVA mobile shell failed to run|Una
   fail nova-runtime-error
 fi
 
-# MainActivity can be resumed while Android still displays its white system Splash.
-# Wait past the 1.25s React brand transition and require a non-empty app frame.
+# MainActivity can be resumed while Android still displays its system Splash.
+# Wait for that native Splash window to close, then require visible Workbench
+# contrast rather than accepting an all-black or all-white frame.
 render_elapsed=0
 rendered=0
 while [ "$render_elapsed" -lt 30 ]; do
+  timeout 20 adb shell dumpsys window windows > "$evidence_dir/window.txt" 2>&1 || true
+  if grep -q 'Splash Screen com.bear20252026.nova' "$evidence_dir/window.txt"; then
+    sleep 2
+    render_elapsed=$((render_elapsed + 2))
+    continue
+  fi
   timeout 20 adb exec-out screencap -p > "$evidence_dir/nova-startup.png" 2>/dev/null || true
   if python3 .github/scripts/verify-nova-android-frame.py "$evidence_dir/nova-startup.png" > "$evidence_dir/frame-check.txt" 2>&1; then
     rendered=1
@@ -105,4 +112,4 @@ capture_evidence
 [ "$rendered" -eq 1 ] || fail workbench-frame-not-rendered
 
 status=passed
-reason=main-activity-and-window-present
+reason=main-activity-splash-dismissed-and-workbench-frame-rendered

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject a system-splash-like empty frame without OCR, network or third-party Python."""
+"""Reject uniform Android system splash frames without OCR or third-party Python."""
 
 from __future__ import annotations
 
@@ -92,18 +92,38 @@ def main() -> int:
     total = width * content_height
     non_light = 0
     dark = 0
+    light = 0
+    visible = 0
+    bright = 0
     for row in rows[:content_height]:
         for offset in range(0, len(row), 4):
             red, green, blue = row[offset:offset + 3]
             channel_min = min(red, green, blue)
+            channel_max = max(red, green, blue)
             non_light += channel_min < 238
-            dark += channel_min < 210
+            dark += channel_max < 16
+            light += channel_min > 238
+            visible += channel_max >= 16
+            bright += channel_max >= 80
     non_light_ratio = non_light / total
     dark_ratio = dark / total
-    rendered = non_light_ratio >= 0.01 or dark_ratio >= 0.003
+    light_ratio = light / total
+    visible_ratio = visible / total
+    bright_ratio = bright / total
+    # An all-black Android Splash and an all-white fallback both satisfy the old
+    # "non-light" check. A real Workbench frame must contain a small but visible
+    # amount of contrast while not being a virtually uniform dark/light screen.
+    rendered = (
+        visible_ratio >= 0.002
+        and bright_ratio >= 0.0005
+        and dark_ratio < 0.998
+        and light_ratio < 0.998
+    )
     print(
         f"frame={'rendered' if rendered else 'blank'} "
-        f"non_light_ratio={non_light_ratio:.6f} dark_ratio={dark_ratio:.6f}"
+        f"non_light_ratio={non_light_ratio:.6f} dark_ratio={dark_ratio:.6f} "
+        f"light_ratio={light_ratio:.6f} visible_ratio={visible_ratio:.6f} "
+        f"bright_ratio={bright_ratio:.6f}"
     )
     return 0 if rendered else 1
 
