@@ -95,7 +95,7 @@ test('Android 使用独立 NOVA 包标识、手机尺寸、PNG 图标和无 Wind
   assert.equal(androidConfig.productName, 'NOVA');
   assert.equal(androidConfig.identifier, 'com.bear20252026.nova');
   assert.equal(androidSettings.minSdkVersion, 24);
-  assert.equal(androidSettings.versionCode, 1018);
+  assert.equal(androidSettings.versionCode, 1019);
   assert.deepEqual(androidBundle.icon, ['icons/icon.png']);
   assert.deepEqual(androidBundle.externalBin, []);
   for (const value of Object.values(resources)) assert.equal(value, null, 'Android 不得打入桌面 Python/研究资源');

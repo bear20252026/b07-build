@@ -31,7 +31,7 @@
     },
     "android": {
       "minSdkVersion": 24,
-      "versionCode": 1018
+      "versionCode": 1019
     }
   }
 }
