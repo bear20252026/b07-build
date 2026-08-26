@@ -228,3 +228,4 @@
 - [x] 扫描并修复所有平台共用 Workbench 首屏代码中的全新安装空状态反模式：空 connections、undefined selection、空数组首项、持久化 JSON 损坏及保护条件晚于字段解引用；覆盖 Android、Windows、macOS 共用路径。
 - [ ] 为 Android 模拟器安装阶段增加 `adb wait-for-device`、`--no-streaming` 和有限重试；本轮 `smoke-status` 已确认失败点为 install-timeout-or-failed，尚未执行 NOVA 页面断言，不能作为源码修复失败结论。
 - [x] 修复 App.tsx Android 根容器的 inline `display: block` 覆盖：手机版必须保留 `.workbench-shell` 的 CSS grid 与 `.workbench-main` flex 布局，仅通过移动端类和底部安全空间适配导航；补充 Android 根布局回归断言。
+- [x] 审计并修正多用户普适性边界：Provider 直连不得依赖用户地址或共享 Gateway；本机辅助服务只能按每台设备的 loopback 自动发现，不能把 Provider 已连接错误标记为 Gateway 已附着；为普通聊天、搜索和 Provider 配置补充跨设备首次安装回归测试。
