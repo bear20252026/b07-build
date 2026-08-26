@@ -238,3 +238,4 @@
 - [ ] 修复 Rust CI 的 Ubuntu 系统依赖：Tauri desktop-shell 在 `cargo build --locked` 阶段需要 pkg-config、GLib/GTK/WebKit2GTK 等开发库；workflow 需显式安装这些依赖后再运行 crate 构建与测试。
 - [ ] 修复 Android smoke 安装验证：安装前卸载残留 `com.bear20252026.nova`，捕获每次 `adb install` 输出并校验 `pm path`/包文件，区分模拟器 APK I/O/安装失败与真正的 WebView 启动白屏。
 - [ ] 强化 Android 首帧视觉验证：在 MainActivity 恢复后等待越过系统 Splash 与 React 启动叠层，并验证真实 ChatHome/移动导航文本或非空 Workbench 帧，禁止仅以 activity/window 存在判定白屏修复成功。
+- [ ] 修复 Android 启动交接超时：最新模拟器截图已显示 NOVA 系统启动图标而非纯白页，但 `adb monkey` 返回 launch-timeout-or-failed，说明尚未稳定进入 WebView/Workbench；需采集并处理启动命令返回、ActivityTaskManager 与 Tauri 生命周期证据。

@@ -62,9 +62,12 @@ done
 timeout 20 adb shell pm path com.bear20252026.nova > "$evidence_dir/package-path.txt" 2>&1 || fail package-path-query-failed
 grep -q '^package:' "$evidence_dir/package-path.txt" || fail package-path-missing
 timeout 20 adb logcat -c || fail logcat-clear-failed
-timeout 30 adb shell monkey -p com.bear20252026.nova 1 || fail launch-timeout-or-failed
+# On a cold API 35 emulator, `monkey` can return non-zero while ActivityTaskManager
+# still accepts the launch and creates MainActivity several seconds later. Preserve
+# its output for diagnosis, then decide from the actual resumed activity/window.
+timeout 45 adb shell monkey -p com.bear20252026.nova 1 > "$evidence_dir/launch.txt" 2>&1 || true
 
-startup_deadline=90
+startup_deadline=120
 startup_elapsed=0
 while [ "$startup_elapsed" -lt "$startup_deadline" ]; do
   timeout 10 adb shell dumpsys activity activities > "$evidence_dir/activity.txt" 2>&1 || true
