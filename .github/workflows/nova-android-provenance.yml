@@ -248,15 +248,17 @@ jobs:
       - name: Install and open NOVA on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
-          target: google_apis
+          # The release remains built against Android 35. Smoke uses the lighter
+          # AOSP ATD image so hosted runners validate NOVA rather than timing out
+          # in Google Play service cold-start ANRs on the Android 35 image.
+          api-level: 30
+          target: aosp_atd
           arch: x86_64
           force-avd-creation: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data
           cores: 2
-          emulator-boot-timeout: 1200
-          # Keep the runner's optional settings step off: cold Android 35 boots can leave ADB offline
-          # while settings writes are attempted. The smoke script owns all required ADB operations.
+          emulator-boot-timeout: 600
+          # Keep the runner's optional settings step off: the smoke script owns all required ADB operations.
           disable-animations: false
           script: sh .github/scripts/run-nova-android-emulator-smoke.sh
 
