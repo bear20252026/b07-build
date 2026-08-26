@@ -232,3 +232,4 @@
 - [ ] 从 NOVA 正式运行路径移除 Gateway：普通聊天、Provider 配置、搜索、会话与附件链路不得依赖 `127.0.0.1:4318`；审计旧任务/产物模块后决定删除或隔离其遗留适配器，并补充无 Gateway 首次安装回归。
 - [x] 删除 Gateway 核心运行时、provider-sdk、Vite 4318 代理、固定回环默认地址与 `forLocalGateway()`，普通聊天、Provider 与 Android 启动不再依赖 Gateway。
 - [ ] 清理遗留能力页中的 Gateway 可见命名和旧状态参数（任务、知识、浏览器会话、API 用量、Companion TTS、控制面诊断），改成原生能力或明确的不可用状态。
+- [x] 完善普适化 Provider 接入：普通用户不得被要求提供电脑地址、公网地址、固定端口、设备指纹或 Gateway；配置页必须支持直接输入 API Key、协议类型、Base URL、模型标识并按每台设备本地保存连接配置。
