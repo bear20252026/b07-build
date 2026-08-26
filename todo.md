@@ -234,4 +234,4 @@
 - [ ] 清理遗留能力页中的 Gateway 可见命名和旧状态参数（任务、知识、浏览器会话、API 用量、Companion TTS、控制面诊断），改成原生能力或明确的不可用状态。
 - [x] 完善普适化 Provider 接入：普通用户不得被要求提供电脑地址、公网地址、固定端口、设备指纹或 Gateway；配置页必须支持直接输入 API Key、协议类型、Base URL、模型标识并按每台设备本地保存连接配置。
 - [x] 发布前审计 Windows、macOS、Android 共用底层：检查首次安装空状态、Provider 直连、Tauri 命令、Android WebView 资源、桌面窗口、会话持久化、版本号和三端 workflow；发现错误后先修复再统一产出三端新版本。
-- [ ] 修复 Rust CI 工作流：当前 `.github/workflows/rust.yml` 在仓库根目录执行 `cargo build/test`，但根目录没有 Cargo.toml；应切换到 `apps/desktop-shell/src-tauri` 并与三端发布使用同一 Rust crate，补充 lockfile 与契约检查。
+- [x] 修复 Rust CI 工作流：当前 `.github/workflows/rust.yml` 在仓库根目录执行 `cargo build/test`，但根目录没有 Cargo.toml；应切换到 `apps/desktop-shell/src-tauri` 并与三端发布使用同一 Rust crate，补充 lockfile 与契约检查；云端 Rust job 仍需在最终提交上确认系统依赖。

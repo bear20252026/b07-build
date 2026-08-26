@@ -1,6 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 /* Unsloth-inspired UI alignment only: preserve direct Provider and streaming behaviour. */
-import './components/observability/LocalServiceAttachment.css';
 import { invoke } from '@tauri-apps/api/core';
 import type { AgentProfileId, TaskEvent } from '@awo/protocol';
 import { Sider, type WorkbenchPage } from './components/layout/Sider';
