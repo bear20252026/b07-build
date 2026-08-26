@@ -167,14 +167,17 @@ test('Android 候选构建链独立产出 NOVA aarch64 APK、universal AAB、临
     'x86_64-linux-android',
     'reactivecircus/android-emulator-runner@v2',
     'emulator-boot-timeout: 1200',
-    'disable-animations: false',
+    'disable-animations: true',
     'nova-android-emulator-startup-evidence',
     'Prepare Android emulator startup evidence directory',
     'script: sh .github/scripts/run-nova-android-emulator-smoke.sh',
     'Verify NOVA Android startup result',
     `grep -q '^status=passed$' "$status_file"`,
   ]) assert.ok(androidWorkflow.includes(expected), `Android workflow 缺少：${expected}`);
-  for (const expected of ['#!/bin/sh', 'set -u', 'trap finish EXIT', 'smoke-status.txt', 'nova-emulator-smoke.jks', 'apksigner_bin', 'timeout 30 adb wait-for-device', 'adb install --no-streaming -r', 'install_attempt=1', 'startup_deadline=90', 'timeout 10 adb shell dumpsys activity activities', 'timeout 20 adb shell dumpsys window windows', "grep -q 'com.bear20252026.nova/.MainActivity'", "uiautomator dump /sdcard/nova-ui.xml >/dev/null 2>&1 || true"]) assert.ok(androidEmulatorSmokeScript.includes(expected), `Android emulator 冒烟脚本缺少：${expected}`);
+  for (const expected of ['#!/bin/sh', 'set -u', 'trap finish EXIT', 'smoke-status.txt', 'nova-emulator-smoke.jks', 'apksigner_bin', 'timeout 30 adb wait-for-device',     'adb install --no-streaming -r -d',
+    'adb uninstall com.bear20252026.nova',
+    'install.txt',
+    'package-path.txt', 'install_attempt=1', 'startup_deadline=90', 'timeout 10 adb shell dumpsys activity activities', 'timeout 20 adb shell dumpsys window windows', "grep -q 'com.bear20252026.nova/.MainActivity'", "uiautomator dump /sdcard/nova-ui.xml >/dev/null 2>&1 || true"]) assert.ok(androidEmulatorSmokeScript.includes(expected), `Android emulator 冒烟脚本缺少：${expected}`);
   assert.equal(androidWorkflow.includes('push:\n'), false, 'Android 候选工作流在稳定前不得因推送自动触发');
   assert.equal(androidWorkflow.includes('AI Work OS'), false, 'Android 候选工作流不得保留旧产品名称');
   assert.equal(existsSync(resolve(root, '.github/workflows/android-apk-candidate.yml')), false, '不得保留旧 AI Work OS Android workflow');

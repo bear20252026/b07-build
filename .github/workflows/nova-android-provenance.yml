@@ -254,7 +254,7 @@ jobs:
           emulator-boot-timeout: 1200
           # The runner's optional settings ADB calls can fail with Broken pipe on cold Android 35 boots.
           # Animation state is irrelevant to this startup assertion, so skip that non-essential step.
-          disable-animations: false
+          disable-animations: true
           script: sh .github/scripts/run-nova-android-emulator-smoke.sh
 
       - name: Upload Android emulator startup evidence

@@ -236,3 +236,4 @@
 - [x] 发布前审计 Windows、macOS、Android 共用底层：检查首次安装空状态、Provider 直连、Tauri 命令、Android WebView 资源、桌面窗口、会话持久化、版本号和三端 workflow；发现错误后先修复再统一产出三端新版本。
 - [x] 修复 Rust CI 工作流：当前 `.github/workflows/rust.yml` 在仓库根目录执行 `cargo build/test`，但根目录没有 Cargo.toml；应切换到 `apps/desktop-shell/src-tauri` 并与三端发布使用同一 Rust crate，补充 lockfile 与契约检查；云端 Rust job 仍需在最终提交上确认系统依赖。
 - [ ] 修复 Rust CI 的 Ubuntu 系统依赖：Tauri desktop-shell 在 `cargo build --locked` 阶段需要 pkg-config、GLib/GTK/WebKit2GTK 等开发库；workflow 需显式安装这些依赖后再运行 crate 构建与测试。
+- [ ] 修复 Android smoke 安装验证：安装前卸载残留 `com.bear20252026.nova`，捕获每次 `adb install` 输出并校验 `pm path`/包文件，区分模拟器 APK I/O/安装失败与真正的 WebView 启动白屏。

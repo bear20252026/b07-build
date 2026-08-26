@@ -43,10 +43,15 @@ keytool -genkeypair -keystore "$keystore" -storepass android -keypass android -a
 rm -f "$signed_apk.aligned" "$keystore"
 
 timeout 30 adb wait-for-device || fail device-not-ready
+install_log="$evidence_dir/install.txt"
+: > "$install_log"
+printf 'preinstall-uninstall\n' >> "$install_log"
+timeout 30 adb uninstall com.bear20252026.nova >> "$install_log" 2>&1 || true
 install_attempt=1
 installed=0
 while [ "$install_attempt" -le 3 ]; do
-  if timeout 90 adb install --no-streaming -r "$signed_apk"; then
+  printf 'attempt=%s\n' "$install_attempt" >> "$install_log"
+  if timeout 120 adb install --no-streaming -r -d "$signed_apk" >> "$install_log" 2>&1; then
     installed=1
     break
   fi
@@ -54,6 +59,8 @@ while [ "$install_attempt" -le 3 ]; do
   install_attempt=$((install_attempt + 1))
 done
 [ "$installed" -eq 1 ] || fail install-timeout-or-failed
+timeout 20 adb shell pm path com.bear20252026.nova > "$evidence_dir/package-path.txt" 2>&1 || fail package-path-query-failed
+grep -q '^package:' "$evidence_dir/package-path.txt" || fail package-path-missing
 timeout 20 adb logcat -c || fail logcat-clear-failed
 timeout 30 adb shell monkey -p com.bear20252026.nova 1 || fail launch-timeout-or-failed
 
