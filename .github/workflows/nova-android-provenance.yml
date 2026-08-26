@@ -251,10 +251,13 @@ jobs:
           api-level: 35
           target: google_apis
           arch: x86_64
+          force-avd-creation: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data
+          cores: 2
           emulator-boot-timeout: 1200
-          # The runner's optional settings ADB calls can fail with Broken pipe on cold Android 35 boots.
-          # Animation state is irrelevant to this startup assertion, so skip that non-essential step.
-          disable-animations: true
+          # Keep the runner's optional settings step off: cold Android 35 boots can leave ADB offline
+          # while settings writes are attempted. The smoke script owns all required ADB operations.
+          disable-animations: false
           script: sh .github/scripts/run-nova-android-emulator-smoke.sh
 
       - name: Upload Android emulator startup evidence
