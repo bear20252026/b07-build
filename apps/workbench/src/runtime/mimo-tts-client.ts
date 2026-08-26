@@ -16,7 +16,7 @@ export interface WorkbenchMimoTtsPreview {
   readonly canAutoExecute: false;
 }
 
-const BASE_URL = 'http://127.0.0.1:4318';
+const BASE_URL = '';
 const ALLOWED_FIELDS = new Set(['schemaVersion', 'providerId', 'model', 'voice', 'audioMime', 'audioBase64', 'audioBytes', 'inputDigest', 'inputCharacters', 'latencyMs', 'dataBoundary', 'canReadSecret', 'canAutoPlay', 'canAutoSpeak', 'canAutoExecute']);
 
 function parsePreview(value: unknown): WorkbenchMimoTtsPreview {
@@ -29,7 +29,7 @@ function parsePreview(value: unknown): WorkbenchMimoTtsPreview {
   return source as unknown as WorkbenchMimoTtsPreview;
 }
 
-/** 只调用固定本机 Gateway；每次试听都要求显式 intent，且不会缓存或持久化音频。 */
+/** 仅在调用方明确提供服务端点时试听；不会缓存或持久化音频。 */
 export class HttpMimoTtsClient {
   constructor(private readonly baseUrl = BASE_URL, private readonly request: typeof fetch = globalThis.fetch) {}
 

@@ -70,7 +70,7 @@ async function get(url: string): Promise<unknown> {
   const response = await fetch(url);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = object(body, 'API 使用 Gateway');
+    const error = object(body, 'API 使用服务');
     throw new Error(typeof error.error === 'string' ? error.error : '无法读取 API 使用记录');
   }
   return body;
@@ -78,7 +78,7 @@ async function get(url: string): Promise<unknown> {
 
 /** Workbench 只消费本机只读计量投影；没有价格刷新、账单查询或 Provider 调用方法。 */
 export class HttpApiUsageClient {
-  constructor(private readonly baseUrl = 'http://127.0.0.1:4318') {}
+  constructor(private readonly baseUrl = '') {}
   async summary(limit = 500): Promise<WorkbenchApiUsageSummary> { return summary(await get(`${this.baseUrl}/api/usage/summary?limit=${limit}`)); }
   async receipts(limit = 100): Promise<readonly WorkbenchApiUsageReceipt[]> {
     const body = await get(`${this.baseUrl}/api/usage/receipts?limit=${limit}`);

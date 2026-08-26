@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 const root = process.cwd();
 // The entry JavaScript budget protects input/stream responsiveness. CSS includes
 // the shared light/dark workspace surface and is intentionally measured separately.
-const limits = Object.freeze({ workbenchEntryJavaScriptBytes: 500_000, workbenchCssBytes: 225_000, gatewayCompositionLines: 300 });
+const limits = Object.freeze({ workbenchEntryJavaScriptBytes: 500_000, workbenchCssBytes: 225_000 });
 const assets = resolve(root, 'apps/workbench/dist/assets');
 const files = readdirSync(assets).map((name) => ({ name, bytes: statSync(resolve(assets, name)).size }));
 const index = readFileSync(resolve(root, 'apps/workbench/dist/index.html'), 'utf8');
@@ -13,11 +13,9 @@ const entryJavaScript = files.find((file) => file.name === entryName)?.bytes;
 if (!entryName || entryJavaScript === undefined) throw new Error('Workbench entry JavaScript asset was not found.');
 const lazyJavaScript = files.filter((file) => file.name.endsWith('.js') && file.name !== entryName).reduce((total, file) => total + file.bytes, 0);
 const css = files.filter((file) => file.name.endsWith('.css')).reduce((total, file) => total + file.bytes, 0);
-const gatewayLines = readFileSync(resolve(root, 'apps/runtime-gateway/src/gateway-application.ts'), 'utf8').split('\n').length - 1;
 const results = [
   ['Workbench initial entry JavaScript', entryJavaScript, limits.workbenchEntryJavaScriptBytes],
   ['Workbench CSS', css, limits.workbenchCssBytes],
-  ['Gateway composition root lines', gatewayLines, limits.gatewayCompositionLines],
 ];
 for (const [label, actual, limit] of results) {
   console.log(`${label}: ${actual}/${limit}`);

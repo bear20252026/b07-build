@@ -67,7 +67,7 @@ export interface TaskExecutionController {
 export function useTaskExecution(
   gatewayAttached: boolean,
   messages: TaskExecutionMessages,
-  client = HttpWorkbenchTaskClient.forLocalGateway(),
+  client = new HttpWorkbenchTaskClient(),
 ): TaskExecutionController {
   const [snapshot, setSnapshot] = useState<WorkbenchTaskSnapshot>();
   const [events, setEvents] = useState<readonly import('@awo/protocol').TaskEvent[]>([]);

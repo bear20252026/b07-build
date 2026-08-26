@@ -46,7 +46,7 @@ import { assistantArtifactFileName, loadAssistantArtifacts, persistAssistantArti
 import type { DirectConversationMessage } from './runtime/use-direct-conversations';
 import { nativePlatformClient, type NativeRuntimePlatform } from './runtime/native-platform';
 
-const localGatewayClient = HttpWorkbenchTaskClient.forLocalGateway();
+const localTaskClient = new HttpWorkbenchTaskClient();
 const localProjectClient = createProjectClient();
 const ControlPlaneDiagnosticsBoard = lazy(async () => ({ default: (await import('./components/observability/ControlPlaneDiagnosticsBoard')).ControlPlaneDiagnosticsBoard }));
 const ComponentLockBoard = lazy(async () => ({ default: (await import('./components/observability/ComponentLockBoard')).ComponentLockBoard }));
@@ -212,7 +212,7 @@ export function App() {
     submitFailed: messages.task.error.connect,
     resumeFailed: messages.task.error.resume,
     approvalFailed: messages.task.error.approve,
-  }, localGatewayClient);
+  }, localTaskClient);
   const { snapshot, events, trajectory, workspaceArtifacts, checkpoints, taskFiles, deliveries, pending, deliveryPending, error: serviceError } = taskExecution;
   const projectWorkspace = useProjectWorkspace(activePage, gatewayErrorText, localProjectClient);
   const providerControl = useProviderControlPlane();
@@ -289,8 +289,8 @@ export function App() {
   useEffect(() => {
     if (!gatewayAttached || activePage !== 'capabilities') return;
     let disposed = false;
-    void localGatewayClient.localModelHealth().then((models) => { if (!disposed) setLocalModels(models); }).catch((error: unknown) => { if (!disposed) setLocalModelError(gatewayErrorText(error)); });
-    void localGatewayClient.controlPlaneDiagnostics().then((report) => { if (!disposed) setControlPlaneDiagnostics(report); }).catch((error: unknown) => { if (!disposed) setControlPlaneDiagnosticError(gatewayErrorText(error)); });
+    void localTaskClient.localModelHealth().then((models) => { if (!disposed) setLocalModels(models); }).catch((error: unknown) => { if (!disposed) setLocalModelError(gatewayErrorText(error)); });
+    void localTaskClient.controlPlaneDiagnostics().then((report) => { if (!disposed) setControlPlaneDiagnostics(report); }).catch((error: unknown) => { if (!disposed) setControlPlaneDiagnosticError(gatewayErrorText(error)); });
     return () => { disposed = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gatewayAttached, activePage]);
@@ -298,11 +298,11 @@ export function App() {
   useEffect(() => {
     if (!gatewayAttached || activePage !== 'security') return;
     let disposed = false;
-    void localGatewayClient.securityPostureAudit().then((report) => { if (!disposed) setSecurityPostureAudit(report); }).catch((error: unknown) => { if (!disposed) setSecurityPostureAuditError(gatewayErrorText(error)); });
-    void localGatewayClient.componentLockReport().then((report) => { if (!disposed) setComponentLockReport(report); }).catch((error: unknown) => { if (!disposed) setComponentLockReportError(gatewayErrorText(error)); });
-    void localGatewayClient.componentManagementReport().then((report) => { if (!disposed) setComponentManagementReport(report); }).catch((error: unknown) => { if (!disposed) setComponentManagementReportError(gatewayErrorText(error)); });
-    void localGatewayClient.nativeHostAuthenticationReport().then((report) => { if (!disposed) setNativeHostAuthenticationReport(report); }).catch((error: unknown) => { if (!disposed) setNativeHostAuthenticationReportError(gatewayErrorText(error)); });
-    void localGatewayClient.windowsNativeReleaseReport().then((report) => { if (!disposed) setWindowsNativeReleaseReport(report); }).catch((error: unknown) => { if (!disposed) setWindowsNativeReleaseReportError(gatewayErrorText(error)); });
+    void localTaskClient.securityPostureAudit().then((report) => { if (!disposed) setSecurityPostureAudit(report); }).catch((error: unknown) => { if (!disposed) setSecurityPostureAuditError(gatewayErrorText(error)); });
+    void localTaskClient.componentLockReport().then((report) => { if (!disposed) setComponentLockReport(report); }).catch((error: unknown) => { if (!disposed) setComponentLockReportError(gatewayErrorText(error)); });
+    void localTaskClient.componentManagementReport().then((report) => { if (!disposed) setComponentManagementReport(report); }).catch((error: unknown) => { if (!disposed) setComponentManagementReportError(gatewayErrorText(error)); });
+    void localTaskClient.nativeHostAuthenticationReport().then((report) => { if (!disposed) setNativeHostAuthenticationReport(report); }).catch((error: unknown) => { if (!disposed) setNativeHostAuthenticationReportError(gatewayErrorText(error)); });
+    void localTaskClient.windowsNativeReleaseReport().then((report) => { if (!disposed) setWindowsNativeReleaseReport(report); }).catch((error: unknown) => { if (!disposed) setWindowsNativeReleaseReportError(gatewayErrorText(error)); });
     return () => { disposed = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gatewayAttached, activePage]);

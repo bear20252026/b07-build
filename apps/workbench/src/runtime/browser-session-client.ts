@@ -87,8 +87,8 @@ function normalizedReason(reason: string | undefined): string | undefined {
 }
 
 export class HttpBrowserSessionClient {
-  /** Workbench 仅指向固定本机 Gateway；不会将控制面请求发往任意远程主机。 */
-  constructor(private readonly baseUrl = 'http://127.0.0.1:4318/api/browser-sessions') {}
+  /** 浏览器会话客户端不预设远程或本机服务地址；由调用方显式提供实现端点。 */
+  constructor(private readonly baseUrl = '/api/browser-sessions') {}
 
   async list(limit = 100): Promise<readonly WorkbenchBrowserSession[]> {
     if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error('读取数量必须是 1-500 的整数');

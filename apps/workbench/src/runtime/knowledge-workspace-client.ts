@@ -21,15 +21,15 @@ async function requestJson(url: string, init?: RequestInit): Promise<unknown> {
   const response = await fetch(url, init);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = expectObject(body, '知识 Gateway');
+    const error = expectObject(body, '知识服务');
     throw new Error(typeof error.error === 'string' ? error.error : '知识请求未完成');
   }
   return body;
 }
 
-/** Workbench 只发出用户显式的本机 Gateway 意图；不读取文件、不上传文件，也不持久化正文。 */
+/** Workbench 只发出用户显式的知识服务意图；不读取文件、不上传文件，也不持久化正文。 */
 export class HttpKnowledgeWorkspaceClient {
-  constructor(private readonly baseUrl = 'http://127.0.0.1:4318') {}
+  constructor(private readonly baseUrl = '') {}
 
   async listWorkspaces(): Promise<readonly WorkbenchKnowledgeWorkspace[]> {
     const body = await requestJson(`${this.baseUrl}/api/knowledge/workspaces`);

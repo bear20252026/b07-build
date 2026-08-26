@@ -41,13 +41,13 @@ function role(value: unknown, includeContent: boolean): WorkbenchAgencyRoleDetai
 }
 async function request(url: string, init?: RequestInit): Promise<unknown> {
   const response = await fetch(url, init); const body = await response.json().catch(() => ({}));
-  if (!response.ok) { const error = object(body, '角色 Gateway'); throw new Error(typeof error.error === 'string' ? error.error : '角色请求未完成'); }
+  if (!response.ok) { const error = object(body, '角色服务'); throw new Error(typeof error.error === 'string' ? error.error : '角色请求未完成'); }
   return body;
 }
 
 /** 只读角色浏览与显式候选创建；没有角色安装、自动注入、外部目录写入或角色执行操作。 */
 export class HttpAgencyRoleClient {
-  constructor(private readonly baseUrl = 'http://127.0.0.1:4318') {}
+  constructor(private readonly baseUrl = '') {}
   async list(): Promise<readonly WorkbenchAgencyRoleSummary[]> {
     const body = await request(`${this.baseUrl}/api/agency-roles`); if (!Array.isArray(body)) throw new Error('预置角色列表格式无效');
     return body.map((item) => role(item, false) as WorkbenchAgencyRoleSummary);
