@@ -78,13 +78,28 @@ done
 timeout 20 adb shell dumpsys window windows > "$evidence_dir/window.txt" 2>&1 || true
 timeout 20 adb shell uiautomator dump /sdcard/nova-ui.xml >/dev/null 2>&1 || true
 timeout 20 adb pull /sdcard/nova-ui.xml "$evidence_dir/nova-ui.xml" >/dev/null 2>&1 || true
-capture_evidence
 
 grep -q 'com.bear20252026.nova/.MainActivity' "$evidence_dir/activity.txt" || fail main-activity-not-foreground
 grep -q 'com.bear20252026.nova' "$evidence_dir/window.txt" || fail nova-window-not-present
 if grep -E 'Process: com\.bear20252026\.nova|NOVA mobile shell failed to run|Unable to start activity:.*com\.bear20252026\.nova' "$evidence_dir/logcat.txt"; then
   fail nova-runtime-error
 fi
+
+# MainActivity can be resumed while Android still displays its white system Splash.
+# Wait past the 1.25s React brand transition and require a non-empty app frame.
+render_elapsed=0
+rendered=0
+while [ "$render_elapsed" -lt 30 ]; do
+  timeout 20 adb exec-out screencap -p > "$evidence_dir/nova-startup.png" 2>/dev/null || true
+  if python3 .github/scripts/verify-nova-android-frame.py "$evidence_dir/nova-startup.png" > "$evidence_dir/frame-check.txt" 2>&1; then
+    rendered=1
+    break
+  fi
+  sleep 2
+  render_elapsed=$((render_elapsed + 2))
+done
+capture_evidence
+[ "$rendered" -eq 1 ] || fail workbench-frame-not-rendered
 
 status=passed
 reason=main-activity-and-window-present
