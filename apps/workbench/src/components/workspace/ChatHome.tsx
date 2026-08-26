@@ -42,7 +42,7 @@ export interface ChatHomeProps {
   activeProfile: AgentProfileId;
   authorityMode: 'plan' | 'review' | 'automate';
   connectedProviderCount: number;
-  gatewayAttached: boolean;
+  providerReady: boolean;
   taskModelLabel?: string;
   directResponse?: Readonly<{ output: string; model?: string; complete: boolean }>;
   directError?: string;
@@ -168,7 +168,7 @@ export function ChatHome({
   activeProfile,
   authorityMode,
   connectedProviderCount,
-  gatewayAttached,
+  providerReady,
   taskModelLabel,
   directResponse,
   directError,
@@ -200,7 +200,7 @@ export function ChatHome({
   const [windowStart, setWindowStart] = useState(() => messageWindowStart(activeConversation?.messages.length ?? 0));
   const home = messages.home;
   const hasTaskModel = Boolean(taskModelLabel);
-  const modelTitle = restoringProviderSession ? '正在恢复本地模型会话…' : (hasTaskModel ? taskModelLabel! : (gatewayAttached && connectedProviderCount > 0 ? home.providerReady(connectedProviderCount) : home.providerWaiting));
+  const modelTitle = restoringProviderSession ? '正在恢复本地模型会话…' : (hasTaskModel ? taskModelLabel! : (providerReady && connectedProviderCount > 0 ? home.providerReady(connectedProviderCount) : home.providerWaiting));
   const workMode = createWorkModeAuditProjection({ profileId: activeProfile, authorityMode, connectedProviderCount });
   const hasConversationContent = Boolean(directResponse?.output) || Boolean(activeConversation && activeConversation.messages.length > 0);
   const messageCount = activeConversation?.messages.length ?? 0;
