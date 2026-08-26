@@ -7,14 +7,14 @@ const valid = {
   inputDigest: 'a'.repeat(64), inputCharacters: 2, latencyMs: 1, dataBoundary: 'remote-allowed', canReadSecret: false, canAutoPlay: false, canAutoSpeak: false, canAutoExecute: false,
 };
 
-test('MiMo TTS 客户端只调用固定 loopback、携带显式试听 intent 且仅提交 text/voice', async () => {
+test('MiMo TTS 客户端不预设 Gateway、携带显式试听 intent 且仅提交 text/voice', async () => {
   let received: { url?: string; init?: RequestInit } = {};
   const client = new HttpMimoTtsClient(undefined, async (url, init) => {
     received = { url: String(url), init };
     return new Response(JSON.stringify(valid), { status: 200 });
   });
   const result = await client.preview({ text: '明确试听', voice: '茉莉' });
-  assert.equal(received.url, 'http://127.0.0.1:4318/api/companion/tts/preview');
+  assert.equal(received.url, '/api/companion/tts/preview');
   assert.equal(new Headers(received.init?.headers).get('x-awo-operator-intent'), 'companion-tts-preview-v1');
   assert.deepEqual(JSON.parse(String(received.init?.body)), { text: '明确试听', voice: '茉莉' });
   assert.equal(result.canAutoPlay, false);

@@ -230,4 +230,5 @@
 - [x] 修复 App.tsx Android 根容器的 inline `display: block` 覆盖：手机版必须保留 `.workbench-shell` 的 CSS grid 与 `.workbench-main` flex 布局，仅通过移动端类和底部安全空间适配导航；补充 Android 根布局回归断言。
 - [x] 审计并修正多用户普适性边界：Provider 直连不得依赖用户地址或共享 Gateway；本机辅助服务只能按每台设备的 loopback 自动发现，不能把 Provider 已连接错误标记为 Gateway 已附着；为普通聊天、搜索和 Provider 配置补充跨设备首次安装回归测试。
 - [ ] 从 NOVA 正式运行路径移除 Gateway：普通聊天、Provider 配置、搜索、会话与附件链路不得依赖 `127.0.0.1:4318`；审计旧任务/产物模块后决定删除或隔离其遗留适配器，并补充无 Gateway 首次安装回归。
-- [ ] 全量清除 Gateway 残留：删除或迁移 `127.0.0.1:4318` 客户端、Gateway UI 文案/样式、旧控制面依赖、Gateway 命令与构建配置；普通聊天、搜索、Provider、会话、附件和 Android 启动不得再引用 Gateway。
+- [x] 删除 Gateway 核心运行时、provider-sdk、Vite 4318 代理、固定回环默认地址与 `forLocalGateway()`，普通聊天、Provider 与 Android 启动不再依赖 Gateway。
+- [ ] 清理遗留能力页中的 Gateway 可见命名和旧状态参数（任务、知识、浏览器会话、API 用量、Companion TTS、控制面诊断），改成原生能力或明确的不可用状态。
