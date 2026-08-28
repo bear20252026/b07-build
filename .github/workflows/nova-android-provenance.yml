@@ -232,18 +232,29 @@ jobs:
       - name: Install locked workspace dependencies
         run: npm ci
 
+      - name: Prepare Android emulator startup evidence directory
+        shell: bash
+        run: mkdir -p "$RUNNER_TEMP/nova-android-emulator-smoke/generated-android"
+
       - name: Build Workbench static assets for mobile WebView
         run: npm run build --workspace=@awo/workbench
 
       - name: Initialize Android Studio project
         run: npm run android:init
 
+      - name: Capture generated Android launch configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          snapshot="$RUNNER_TEMP/nova-android-emulator-smoke/generated-android"
+          find apps/desktop-shell/src-tauri/gen/android/app/src/main \
+            -type f \( -name 'MainActivity.kt' -o -name 'AndroidManifest.xml' -o -path '*/res/values/*.xml' -o -path '*/res/values-v31/*.xml' \) \
+            -exec cp --parents {} "$snapshot" \;
+          test -n "$(find "$snapshot" -type f -name 'MainActivity.kt' -print -quit)"
+          test -n "$(find "$snapshot" -type f -name 'AndroidManifest.xml' -print -quit)"
+
       - name: Build x86_64 APK for emulator startup test
         run: npm exec --workspace=@awo/desktop-shell -- tauri android build --apk --target x86_64
-
-      - name: Prepare Android emulator startup evidence directory
-        shell: bash
-        run: mkdir -p "$RUNNER_TEMP/nova-android-emulator-smoke"
 
       - name: Install and open NOVA on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
