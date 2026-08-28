@@ -242,3 +242,4 @@
 - [ ] 稳定 Android 云端 smoke 环境：当前 API 35 Google APIs 镜像出现 Google Play 服务 ANR 与极高 CPU 压力；迁移 smoke 至轻量 AOSP ATD 兼容性镜像，同时继续以 Android 35 产物构建和验证版本/签名/资源。
 - [x] 修复 Android 首帧验证的纯黑误判：AOSP ATD 已稳定运行，但 `frame=rendered` 仍可能对应整屏黑色系统 Splash；现已等待 Splash 窗口消失，并要求截图存在明亮/非均一 Workbench 内容；纯黑历史证据已在本地回归中被拒绝，实际云端 Workbench 首帧仍须再次验收后才可替换官网 Android 下载项。
 - [ ] 为 Android 云端失败证据加入生成后的 MainActivity、AndroidManifest 与主题资源快照，定位系统 Splash 未交接至 Tauri WebView 的原生根因；该诊断不得依赖用户本地 Android 工具链。
+- [ ] 在 Android 首帧等待超时时采集 NOVA 进程 Java/native 栈、WebView renderer 进程、内存与窗口状态，定位 `RustWebView.loadUrl`/Tauri 资源协议是否阻塞；诊断仅用于云端证据，不记录 API Key、Provider URL 或聊天内容。

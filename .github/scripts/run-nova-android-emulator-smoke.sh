@@ -13,6 +13,20 @@ capture_evidence() {
   timeout 20 adb exec-out screencap -p > "$evidence_dir/nova-startup.png" 2>/dev/null || true
 }
 
+capture_timeout_diagnostics() {
+  timeout 20 adb shell dumpsys meminfo com.bear20252026.nova > "$evidence_dir/nova-meminfo.txt" 2>&1 || true
+  timeout 20 adb shell ps -A -o PID,NAME > "$evidence_dir/android-processes.txt" 2>&1 || true
+  timeout 20 adb shell dumpsys window windows > "$evidence_dir/window-timeout.txt" 2>&1 || true
+  nova_pid=$(timeout 10 adb shell pidof com.bear20252026.nova 2>/dev/null | tr -d '\r\n' || true)
+  printf '%s\n' "$nova_pid" > "$evidence_dir/nova-pid.txt"
+  if [ -n "$nova_pid" ]; then
+    # SIGQUIT writes the managed/native stack to logcat without terminating ART.
+    timeout 20 adb shell kill -3 "$nova_pid" > "$evidence_dir/nova-stack-request.txt" 2>&1 || true
+    sleep 2
+  fi
+  timeout 20 adb logcat -d -v threadtime > "$evidence_dir/logcat-timeout.txt" 2>&1 || true
+}
+
 finish() {
   exit_code=$?
   capture_evidence
@@ -109,7 +123,10 @@ while [ "$render_elapsed" -lt 30 ]; do
   render_elapsed=$((render_elapsed + 2))
 done
 capture_evidence
-[ "$rendered" -eq 1 ] || fail workbench-frame-not-rendered
+if [ "$rendered" -ne 1 ]; then
+  capture_timeout_diagnostics
+  fail workbench-frame-not-rendered
+fi
 
 status=passed
 reason=main-activity-splash-dismissed-and-workbench-frame-rendered
