@@ -56,14 +56,102 @@ pub struct StartDirectProviderStreamRequest {
     pub messages: Vec<DirectProviderMessage>,
     pub model: Option<String>,
     pub request_id: String,
+    /// 工具声明。仅 OpenAI-compatible 协议会真正下发；Anthropic-compatible 一律忽略，
+    /// 行为与传空完全一致（稳妥版：先把一条协议的闭环跑通，再谈第二种）。
+    #[serde(default)]
+    pub tools: Vec<DirectProviderTool>,
 }
 
+/// 一个可调用工具的声明，parameters 直接透传 JSON Schema。
 #[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectProviderTool {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
+}
+
+#[derive(Clone, Deserialize, Default)]
 pub struct DirectProviderMessage {
     pub role: String,
     pub content: String,
     #[serde(default)]
     pub images: Vec<DirectProviderImage>,
+    /// role = "tool" 时必填：对应哪一次工具调用。
+    #[serde(default)]
+    pub tool_call_id: Option<String>,
+    /// role = "assistant" 且该轮发起过工具调用时，原样回传上游的 tool_calls 数组，
+    /// 否则模型在下一轮看不到自己调用过什么。
+    #[serde(default)]
+    pub tool_calls: Option<serde_json::Value>,
+}
+
+/// 一次完整的工具调用。arguments 是流式片段拼接出来的原始 JSON 文本，不做提前解析：
+/// 上游经常把 arguments 切成任意边界的碎片，边收边 parse 只会得到一堆假失败。
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectProviderToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: String,
+}
+
+/// 流式 tool_calls 的一个增量片段。
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct ToolCallDelta {
+    index: usize,
+    id: Option<String>,
+    name: Option<String>,
+    arguments: Option<String>,
+}
+
+/// 按 index 累加流式工具调用，最后产出完整列表。
+#[derive(Default)]
+struct ToolCallAccumulator {
+    calls: Vec<DirectProviderToolCall>,
+}
+
+impl ToolCallAccumulator {
+    /// 返回 Some(工具名) 表示这是一次新调用的第一个片段，调用方可以据此提示“正在调用 X”。
+    /// 若首个片段还没带上名字（少数上游会先只发 index/id），这里返回 None，后续片段也不会补报。
+    fn apply(&mut self, delta: ToolCallDelta) -> Option<String> {
+        while self.calls.len() <= delta.index {
+            self.calls.push(DirectProviderToolCall {
+                id: String::new(),
+                name: String::new(),
+                arguments: String::new(),
+            });
+        }
+        let call = &mut self.calls[delta.index];
+        let is_new = call.id.is_empty() && call.name.is_empty();
+        if let Some(id) = delta.id {
+            call.id = id;
+        }
+        if let Some(name) = delta.name {
+            call.name = name;
+        }
+        if let Some(arguments) = delta.arguments {
+            call.arguments.push_str(&arguments);
+        }
+        if is_new && !self.calls[delta.index].name.is_empty() {
+            Some(self.calls[delta.index].name.clone())
+        } else {
+            None
+        }
+    }
+
+    /// 非流式路径：整条 message 里一次性给出的调用。
+    fn push_complete(&mut self, call: DirectProviderToolCall) {
+        self.calls.push(call);
+    }
+
+    /// 丢弃没有名字的占位（上游偶尔会发一个只有 index 的空片段）。
+    fn finish(self) -> Vec<DirectProviderToolCall> {
+        self.calls
+            .into_iter()
+            .filter(|call| !call.name.is_empty())
+            .collect()
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -342,10 +430,27 @@ fn validate_messages(messages: &[DirectProviderMessage]) -> Result<(), &'static 
     }
     let mut length = 0usize;
     for message in messages {
-        if !matches!(message.role.as_str(), "user" | "assistant") {
-            return Err("message-role-invalid");
+        match message.role.as_str() {
+            "user" | "assistant" => {
+                require_nonempty(&message.content, "message-content-invalid", 1_000_000)?
+            }
+            // 工具结果允许是空字符串：列目录可能真的一个文件都没有，这不是错误。
+            "tool" => {
+                let has_call_id = message
+                    .tool_call_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .is_some();
+                if !has_call_id {
+                    return Err("message-tool-call-id-invalid");
+                }
+                if message.content.len() > 1_000_000 {
+                    return Err("message-content-invalid");
+                }
+            }
+            _ => return Err("message-role-invalid"),
         }
-        require_nonempty(&message.content, "message-content-invalid", 1_000_000)?;
         length = length.saturating_add(message.content.len());
         if length > 1_000_000 {
             return Err("messages-too-large");
@@ -369,28 +474,66 @@ fn payload_for(
     session: &DirectProviderSession,
     model: &str,
     messages: &[DirectProviderMessage],
+    tools: &[DirectProviderTool],
 ) -> serde_json::Value {
     let messages = messages.iter().map(|message| {
-        if message.images.is_empty() { return serde_json::json!({ "role": message.role, "content": message.content }); }
-        match session.protocol {
-            DirectProviderProtocol::OpenaiCompatible => {
-                let mut content = vec![serde_json::json!({ "type": "text", "text": message.content })];
-                content.extend(message.images.iter().map(|image| serde_json::json!({ "type": "image_url", "image_url": { "url": format!("data:{};base64,{}", image.media_type, image.base64_data) } })));
-                serde_json::json!({ "role": message.role, "content": content })
+        // 工具结果必须带上 call id，否则上游无法把它对回某一次调用。
+        if message.role == "tool" {
+            return serde_json::json!({
+                "role": "tool",
+                "tool_call_id": message.tool_call_id,
+                "content": message.content
+            });
+        }
+        let base = if message.images.is_empty() {
+            serde_json::json!({ "role": message.role, "content": message.content })
+        } else {
+            match session.protocol {
+                DirectProviderProtocol::OpenaiCompatible => {
+                    let mut content = vec![serde_json::json!({ "type": "text", "text": message.content })];
+                    content.extend(message.images.iter().map(|image| serde_json::json!({ "type": "image_url", "image_url": { "url": format!("data:{};base64,{}", image.media_type, image.base64_data) } })));
+                    serde_json::json!({ "role": message.role, "content": content })
+                }
+                DirectProviderProtocol::AnthropicCompatible => {
+                    let mut content = vec![serde_json::json!({ "type": "text", "text": message.content })];
+                    content.extend(message.images.iter().map(|image| serde_json::json!({ "type": "image", "source": { "type": "base64", "media_type": image.media_type, "data": image.base64_data } })));
+                    serde_json::json!({ "role": message.role, "content": content })
+                }
             }
-            DirectProviderProtocol::AnthropicCompatible => {
-                let mut content = vec![serde_json::json!({ "type": "text", "text": message.content })];
-                content.extend(message.images.iter().map(|image| serde_json::json!({ "type": "image", "source": { "type": "base64", "media_type": image.media_type, "data": image.base64_data } })));
-                serde_json::json!({ "role": message.role, "content": content })
+        };
+        // 把上一轮 assistant 的调用原样带回，模型才知道自己已经问过什么。
+        match (&message.tool_calls, message.role.as_str()) {
+            (Some(calls), "assistant") => {
+                let mut carried = base;
+                carried["tool_calls"] = calls.clone();
+                carried
             }
+            _ => base,
         }
     }).collect::<Vec<_>>();
     match session.protocol {
-        DirectProviderProtocol::OpenaiCompatible => serde_json::json!({
-            "model": model,
-            "stream": true,
-            "messages": messages
-        }),
+        DirectProviderProtocol::OpenaiCompatible => {
+            let mut payload = serde_json::json!({
+                "model": model,
+                "stream": true,
+                "messages": messages
+            });
+            if !tools.is_empty() {
+                payload["tools"] = serde_json::json!(tools
+                    .iter()
+                    .map(|tool| serde_json::json!({
+                        "type": "function",
+                        "function": {
+                            "name": tool.name,
+                            "description": tool.description,
+                            "parameters": tool.parameters
+                        }
+                    }))
+                    .collect::<Vec<_>>());
+            }
+            payload
+        }
+        // 稳妥版：Anthropic-compatible 一律不下发 tools，行为与不传完全一致。
         DirectProviderProtocol::AnthropicCompatible => serde_json::json!({
             "model": model,
             "stream": true,
@@ -444,6 +587,97 @@ fn deltas_from_sse(protocol: DirectProviderProtocol, data: &str) -> Vec<(&'stati
         }
     }
     deltas
+}
+
+/// 从一条 SSE data 里取出流式 tool_calls 增量。
+///
+/// 只有 OpenAI-compatible 会产生结果；Anthropic-compatible 恒为空向量，这样它在工具
+/// 调用这件事上的行为和改动前完全一致。
+fn tool_call_deltas_from_sse(protocol: DirectProviderProtocol, data: &str) -> Vec<ToolCallDelta> {
+    let mut deltas = Vec::new();
+    let DirectProviderProtocol::OpenaiCompatible = protocol else {
+        return deltas;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
+        return deltas;
+    };
+    let Some(calls) = value
+        .pointer("/choices/0/delta/tool_calls")
+        .and_then(|value| value.as_array())
+    else {
+        return deltas;
+    };
+    for call in calls {
+        let index = call
+            .get("index")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0) as usize;
+        let function = call.get("function");
+        let id = call
+            .get("id")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned);
+        let name = function
+            .and_then(|value| value.get("name"))
+            .and_then(|value| value.as_str())
+            .map(str::to_owned);
+        let arguments = function
+            .and_then(|value| value.get("arguments"))
+            .and_then(|value| value.as_str())
+            .map(str::to_owned);
+        // 什么都拿不到的空片段直接丢掉，别制造一个没有名字的调用。
+        if id.is_none() && name.is_none() && arguments.is_none() {
+            continue;
+        }
+        deltas.push(ToolCallDelta {
+            index,
+            id,
+            name,
+            arguments,
+        });
+    }
+    deltas
+}
+
+/// 部分兼容层不流式下发 tool_calls，而是在整条 message 里一次性给出。
+fn tool_calls_from_message(
+    protocol: DirectProviderProtocol,
+    data: &str,
+) -> Vec<DirectProviderToolCall> {
+    let DirectProviderProtocol::OpenaiCompatible = protocol else {
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
+        return Vec::new();
+    };
+    let Some(calls) = value
+        .pointer("/choices/0/message/tool_calls")
+        .and_then(|value| value.as_array())
+    else {
+        return Vec::new();
+    };
+    calls
+        .iter()
+        .filter_map(|call| {
+            let name = call
+                .pointer("/function/name")
+                .and_then(|value| value.as_str())?
+                .to_owned();
+            Some(DirectProviderToolCall {
+                id: call
+                    .get("id")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_owned(),
+                name,
+                arguments: call
+                    .pointer("/function/arguments")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_owned(),
+            })
+        })
+        .collect()
 }
 
 fn error_from_sse(data: &str) -> Option<String> {
@@ -607,11 +841,12 @@ pub async fn probe_direct_provider(
         role: "user".to_owned(),
         content: "Reply with OK.".to_owned(),
         images: Vec::new(),
+        ..Default::default()
     }];
     let response = provider_http_client()?
         .post(url_for(&session))
         .headers(headers_for(&session)?)
-        .json(&payload_for(&session, &session.model, &probe_messages))
+        .json(&payload_for(&session, &session.model, &probe_messages, &[]))
         .send()
         .await
         .map_err(|error| network_error_code(&error))?;
@@ -679,7 +914,12 @@ pub fn start_direct_provider_stream(
                     return;
                 }
             })
-            .json(&payload_for(&session, &model, &request.messages))
+            .json(&payload_for(
+                &session,
+                &model,
+                &request.messages,
+                &request.tools,
+            ))
             .send()
             .await;
         let mut response = match response {
@@ -724,6 +964,7 @@ pub fn start_direct_provider_stream(
             return;
         }
         let mut buffer = String::new();
+        let mut tool_calls = ToolCallAccumulator::default();
         loop {
             match response.chunk().await {
                 Ok(Some(bytes)) => {
@@ -758,10 +999,57 @@ pub fn start_direct_provider_stream(
                                     },
                                 );
                             }
+                            // 工具调用增量：按 index 累加，arguments 是会被切成任意边界的碎片，
+                            // 必须整段拼完再交给上层，不能边收边 parse。
+                            for delta in tool_call_deltas_from_sse(session.protocol, data) {
+                                if let Some(name) = tool_calls.apply(delta) {
+                                    emit(
+                                        &app,
+                                        DirectProviderStreamEvent {
+                                            request_id: request.request_id.clone(),
+                                            kind: "tool-call-start",
+                                            text: Some(name),
+                                            model: Some(model.clone()),
+                                            message: None,
+                                        },
+                                    );
+                                }
+                            }
+                            for call in tool_calls_from_message(session.protocol, data) {
+                                let name = call.name.clone();
+                                tool_calls.push_complete(call);
+                                emit(
+                                    &app,
+                                    DirectProviderStreamEvent {
+                                        request_id: request.request_id.clone(),
+                                        kind: "tool-call-start",
+                                        text: Some(name),
+                                        model: Some(model.clone()),
+                                        message: None,
+                                    },
+                                );
+                            }
                         }
                     }
                 }
                 Ok(None) => {
+                    // 流结束时一次性交付完整调用列表：上层拿到后才去执行工具，再把结果
+                    // 以 role="tool" 的消息发回来，由上层决定要不要继续下一轮。
+                    let calls = tool_calls.finish();
+                    if !calls.is_empty() {
+                        if let Ok(serialized) = serde_json::to_string(&calls) {
+                            emit(
+                                &app,
+                                DirectProviderStreamEvent {
+                                    request_id: request.request_id.clone(),
+                                    kind: "tool-calls",
+                                    text: None,
+                                    model: Some(model.clone()),
+                                    message: Some(serialized),
+                                },
+                            );
+                        }
+                    }
                     emit(
                         &app,
                         DirectProviderStreamEvent {
@@ -795,7 +1083,207 @@ pub fn start_direct_provider_stream(
 
 #[cfg(test)]
 mod tests {
-    use super::{deltas_from_sse, DirectProviderImage, DirectProviderProtocol};
+    use super::{
+        deltas_from_sse, payload_for, tool_call_deltas_from_sse, tool_calls_from_message,
+        validate_messages, DirectProviderImage, DirectProviderMessage, DirectProviderProtocol,
+        DirectProviderSession, DirectProviderTool, ToolCallAccumulator, ToolCallDelta,
+    };
+
+    fn session_with(protocol: DirectProviderProtocol) -> DirectProviderSession {
+        DirectProviderSession {
+            provider_id: "provider".to_owned(),
+            protocol,
+            base_url: "https://example.invalid".to_owned(),
+            model: "model".to_owned(),
+            api_key: "key".to_owned(),
+        }
+    }
+
+    fn message(role: &str, content: &str) -> DirectProviderMessage {
+        DirectProviderMessage {
+            role: role.to_owned(),
+            content: content.to_owned(),
+            images: Vec::new(),
+            tool_call_id: None,
+            tool_calls: None,
+        }
+    }
+
+    #[test]
+    fn accumulates_streamed_tool_call_fragments_in_order() {
+        let mut accumulator = ToolCallAccumulator::default();
+        assert_eq!(
+            accumulator.apply(ToolCallDelta {
+                index: 0,
+                id: Some("call-1".to_owned()),
+                name: Some("read_file".to_owned()),
+                arguments: None,
+            }),
+            Some("read_file".to_owned())
+        );
+        assert_eq!(
+            accumulator.apply(ToolCallDelta {
+                index: 0,
+                id: None,
+                name: None,
+                arguments: Some("{\"path\":".to_owned())
+            }),
+            None
+        );
+        accumulator.apply(ToolCallDelta {
+            index: 0,
+            id: None,
+            name: None,
+            arguments: Some("\"src/main.rs\"}".to_owned()),
+        });
+        let calls = accumulator.finish();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, "call-1");
+        assert_eq!(calls[0].name, "read_file");
+        assert_eq!(calls[0].arguments, "{\"path\":\"src/main.rs\"}");
+    }
+
+    #[test]
+    fn parses_openai_tool_call_deltas_and_ignores_empty_fragments() {
+        let deltas = tool_call_deltas_from_sse(
+            DirectProviderProtocol::OpenaiCompatible,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-9","type":"function","function":{"name":"list_files","arguments":"{}"}}]}}]}"#,
+        );
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(deltas[0].index, 0);
+        assert_eq!(deltas[0].name.as_deref(), Some("list_files"));
+        let empty = tool_call_deltas_from_sse(
+            DirectProviderProtocol::OpenaiCompatible,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0}]}}]}"#,
+        );
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn anthropic_compatible_never_emits_tool_calls() {
+        let data = r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"x","arguments":"{}"}}]}}]}"#;
+        assert!(
+            tool_call_deltas_from_sse(DirectProviderProtocol::AnthropicCompatible, data).is_empty()
+        );
+        assert!(
+            tool_calls_from_message(DirectProviderProtocol::AnthropicCompatible, data).is_empty()
+        );
+    }
+
+    #[test]
+    fn reads_tool_calls_delivered_whole_in_the_final_message() {
+        let calls = tool_calls_from_message(
+            DirectProviderProtocol::OpenaiCompatible,
+            r#"{"choices":[{"message":{"tool_calls":[{"id":"call-2","function":{"name":"read_file","arguments":"{\"path\":\"a\"}"}}]}}]}"#,
+        );
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, "call-2");
+        assert_eq!(calls[0].arguments, "{\"path\":\"a\"}");
+    }
+
+    #[test]
+    fn tools_are_only_declared_for_openai_compatible() {
+        let tools = vec![DirectProviderTool {
+            name: "read_file".to_owned(),
+            description: "读取工作区文件".to_owned(),
+            parameters: serde_json::json!({ "type": "object" }),
+        }];
+        let messages = vec![message("user", "看一下项目")];
+        let openai = payload_for(
+            &session_with(DirectProviderProtocol::OpenaiCompatible),
+            "model",
+            &messages,
+            &tools,
+        );
+        assert_eq!(
+            openai
+                .pointer("/tools/0/function/name")
+                .and_then(|value| value.as_str()),
+            Some("read_file")
+        );
+        let anthropic = payload_for(
+            &session_with(DirectProviderProtocol::AnthropicCompatible),
+            "model",
+            &messages,
+            &tools,
+        );
+        assert!(anthropic.get("tools").is_none());
+    }
+
+    #[test]
+    fn assistant_calls_and_tool_results_round_trip_into_the_payload() {
+        let messages = vec![
+            DirectProviderMessage {
+                role: "assistant".to_owned(),
+                content: String::new(),
+                images: Vec::new(),
+                tool_call_id: None,
+                tool_calls: Some(
+                    serde_json::json!([{ "id": "call-1", "type": "function", "function": { "name": "read_file", "arguments": "{}" } }]),
+                ),
+            },
+            DirectProviderMessage {
+                role: "tool".to_owned(),
+                content: "文件内容".to_owned(),
+                images: Vec::new(),
+                tool_call_id: Some("call-1".to_owned()),
+                tool_calls: None,
+            },
+        ];
+        let payload = payload_for(
+            &session_with(DirectProviderProtocol::OpenaiCompatible),
+            "model",
+            &messages,
+            &[],
+        );
+        assert_eq!(
+            payload
+                .pointer("/messages/0/tool_calls/0/id")
+                .and_then(|value| value.as_str()),
+            Some("call-1")
+        );
+        assert_eq!(
+            payload
+                .pointer("/messages/1/role")
+                .and_then(|value| value.as_str()),
+            Some("tool")
+        );
+        assert_eq!(
+            payload
+                .pointer("/messages/1/tool_call_id")
+                .and_then(|value| value.as_str()),
+            Some("call-1")
+        );
+    }
+
+    #[test]
+    fn tool_results_need_a_call_id_and_may_be_empty() {
+        let mut valid = vec![message("user", "读一下")];
+        valid.push(DirectProviderMessage {
+            role: "tool".to_owned(),
+            content: String::new(),
+            images: Vec::new(),
+            tool_call_id: Some("call-1".to_owned()),
+            tool_calls: None,
+        });
+        assert_eq!(validate_messages(&valid), Ok(()));
+        let missing_id = vec![DirectProviderMessage {
+            role: "tool".to_owned(),
+            content: "结果".to_owned(),
+            images: Vec::new(),
+            tool_call_id: None,
+            tool_calls: None,
+        }];
+        assert_eq!(
+            validate_messages(&missing_id),
+            Err("message-tool-call-id-invalid")
+        );
+        let unknown_role = vec![message("system", "你是助手")];
+        assert_eq!(
+            validate_messages(&unknown_role),
+            Err("message-role-invalid")
+        );
+    }
 
     #[test]
     fn parses_openai_text_and_actual_reasoning_deltas_without_inventing_content() {
@@ -854,20 +1342,23 @@ mod tests {
                 role: "user".to_owned(),
                 content: "第一问".to_owned(),
                 images: Vec::new(),
+                ..Default::default()
             },
             super::DirectProviderMessage {
                 role: "assistant".to_owned(),
                 content: "第一答".to_owned(),
                 images: Vec::new(),
+                ..Default::default()
             },
             super::DirectProviderMessage {
                 role: "user".to_owned(),
                 content: "第二问".to_owned(),
                 images: Vec::new(),
+                ..Default::default()
             },
         ];
         assert!(super::validate_messages(&messages).is_ok());
-        let payload = super::payload_for(&session, "model", &messages);
+        let payload = super::payload_for(&session, "model", &messages, &[]);
         assert_eq!(
             payload
                 .pointer("/messages/0/content")
@@ -904,8 +1395,9 @@ mod tests {
                 media_type: "image/png".to_owned(),
                 base64_data: "aGVsbG8=".to_owned(),
             }],
+            ..Default::default()
         }];
-        let payload = super::payload_for(&session, "model", &messages);
+        let payload = super::payload_for(&session, "model", &messages, &[]);
         assert_eq!(
             payload
                 .pointer("/messages/0/content/0/text")
@@ -1020,6 +1512,7 @@ mod tests {
                 media_type: "image/bmp".to_owned(),
                 base64_data: "aGVsbG8=".to_owned(),
             }],
+            ..Default::default()
         }];
         assert!(super::validate_messages(&messages).is_ok());
     }
