@@ -431,6 +431,13 @@ fn validate_messages(messages: &[DirectProviderMessage]) -> Result<(), &'static 
     let mut length = 0usize;
     for message in messages {
         match message.role.as_str() {
+            // 发起工具调用的那轮 assistant 消息通常一个字都没有，只有 tool_calls。
+            // 强行要求正文会逼上层编一句占位话塞进历史，那才是污染上下文。
+            "assistant" if message.tool_calls.is_some() => {
+                if message.content.len() > 1_000_000 {
+                    return Err("message-content-invalid");
+                }
+            }
             "user" | "assistant" => {
                 require_nonempty(&message.content, "message-content-invalid", 1_000_000)?
             }

@@ -11,9 +11,11 @@ import { branchConversation, checkpointConversation, conversationJson, conversat
 import { recordSessionPerformance } from './session-performance-ledger';
 import { conversationStore } from './conversation-store';
 import { historyCharBudgetFor } from './context-budget';
+import { runAgentTurn } from './agent-tool-loop';
+import { executeWorkspaceTool, WORKSPACE_TOOLS } from './workspace-tools';
 
 export interface DirectConversationSelection { readonly providerId: string; readonly model?: string; }
-export interface DirectConversationActivity { readonly kind: 'reasoning' | 'web-search' | 'research' | 'hybrid-search' | 'searxng' | 'attachment'; readonly text: string; readonly createdAt: number; readonly sources?: readonly WebSearchSource[]; }
+export interface DirectConversationActivity { readonly kind: 'reasoning' | 'web-search' | 'research' | 'hybrid-search' | 'searxng' | 'attachment' | 'tool'; readonly text: string; readonly createdAt: number; readonly sources?: readonly WebSearchSource[]; }
 export interface DirectConversationMessage { readonly id: string; readonly role: 'user' | 'assistant'; readonly text: string; readonly context?: string; readonly createdAt: number; readonly model?: string; readonly activities?: readonly DirectConversationActivity[]; }
 export interface DirectConversation { readonly schemaVersion: 1; readonly id: string; readonly title: string; readonly selection: DirectConversationSelection; readonly messages: readonly DirectConversationMessage[]; readonly projectId?: string; readonly createdAt: number; readonly updatedAt: number; }
 export interface DirectConversationCheckpoint { readonly schemaVersion: 1; readonly id: string; readonly conversationId: string; readonly label: string; readonly messageCount: number; readonly createdAt: number; readonly conversation: DirectConversation; }
@@ -41,7 +43,7 @@ function safeSelection(value: unknown): DirectConversationSelection | undefined 
 function safeActivity(value: unknown): DirectConversationActivity | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const input = value as Partial<DirectConversationActivity>;
-  if ((input.kind !== 'reasoning' && input.kind !== 'web-search' && input.kind !== 'research' && input.kind !== 'hybrid-search' && input.kind !== 'searxng' && input.kind !== 'attachment') || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 1_000_000 || typeof input.createdAt !== 'number' || !Number.isSafeInteger(input.createdAt)) return undefined;
+  if ((input.kind !== 'reasoning' && input.kind !== 'web-search' && input.kind !== 'research' && input.kind !== 'hybrid-search' && input.kind !== 'searxng' && input.kind !== 'attachment' && input.kind !== 'tool') || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 1_000_000 || typeof input.createdAt !== 'number' || !Number.isSafeInteger(input.createdAt)) return undefined;
   const sources = Array.isArray(input.sources) ? input.sources.filter((source): source is WebSearchSource => Boolean(source && typeof source === 'object' && typeof (source as Partial<WebSearchSource>).title === 'string' && typeof (source as Partial<WebSearchSource>).url === 'string' && /^https?:\/\//.test((source as Partial<WebSearchSource>).url ?? ''))).slice(0, MAX_SEARCH_SOURCES_PER_TURN) : [];
   return { kind: input.kind, text: input.text, createdAt: input.createdAt, ...(sources.length ? { sources } : {}) };
 }
@@ -199,7 +201,8 @@ export interface DirectConversations {
   branchFromMessage(messageId: string): void;
   restoreCheckpoint(id: string): void;
   exportActive(format: 'markdown' | 'json'): string | undefined;
-  send(selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch?: boolean, researchMode?: Last30DaysMode | 'hybrid' | 'searxng-local', attachments?: readonly DirectChatAttachmentContext[]): Promise<boolean>;
+  /** `useWorkspaceTools` 开启后本轮进入 Agent 回合：模型可以调用工作区文件工具，最多 6 轮。 */
+  send(selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch?: boolean, researchMode?: Last30DaysMode | 'hybrid' | 'searxng-local', attachments?: readonly DirectChatAttachmentContext[], useWorkspaceTools?: boolean): Promise<boolean>;
 }
 
 /** AtomCode 式“可继续、可切换”的对话历史；保存用户消息和模型文本，不保存密钥、Base URL 或请求头。 */
@@ -296,7 +299,7 @@ export function useDirectConversations(): DirectConversations {
   }, [checkpoints, update]);
   const exportActive = useCallback((format: 'markdown' | 'json'): string | undefined => !activeConversation ? undefined : format === 'markdown' ? conversationMarkdown(activeConversation) : conversationJson(activeConversation), [activeConversation]);
 
-  const send = useCallback(async (selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch = false, researchMode?: Last30DaysMode | 'hybrid' | 'searxng-local', attachments: readonly DirectChatAttachmentContext[] = []): Promise<boolean> => {
+  const send = useCallback(async (selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch = false, researchMode?: Last30DaysMode | 'hybrid' | 'searxng-local', attachments: readonly DirectChatAttachmentContext[] = [], useWorkspaceTools = false): Promise<boolean> => {
     const text = prompt.trim(); if (!text || streaming) return false;
     const now = Date.now(); const existing = activeConversation?.selection.providerId === selection.providerId && activeConversation.projectId === projectId ? activeConversation : undefined;
     const providerTraceId = createProviderTraceId();
@@ -379,13 +382,18 @@ export function useDirectConversations(): DirectConversations {
     setActiveId(conversationId); setStreaming(true); setError(undefined);
     let output = '';
     let reasoning = '';
+    // 本轮工具调用痕迹。写进会话活动里，让用户看得见 Agent 到底动了什么文件。
+    let toolActivities: readonly DirectConversationActivity[] = [];
     let streamRefreshTimer: number | undefined;
     let providerStartedAt = Date.now();
     let firstByteAt: number | undefined;
     try {
       const refreshStream = () => {
         const startedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
-        update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: mergeStreamingAssistantMessage(conversation.messages, streamingAssistantMessage(streamingMessageId, output, now, selection.model, reasoning)), updatedAt: Date.now() })), 'stream');
+        const streamed = streamingAssistantMessage(streamingMessageId, output, now, selection.model, reasoning);
+        // 每轮最多留 4 条活动，工具痕迹多了就把最早的挤掉，避免单条消息无限膨胀。
+        const activities = toolActivities.length ? [...(streamed.activities ?? []), ...toolActivities].slice(-4) : streamed.activities;
+        update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: mergeStreamingAssistantMessage(conversation.messages, { ...streamed, ...(activities ? { activities } : {}) }), updatedAt: Date.now() })), 'stream');
         const endedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
         recordSessionPerformance({ kind: 'stream-refresh', elapsedMs: endedAt - startedAt, conversationCount: conversations.length, messageCount: Math.min(MAX_MESSAGES, (base.messages.length + 2)), renderedMessageCount: Math.min(60, base.messages.length + 2) });
       };
@@ -394,10 +402,35 @@ export function useDirectConversations(): DirectConversations {
         streamRefreshTimer = window.setTimeout(() => { streamRefreshTimer = undefined; refreshStream(); }, 50);
       };
       providerStartedAt = Date.now();
-      const completion = await directProviderClient.stream({ providerId: selection.providerId, model: selection.model, messages: messagesForProvider, onText: (chunk) => { firstByteAt ??= Date.now(); output += chunk; scheduleStreamRefresh(); }, onReasoning: (chunk) => { firstByteAt ??= Date.now(); reasoning += chunk; scheduleStreamRefresh(); } });
-      recordProviderDiagnostic({ providerId: selection.providerId, model: completion.model ?? selection.model, stage: 'chat', outcome: 'succeeded', startedAt: providerStartedAt, firstByteAt, outputCharacters: output.length, conversationId, includedImages: images.length > 0, traceId: providerTraceId });
-      if (streamRefreshTimer !== undefined) { window.clearTimeout(streamRefreshTimer); streamRefreshTimer = undefined; refreshStream(); }
-      update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== streamingMessageId ? message : { ...message, ...(completion.model ? { model: completion.model } : {}) }), updatedAt: Date.now() })));
+      const onText = (chunk: string): void => { firstByteAt ??= Date.now(); output += chunk; scheduleStreamRefresh(); };
+      const onReasoning = (chunk: string): void => { firstByteAt ??= Date.now(); reasoning += chunk; scheduleStreamRefresh(); };
+      let completionModel: string | undefined;
+      if (useWorkspaceTools) {
+        const turn = await runAgentTurn({
+          client: directProviderClient,
+          providerId: selection.providerId,
+          ...(selection.model ? { model: selection.model } : {}),
+          messages: messagesForProvider,
+          tools: WORKSPACE_TOOLS,
+          execute: executeWorkspaceTool,
+          onText,
+          onReasoning,
+          onToolResult: (call, result) => {
+            toolActivities = [...toolActivities, { kind: 'tool', text: `调用 ${call.name}（${call.id}）→ ${result.slice(0, 600)}`, createdAt: Date.now() }];
+            scheduleStreamRefresh();
+          },
+        });
+        // 达到轮次上限时模型还在要工具，回答必然不完整：如实写进正文，而不是让用户以为这就是最终答复。
+        if (turn.stoppedByRoundLimit) output += `\n\n（已执行 ${turn.executedCalls} 次工具调用并达到本回合 ${turn.rounds} 轮上限；模型仍在请求工具，以上回答可能不完整。）`;
+        completionModel = turn.model;
+      } else {
+        const completion = await directProviderClient.stream({ providerId: selection.providerId, model: selection.model, messages: messagesForProvider, onText, onReasoning });
+        completionModel = completion.model;
+      }
+      recordProviderDiagnostic({ providerId: selection.providerId, model: completionModel ?? selection.model, stage: 'chat', outcome: 'succeeded', startedAt: providerStartedAt, firstByteAt, outputCharacters: output.length, conversationId, includedImages: images.length > 0, traceId: providerTraceId });
+      if (streamRefreshTimer !== undefined) { window.clearTimeout(streamRefreshTimer); streamRefreshTimer = undefined; }
+      refreshStream();
+      update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== streamingMessageId ? message : { ...message, ...(completionModel ? { model: completionModel } : {}) }), updatedAt: Date.now() })));
       return true;
     } catch (nextError: unknown) {
       recordProviderDiagnostic({ providerId: selection.providerId, model: selection.model, stage: 'chat', outcome: 'failed', startedAt: providerStartedAt, error: nextError, conversationId, includedImages: images.length > 0, traceId: providerTraceId });

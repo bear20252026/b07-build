@@ -178,6 +178,7 @@ export function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [workspaceToolsEnabled, setWorkspaceToolsEnabled] = useState(false);
   const [researchMode, setResearchMode] = useState<'web-search' | Last30DaysMode | 'hybrid' | 'searxng-local'>('web-search');
   const [composerCollapsed, setComposerCollapsed] = useState(false);
   const [composerAttachments, setComposerAttachments] = useState<readonly ComposerFileAttachment[]>([]);
@@ -334,12 +335,13 @@ export function App() {
     setDirectSetupError(undefined);
     {
       const attachments = await readDirectChatAttachments(composerAttachments);
-      const sent = await directConversations.send(taskModelSelection, goal, projectWorkspace.selectedProjectId, webSearchEnabled && researchMode === 'web-search', webSearchEnabled && researchMode !== 'web-search' ? researchMode : undefined, attachments);
+      const sent = await directConversations.send(taskModelSelection, goal, projectWorkspace.selectedProjectId, webSearchEnabled && researchMode === 'web-search', webSearchEnabled && researchMode !== 'web-search' ? researchMode : undefined, attachments, workspaceToolsEnabled);
       if (!sent) return;
       setActiveGoal(goal);
       setComposerAttachments([]);
       setDraft('');
       setWebSearchEnabled(false);
+      setWorkspaceToolsEnabled(false);
       setResearchMode('web-search');
       setActivePage('workspace');
       return;
@@ -590,6 +592,7 @@ export function App() {
               <span className="composer-hint">{messages.task.composerHint} · 输入 <code>/github</code> 打开本地 GitHub 协作窗口。</span>
               <div className="composer-actions">
                 <button aria-busy={directConversations.searching} aria-pressed={webSearchEnabled} className={`composer-web-search${webSearchEnabled ? ' active' : ''}${directConversations.searching ? ' loading' : ''}`} disabled={directConversations.searching} onClick={() => setWebSearchEnabled((current) => !current)} title={directConversations.searching ? '正在并行获取本轮检索与研究原始内容。' : webSearchEnabled ? '已开启：发送本轮消息时将执行所选后端并传递原始内容、来源与后端回执。' : '点击开启：仅为本轮发送显式执行所选检索或近 30 天研究。'} type="button">{directConversations.searching ? '⌕ 正在研究…' : webSearchEnabled ? researchMode === 'web-search' ? '⌕ 联网检索已开启' : researchMode === 'hybrid' ? '⌕ 混合检索已开启' : researchMode === 'last30days-cn' ? '⌕ 中文近 30 天研究已开启' : '⌕ 近 30 天研究已开启' : '⌕ 联网检索'}</button>
+                <button aria-pressed={workspaceToolsEnabled} className={`composer-web-search${workspaceToolsEnabled ? ' active' : ''}`} onClick={() => setWorkspaceToolsEnabled((current) => !current)} title={workspaceToolsEnabled ? '已开启：本轮允许模型调用工作区文件工具（列目录 / 读文件 / 覆写已存在文件），所有操作限制在你选中的工作区内，最多 6 轮。' : '点击开启：本轮允许模型读写你已选中的工作区文件。未开启时模型只能对话，不能碰任何文件。'} type="button">{workspaceToolsEnabled ? '🛠 工作区工具已开启' : '🛠 工作区工具'}</button>
                 <label className="authority-select">
                   <span>研究后端</span>
                   <select aria-label="选择本轮研究后端" disabled={directConversations.searching} onChange={(event) => setResearchMode(event.target.value as 'web-search' | Last30DaysMode | 'hybrid' | 'searxng-local')} value={researchMode}>
