@@ -12,8 +12,10 @@ on:
 permissions:
   contents: read
 
+# Grouped at the workflow level on purpose: job-level concurrency is evaluated
+# before the matrix expands, so referencing matrix.* there makes the file invalid.
 concurrency:
-  group: node-matrix-${{ github.ref }}-${{ matrix.node-version }}
+  group: node-matrix-${{ github.ref }}
   cancel-in-progress: true
 
 # The workspaces declare no engines constraint, so nothing stops a contributor from

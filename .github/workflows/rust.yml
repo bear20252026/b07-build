@@ -12,8 +12,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+# Grouped at the workflow level on purpose: job-level concurrency is evaluated
+# before the matrix expands, so referencing matrix.* there makes the file invalid.
 concurrency:
-  group: rust-${{ github.ref }}-${{ matrix.crate }}-${{ matrix.os }}
+  group: rust-${{ github.ref }}
   cancel-in-progress: true
 
 # One job per crate so a formatting nit in the native host helper cannot hide a
