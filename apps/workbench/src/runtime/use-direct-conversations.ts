@@ -428,8 +428,10 @@ export function useDirectConversations(): DirectConversations {
         completionModel = completion.model;
       }
       recordProviderDiagnostic({ providerId: selection.providerId, model: completionModel ?? selection.model, stage: 'chat', outcome: 'succeeded', startedAt: providerStartedAt, firstByteAt, outputCharacters: output.length, conversationId, includedImages: images.length > 0, traceId: providerTraceId });
-      if (streamRefreshTimer !== undefined) { window.clearTimeout(streamRefreshTimer); streamRefreshTimer = undefined; }
-      refreshStream();
+      if (streamRefreshTimer !== undefined) { window.clearTimeout(streamRefreshTimer); streamRefreshTimer = undefined; refreshStream(); }
+      // Agent 回合的最后一次刷新可能已经随防抖计时器跑掉了，而之后的轮次上限提示还没渲染；
+      // 普通聊天则保持原样：模型一个字都没回时不硬塞一条占位消息。
+      else if (useWorkspaceTools) refreshStream();
       update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== streamingMessageId ? message : { ...message, ...(completionModel ? { model: completionModel } : {}) }), updatedAt: Date.now() })));
       return true;
     } catch (nextError: unknown) {
