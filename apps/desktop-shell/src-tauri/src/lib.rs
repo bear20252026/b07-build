@@ -27,6 +27,8 @@ mod searxng_local;
 mod terminal;
 #[cfg(not(mobile))]
 mod web_search;
+#[cfg(not(mobile))]
+mod workspace_files;
 
 #[cfg(not(mobile))]
 use std::{path::PathBuf, sync::Mutex};
@@ -297,6 +299,9 @@ pub fn run() {
             file_extract::extract_file_content,
             project_memory::read_project_memory,
             project_memory::write_project_memory,
+            workspace_files::workspace_list_files,
+            workspace_files::workspace_read_file,
+            workspace_files::workspace_write_file,
             assistant_artifacts::save_assistant_markdown_artifact,
             assistant_artifacts::read_assistant_markdown_artifact,
             assistant_artifacts::export_assistant_markdown_artifact,
