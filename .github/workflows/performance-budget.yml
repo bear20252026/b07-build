@@ -1,0 +1,41 @@
+name: Workbench performance budget
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-budget-${{ github.ref }}
+  cancel-in-progress: true
+
+# The workbench entry bundle is what the desktop shell loads before anything else,
+# so its size is an input-latency budget, not a cosmetic metric. This runs the real
+# production build rather than estimating from source.
+
+jobs:
+  budget:
+    name: Build workbench and enforce bundle budgets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked workspace dependencies
+        run: npm ci
+
+      - name: Build the workbench bundle
+        run: npm run build --workspace=@awo/workbench
+
+      - name: Enforce entry JavaScript and CSS budgets
+        run: node tools/performance-budget.mjs

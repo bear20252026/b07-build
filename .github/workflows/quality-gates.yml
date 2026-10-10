@@ -5,51 +5,92 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: quality-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+# This workflow is the fast feedback gate: types, module boundaries, unit tests,
+# dependency advisories, and sidecar syntax. Slower gates (Rust matrix, workbench
+# build budget, Node compatibility) live in their own workflows so a failure here
+# points at one thing instead of burying it in a long log.
+
 jobs:
   typescript:
-    name: TypeScript architecture, tests, and build
+    name: TypeScript types, architecture, and unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run architecture:check
-      - run: npm run typecheck
-      - run: npm run test
-      - run: npm run build --workspace=@awo/workbench
-      - run: node tools/performance-budget.mjs
-      - run: npm audit --omit=dev --audit-level=high
+      - name: Check out source
+        uses: actions/checkout@v7
 
-  rust:
-    name: Rust supervisor quality
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked workspace dependencies
+        run: npm ci
+
+      - name: Check module boundaries
+        run: npm run architecture:check
+
+      # tsconfig.base.json only includes packages/* and apps/*/src, and it has no JSX
+      # settings, so it silently skips every .tsx file in the workbench. Each app
+      # runs its own project here: the workbench owns its React surface, and the
+      # desktop shell owns its test directory.
+      - name: Check TypeScript types (shared packages and app sources)
+        run: npm run typecheck
+
+      - name: Check TypeScript types (workbench React surface)
+        run: npm run typecheck --workspace=@awo/workbench
+
+      - name: Check TypeScript types (desktop shell contract tests)
+        run: npm run desktop:typecheck
+
+      - name: Check desktop release version consistency
+        run: npm run version:check
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+  dependency-audit:
+    name: Production dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
         with:
-          components: rustfmt, clippy
-      - working-directory: crates/process-supervisor
-        run: cargo fmt --check
-      - working-directory: crates/process-supervisor
-        run: cargo check
-      - working-directory: crates/process-supervisor
-        run: cargo test
-      - working-directory: crates/process-supervisor
-        run: cargo clippy -- -D warnings
+          node-version: 24
+          cache: npm
+
+      # npm audit resolves the dependency tree from package-lock.json, so the
+      # pinned fast-uri version is what keeps this gate green. Install first so the
+      # lockfile is provably in sync with package.json before it is audited.
+      - name: Install locked workspace dependencies
+        run: npm ci
+
+      - name: Fail on high or critical advisories
+        run: npm audit --omit=dev --audit-level=high
 
   python:
     name: Python sidecar syntax
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m compileall -q sidecars
+
+      - name: Compile sidecars
+        run: python -m compileall -q sidecars

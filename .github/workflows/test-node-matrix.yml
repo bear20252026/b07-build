@@ -1,0 +1,45 @@
+name: Node version compatibility
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+  workflow_dispatch:
+  # Weekly re-run so upstream dependency drift is caught even on a quiet week.
+  schedule:
+    - cron: '0 3 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: node-matrix-${{ github.ref }}-${{ matrix.node-version }}
+  cancel-in-progress: true
+
+# The workspaces declare no engines constraint, so nothing stops a contributor from
+# landing code that only works on the Node version installed locally. Running the
+# suite on both the active LTS and the current line keeps that honest.
+
+jobs:
+  unit-tests:
+    name: Unit tests on Node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install locked workspace dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test:unit

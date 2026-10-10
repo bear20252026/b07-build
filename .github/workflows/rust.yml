@@ -4,35 +4,79 @@ on:
   push:
     branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
-jobs:
-  build:
+concurrency:
+  group: rust-${{ github.ref }}-${{ matrix.crate }}-${{ matrix.os }}
+  cancel-in-progress: true
 
-    runs-on: ubuntu-latest
+# One job per crate so a formatting nit in the native host helper cannot hide a
+# test failure in the desktop shell. The desktop shell is the only entry that needs
+# system libraries, because it is the only one that links Tauri and WebKitGTK.
+
+jobs:
+  check:
+    name: ${{ matrix.crate }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - crate: crates/process-supervisor
+            os: ubuntu-latest
+            system-deps: false
+          - crate: crates/windows-native-host-helper
+            os: ubuntu-latest
+            system-deps: false
+          - crate: crates/windows-native-host-helper
+            os: windows-latest
+            system-deps: false
+          - crate: apps/desktop-shell/src-tauri
+            os: ubuntu-latest
+            system-deps: true
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.crate }}
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Install Tauri Linux build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
-          pkg-config \
-          libglib2.0-dev \
-          libgtk-3-dev \
-          libwebkit2gtk-4.1-dev \
-          libappindicator3-dev \
-          librsvg2-dev \
-          patchelf
-    - name: Check formatting
-      working-directory: apps/desktop-shell/src-tauri
-      run: cargo fmt --all -- --check
-    - name: Build desktop shell crate
-      working-directory: apps/desktop-shell/src-tauri
-      run: cargo build --locked --verbose
-    - name: Run desktop shell crate tests
-      working-directory: apps/desktop-shell/src-tauri
-      run: cargo test --locked --verbose
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up stable Rust with rustfmt and clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.crate }}
+
+      - name: Install Tauri Linux build dependencies
+        if: matrix.system-deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint with clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run tests against the committed lockfile
+        run: cargo test --locked
