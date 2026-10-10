@@ -13,6 +13,7 @@
     "architecture:check": "npm run architecture:dependencies && node tools/architecture-check.mjs",
     "version:check": "node tools/verify-desktop-release-version.mjs",
     "test": "npm run architecture:check && node tools/run-tests.mjs",
+    "test:unit": "node tools/run-tests.mjs",
     "benchmark:dag": "node --import tsx packages/agent-runtime/benchmark/dag-scheduler.bench.ts",
     "build": "npm run typecheck",
     "desktop:dev": "npm run dev --workspace=@awo/desktop-shell",
@@ -30,5 +31,8 @@
     "postject": "1.0.0-alpha.6",
     "tsx": "^4.23.12",
     "typescript": "^5.5.4"
+  },
+  "overrides": {
+    "fast-uri": "^3.1.8"
   }
 }
