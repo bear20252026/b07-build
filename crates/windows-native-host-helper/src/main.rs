@@ -141,6 +141,18 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
+fn error_response(code: &'static str) -> Response {
+    Response {
+        schema_version: PROTOCOL_VERSION,
+        request_id: "rejected".to_owned(),
+        ok: false,
+        result: ResultBody::Error { code },
+        can_execute: false,
+        can_authenticate: false,
+        can_manage_components: false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,17 +190,5 @@ mod tests {
             handle_payload(br#"{"schema_version":1,"request_id":"probe-3","command":"shell"}"#);
         assert!(!unknown_command.ok);
         assert!(!unknown_field.can_execute && !unknown_command.can_execute);
-    }
-}
-
-fn error_response(code: &'static str) -> Response {
-    Response {
-        schema_version: PROTOCOL_VERSION,
-        request_id: "rejected".to_owned(),
-        ok: false,
-        result: ResultBody::Error { code },
-        can_execute: false,
-        can_authenticate: false,
-        can_manage_components: false,
     }
 }

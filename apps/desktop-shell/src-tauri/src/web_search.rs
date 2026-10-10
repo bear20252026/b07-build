@@ -292,7 +292,6 @@ pub async fn search_web(request: WebSearchRequest) -> Result<WebSearchResponse, 
 mod tests {
     use super::{
         readable_page_text, result_text, sources_from_text, truncate_utf8, validate_query,
-        MAX_RESULTS,
     };
     #[test]
     fn parses_mcp_sse_content_without_inventing_sources() {

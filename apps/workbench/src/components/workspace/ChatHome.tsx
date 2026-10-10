@@ -149,6 +149,8 @@ const ConversationMessageCard = memo(function ConversationMessageCard({
   onOpenSearchSource(url: string): void;
   onPrepareSearchRetry(query: string, mode: SearchRunMode): void;
   onSaveAssistantArtifact(message: DirectConversationMessage): void;
+  /** 为 false 时隐藏“保存为 MD”入口（例如尚未落盘的流式消息）。 */
+  canSaveAssistantArtifacts?: boolean;
   savingAssistantArtifactId?: string;
 }>) {
   return <article className={`chat-home-message chat-home-message--${message.role}`}>
