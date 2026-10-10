@@ -1,7 +1,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { WorkspaceFileDescriptor } from './workspace-file-contract';
 
+/** 拒绝阈值：超过这个大小的文本文件不进入本轮上下文（沿用既有行为，不静默截断）。 */
 export const DIRECT_CHAT_MAX_ATTACHMENT_CONTENT_CHARS = 1_000_000;
+/**
+ * 截断阈值：在这之内保留全文；超过则只传前面的部分并**明确标注**。
+ * 与 ZCode 的做法一致（文本默认 128KB、硬上限 256KB）——宁可标注着截断，也不要让单个文件
+ * 吃掉整个上下文预算。120K 字符约等于默认窗口预算的三分之一，给其它内容留位置。
+ */
+export const DIRECT_CHAT_ATTACHMENT_TRUNCATION_CHARS = 120_000;
 
 export interface DirectChatAttachmentInput { readonly descriptor: WorkspaceFileDescriptor; readonly file: File; }
 export interface DirectChatImage { readonly mediaType: string; readonly base64Data: string; }
@@ -48,6 +55,11 @@ export async function readDirectChatAttachments(inputs: readonly DirectChatAttac
       const content = await file.text();
       if (!content.trim()) return { name: descriptor.name, mimeType, byteSize: descriptor.byteSize, included: false, reason: '文件没有可读取的文本内容。' };
       if (content.length > DIRECT_CHAT_MAX_ATTACHMENT_CONTENT_CHARS) return { name: descriptor.name, mimeType, byteSize: descriptor.byteSize, included: false, reason: '文件文本超过本轮 1M 字符上下文预算；未静默截断。' };
+      // 超过截断阈值不再整份拒绝：只传前段并显式标注，模型仍能用上文件开头，且不吃满预算。
+      if (content.length > DIRECT_CHAT_ATTACHMENT_TRUNCATION_CHARS) {
+        const kept = content.slice(0, DIRECT_CHAT_ATTACHMENT_TRUNCATION_CHARS);
+        return { name: descriptor.name, mimeType, byteSize: descriptor.byteSize, included: true, content: `${kept}\n…[文件已截断：原始 ${content.length.toLocaleString()} 字符，已传递前 ${DIRECT_CHAT_ATTACHMENT_TRUNCATION_CHARS.toLocaleString()} 字符。需要完整内容请分段发送或缩小文件。]` };
+      }
       return { name: descriptor.name, mimeType, byteSize: descriptor.byteSize, included: true, content };
     } catch {
       return { name: descriptor.name, mimeType, byteSize: descriptor.byteSize, included: false, reason: '无法读取此文件的本地文本内容。' };

@@ -9,6 +9,8 @@ import { createProviderTraceId, recordProviderDiagnostic } from './provider-diag
 import { attachmentContextText, attachmentImages, type DirectChatAttachmentContext } from './direct-chat-attachments';
 import { branchConversation, checkpointConversation, conversationJson, conversationMarkdown } from './conversation-workflow';
 import { recordSessionPerformance } from './session-performance-ledger';
+import { conversationStore } from './conversation-store';
+import { historyCharBudgetFor } from './context-budget';
 
 export interface DirectConversationSelection { readonly providerId: string; readonly model?: string; }
 export interface DirectConversationActivity { readonly kind: 'reasoning' | 'web-search' | 'research' | 'hybrid-search' | 'searxng' | 'attachment'; readonly text: string; readonly createdAt: number; readonly sources?: readonly WebSearchSource[]; }
@@ -22,7 +24,6 @@ const MAX_CONVERSATIONS = 32;
 const MAX_CHECKPOINTS = 64;
 const MAX_MESSAGES = 200;
 const MAX_PROVIDER_MESSAGES = 200;
-const MAX_PROVIDER_HISTORY_CHARS = 1_000_000;
 const AUTO_TEXT_FILE_THRESHOLD = 12_000;
 const STREAM_PERSIST_DELAY_MS = 280;
 const MAX_SEARCH_SOURCES_PER_TURN = 10;
@@ -103,11 +104,12 @@ export function mergeStreamingAssistantMessage(messages: readonly DirectConversa
 }
 
 /** 保持 user/assistant 顺序并仅传递会话可见文本；活动、密钥、URL 与项目 metadata 不进入 Provider 上下文。 */
-export function providerHistory(messages: readonly DirectConversationMessage[]): readonly DirectProviderMessage[] {
+export function providerHistory(messages: readonly DirectConversationMessage[], model?: string): readonly DirectProviderMessage[] {
+  const budget = historyCharBudgetFor(model);
   const tail = messages.slice(-MAX_PROVIDER_MESSAGES);
   let total = tail.reduce((length, message) => length + (message.context ?? message.text).length, 0);
   let start = 0;
-  while (total > MAX_PROVIDER_HISTORY_CHARS && start < tail.length - 1) { total -= (tail[start]!.context ?? tail[start]!.text).length; start += 1; }
+  while (total > budget && start < tail.length - 1) { total -= (tail[start]!.context ?? tail[start]!.text).length; start += 1; }
   return tail.slice(start).filter((message) => message.text !== '…').map((message) => ({ role: message.role, content: message.context ?? message.text }));
 }
 
@@ -211,6 +213,7 @@ export function useDirectConversations(): DirectConversations {
   const mountedRef = useRef(true);
   const deferredPersistTimer = useRef<number | undefined>(undefined);
   const deferredPersistSnapshot = useRef<readonly DirectConversation[] | undefined>(undefined);
+  const latestConversations = useRef<readonly DirectConversation[]>([]);
   useEffect(() => () => { mountedRef.current = false; }, []);
   const flushDeferredPersist = useCallback((): void => {
     if (deferredPersistTimer.current !== undefined) { window.clearTimeout(deferredPersistTimer.current); deferredPersistTimer.current = undefined; }
@@ -222,13 +225,38 @@ export function useDirectConversations(): DirectConversations {
     if (deferredPersistTimer.current !== undefined) return;
     deferredPersistTimer.current = window.setTimeout(() => { deferredPersistTimer.current = undefined; const next = deferredPersistSnapshot.current; deferredPersistSnapshot.current = undefined; if (next) persist(next); }, STREAM_PERSIST_DELAY_MS);
   }, []);
-  useEffect(() => () => { flushDeferredPersist(); }, [flushDeferredPersist]);
+  useEffect(() => () => { flushDeferredPersist(); if (latestConversations.current.length > 0) persist(latestConversations.current); }, [flushDeferredPersist]);
+  /** 原生 SQLite 账本优先；为空时把 localStorage 里的历史迁移一次，避免老用户丢会话。 */
+  useEffect(() => {
+    if (!conversationStore.available()) return;
+    void conversationStore.load().then((rows) => {
+      if (!mountedRef.current) return;
+      const stored = rows.map(safeConversation).filter((conversation): conversation is DirectConversation => Boolean(conversation));
+      if (stored.length === 0) {
+        load().forEach((conversation) => conversationStore.upsert(conversation));
+        return;
+      }
+      setConversations(stored);
+      latestConversations.current = stored;
+    });
+  }, []);
   const activeConversation = useMemo(() => conversations.find((conversation) => conversation.id === activeId), [activeId, conversations]);
 
-  const update = useCallback((transform: (current: readonly DirectConversation[]) => readonly DirectConversation[], persistence: 'immediate' | 'deferred' = 'immediate'): void => {
+  const update = useCallback((transform: (current: readonly DirectConversation[]) => readonly DirectConversation[], persistence: 'immediate' | 'deferred' | 'stream' = 'immediate'): void => {
     if (!mountedRef.current) return;
     setConversations((current) => {
     const next = [...transform(current)].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, MAX_CONVERSATIONS);
+    latestConversations.current = next;
+    // 'stream' 完全不落盘：流式期间每次写都会阻塞主线程。流式结束的 'immediate' 更新负责收尾。
+    if (persistence === 'stream') return next;
+    // 只写真正变动的会话（未改动的行保持引用不变），而不是重写整个账本。
+    const changed = next.filter((conversation) => !current.includes(conversation));
+    const removed = current.filter((conversation) => !next.some((candidate) => candidate.id === conversation.id));
+    if (conversationStore.available()) {
+      changed.forEach((conversation) => conversationStore.upsert(conversation));
+      removed.forEach((conversation) => conversationStore.remove(conversation.id));
+      return next;
+    }
     if (persistence === 'deferred') queueDeferredPersist(next); else { flushDeferredPersist(); persist(next); }
     return next;
     });
@@ -344,7 +372,7 @@ export function useDirectConversations(): DirectConversations {
     const streamingMessageId = nextId('message');
     const base: DirectConversation = existing ?? { schemaVersion: 1, id: conversationId, title: titleFor(text), selection, messages: [], ...(validProjectId(projectId) ? { projectId } : {}), createdAt: now, updatedAt: now };
     const providerUserMessage = providerContext === durableContext ? userMessage : { ...userMessage, context: providerContext };
-    const history = providerHistory([...base.messages, providerUserMessage]);
+    const history = providerHistory([...base.messages, providerUserMessage], selection.model);
     const lastMessage = history.at(-1);
     const messagesForProvider = lastMessage ? [...history.slice(0, -1), { ...lastMessage, ...(images.length ? { images } : {}) }] : history;
     update((current) => [{ ...base, selection, title: base.messages.length === 0 ? titleFor(text) : base.title, messages: [...base.messages, userMessage].slice(-MAX_MESSAGES), updatedAt: now }, ...current.filter((item) => item.id !== conversationId)]);
@@ -357,7 +385,7 @@ export function useDirectConversations(): DirectConversations {
     try {
       const refreshStream = () => {
         const startedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
-        update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: mergeStreamingAssistantMessage(conversation.messages, streamingAssistantMessage(streamingMessageId, output, now, selection.model, reasoning)), updatedAt: Date.now() })), 'deferred');
+        update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: mergeStreamingAssistantMessage(conversation.messages, streamingAssistantMessage(streamingMessageId, output, now, selection.model, reasoning)), updatedAt: Date.now() })), 'stream');
         const endedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
         recordSessionPerformance({ kind: 'stream-refresh', elapsedMs: endedAt - startedAt, conversationCount: conversations.length, messageCount: Math.min(MAX_MESSAGES, (base.messages.length + 2)), renderedMessageCount: Math.min(60, base.messages.length + 2) });
       };

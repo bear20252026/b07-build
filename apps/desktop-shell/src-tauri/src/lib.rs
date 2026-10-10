@@ -7,6 +7,8 @@
 
 #[cfg(not(mobile))]
 mod assistant_artifacts;
+#[cfg(not(mobile))]
+mod conversation_store;
 mod direct_provider;
 mod external_url;
 #[cfg(not(mobile))]
@@ -279,6 +281,9 @@ pub fn run() {
             direct_provider::discover_direct_provider,
             direct_provider::probe_direct_provider,
             direct_provider::start_direct_provider_stream,
+            conversation_store::conversation_store_load,
+            conversation_store::conversation_store_upsert,
+            conversation_store::conversation_store_remove,
             external_url::open_external_url,
             web_search::search_web,
             last30days::run_last30days_research,
