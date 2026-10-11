@@ -87,7 +87,7 @@ struct TerminalDoneEvent {
     error: Option<String>,
 }
 
-fn valid_run_id(value: &str) -> bool {
+pub(crate) fn valid_run_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
         && value
@@ -252,7 +252,7 @@ fn requires_confirmation(command: &str) -> bool {
 /// Windows 上 npm/pnpm/npx/yarn 是 `.cmd` 垫片，CreateProcess 找不到它们，
 /// 所以这里把 `.exe` 与 `.cmd`/`.bat` 都搜出来；`.cmd`/`.bat` 由 Rust 标准库
 /// 按 BatBadBut 修复后的方式经 cmd.exe 逐参数转义执行，参数不再整串进 shell。
-fn resolve_executable(name: &str) -> Option<PathBuf> {
+pub(crate) fn resolve_executable(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     let candidates: &[&str] = if cfg!(target_os = "windows") {
         &["exe", "cmd", "bat"]

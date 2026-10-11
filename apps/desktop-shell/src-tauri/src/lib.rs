@@ -34,6 +34,7 @@ mod workspace_approval;
 mod workspace_files;
 #[cfg(not(mobile))]
 mod workspace_index;
+mod zcode_process;
 
 #[cfg(not(mobile))]
 use std::{path::PathBuf, sync::Mutex};
@@ -285,6 +286,7 @@ pub fn run() {
         .manage(WorkspaceDirectoryState(Mutex::new(None)))
         .manage(workspace_approval::WorkspaceApprovalState::new())
         .manage(workspace_index::WorkspaceIndexState::new())
+        .manage(zcode_process::ZCodeProcessState::new())
         .invoke_handler(tauri::generate_handler![
             direct_provider::configure_direct_provider,
             direct_provider::discover_direct_provider,
@@ -316,6 +318,9 @@ pub fn run() {
             workspace_index::workspace_build_index,
             workspace_index::workspace_search_files,
             workspace_index::workspace_project_map,
+            zcode_process::start_zcode_agent,
+            zcode_process::zcode_write_stdin,
+            zcode_process::stop_zcode_agent,
             assistant_artifacts::save_assistant_markdown_artifact,
             assistant_artifacts::read_assistant_markdown_artifact,
             assistant_artifacts::export_assistant_markdown_artifact,

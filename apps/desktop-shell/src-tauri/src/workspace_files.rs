@@ -68,7 +68,7 @@ pub struct WorkspaceFileContent {
     pub truncated: bool,
 }
 
-fn selected_root(state: &State<'_, WorkspaceDirectoryState>) -> Result<PathBuf, &'static str> {
+pub(crate) fn selected_root(state: &State<'_, WorkspaceDirectoryState>) -> Result<PathBuf, &'static str> {
     state
         .0
         .lock()
