@@ -13,6 +13,7 @@ import { conversationStore } from './conversation-store';
 import { historyCharBudgetFor } from './context-budget';
 import { runAgentTurn } from './agent-tool-loop';
 import { executeWorkspaceTool, WORKSPACE_TOOLS, type WorkspaceWriteApprovalRequest } from './workspace-tools';
+import { buildWorkspaceIndex, projectMapContextText, readWorkspaceProjectMap, workspaceIndexErrorText } from './workspace-index';
 
 export interface DirectConversationSelection { readonly providerId: string; readonly model?: string; }
 export interface DirectConversationActivity { readonly kind: 'reasoning' | 'web-search' | 'research' | 'hybrid-search' | 'searxng' | 'attachment' | 'tool'; readonly text: string; readonly createdAt: number; readonly sources?: readonly WebSearchSource[]; }
@@ -393,8 +394,29 @@ export function useDirectConversations(): DirectConversations {
       const memory = await projectMemoryClient.read();
       if (memory.selected && memory.content.trim()) projectMemory = `\n\n以下是当前项目的持久记忆文件内容。把它作为项目约定与事实参考；如与用户本轮明确要求冲突，以用户本轮要求为准。\n\n${memory.content}`;
     } catch { /* The current conversation remains usable if no workspace or memory file is available. */ }
-    const providerContext = `${durableContext}${projectMemory}${supplementaryContext}`;
-    const userMessage: DirectConversationMessage = { id: nextId('message'), role: 'user', text, ...(durableContext !== text ? { context: durableContext } : {}), createdAt: now, ...(searchActivity || researchActivity || hybridActivity || searxngActivity || attachmentActivity || autoTextActivity ? { activities: [searchActivity, researchActivity, hybridActivity, searxngActivity, autoTextActivity, attachmentActivity].filter((activity): activity is DirectConversationActivity => Boolean(activity)) } : {}) };
+    // Agent 回合的关键差别：模型第一轮拿到的是整个项目的**路径骨架**，而不是用户手工粘贴的
+    // 几个文件全文。它想看哪份内容自己按需读，上下文不再被少数几个大文件吃满。
+    // 每轮强制重建索引：用户随时可能在编辑器里改文件，拿过期索引去指路比慢一点更糟。
+    let projectMapContext = '';
+    let indexActivity: DirectConversationActivity | undefined;
+    if (useWorkspaceTools) {
+      try {
+        const snapshot = await buildWorkspaceIndex(true);
+        projectMapContext = projectMapContextText(await readWorkspaceProjectMap());
+        // 让用户看得见这一轮模型到底看到了多大的项目，以及排除规则来自哪里。
+        indexActivity = {
+          kind: 'tool',
+          text: `已重建工作区索引：${snapshot.fileCount} 个文件 / ${snapshot.directoryCount} 个目录（${snapshot.durationMs} ms），排除规则来源：${snapshot.ignoreRulesActive ? '.novaignore / .gitignore' : '内置黑名单'}。`,
+          createdAt: now,
+        };
+      } catch (indexError: unknown) {
+        // 索引失败也必须如实进入上下文：否则模型会以为项目里什么都没有，然后凭空编造路径。
+        projectMapContext = `\n\n--- 项目地图 ---\n${workspaceIndexErrorText(indexError)}\n--- 项目地图结束 ---`;
+        indexActivity = { kind: 'tool', text: workspaceIndexErrorText(indexError), createdAt: now };
+      }
+    }
+    const providerContext = `${durableContext}${projectMemory}${supplementaryContext}${projectMapContext}`;
+    const userMessage: DirectConversationMessage = { id: nextId('message'), role: 'user', text, ...(durableContext !== text ? { context: durableContext } : {}), createdAt: now, ...(searchActivity || researchActivity || hybridActivity || searxngActivity || attachmentActivity || autoTextActivity || indexActivity ? { activities: [searchActivity, researchActivity, hybridActivity, searxngActivity, autoTextActivity, indexActivity, attachmentActivity].filter((activity): activity is DirectConversationActivity => Boolean(activity)) } : {}) };
     const streamingMessageId = nextId('message');
     const base: DirectConversation = existing ?? { schemaVersion: 1, id: conversationId, title: titleFor(text), selection, messages: [], ...(validProjectId(projectId) ? { projectId } : {}), createdAt: now, updatedAt: now };
     const providerUserMessage = providerContext === durableContext ? userMessage : { ...userMessage, context: providerContext };

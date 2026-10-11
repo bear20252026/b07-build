@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { DirectProviderTool } from './direct-provider-client';
+import { nativeErrorCode, searchResultText, searchWorkspaceFiles } from './workspace-index';
 
 /**
  * 工作区文件工具：Agent 的第一组真实能力。
@@ -17,8 +18,21 @@ const MAX_TOOL_RESULT_CHARS = 60_000;
 
 export const WORKSPACE_TOOLS: readonly DirectProviderTool[] = [
   {
+    name: 'workspace_search_files',
+    description: '按文件名或路径片段在工作区索引里搜索，返回最匹配的若干条路径及其体积。找文件请**优先用这个**，不要把 recursive 列目录当搜索引擎用——后者只适合确认某一层到底有什么。匹配不到时试试更短的关键词。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '要搜索的文件名或路径片段，例如 agent-tool-loop 或 runtime/agent。' },
+        limit: { type: 'number', description: '最多返回多少条，默认 20，最大 100。' },
+      },
+      required: ['query'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'workspace_list_files',
-    description: '列出当前工作区内的文件和目录。返回相对工作区根的路径，路径可直接用于读取文件。默认只列一层，需要全貌时把 recursive 设为 true。',
+    description: '列出工作区内某一层的文件和目录。返回相对工作区根的路径，路径可直接用于读取文件。默认只列一层；不要用 recursive 去“找文件”，那会把上下文铺满，找文件请用 workspace_search_files。',
     parameters: {
       type: 'object',
       properties: {
@@ -80,13 +94,7 @@ const WORKSPACE_ERRORS: Readonly<Record<string, string>> = {
 export function workspaceToolErrorText(error: unknown): string {
   // 原生 Result 的 Err 变体会作为字符串 reject；但 Tauri 也可能把它包成 { message }，
   // 两种形态都要认，否则一个包装差异就会让所有错误退化成“未知错误”。
-  const raw = typeof error === 'string'
-    ? error
-    : error instanceof Error
-      ? error.message
-      : typeof (error as { message?: unknown } | null | undefined)?.message === 'string'
-        ? (error as { message: string }).message
-        : '';
+  const raw = nativeErrorCode(error);
   return WORKSPACE_ERRORS[raw] ?? `工具执行失败：${raw || '未知错误'}。请如实告诉用户，不要假装成功。`;
 }
 
@@ -108,6 +116,14 @@ export function parseToolArguments(raw: string): Record<string, unknown> | undef
 function stringArgument(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   return typeof value === 'string' ? value : '';
+}
+
+/** 搜索是唯一能“先定位再读取”的入口，因此它不读文件内容，只回路径清单。 */
+async function searchFiles(args: Record<string, unknown>): Promise<string> {
+  const query = stringArgument(args, 'query').trim();
+  if (!query) return '缺少 query 参数：请给出要搜索的文件名或路径片段。';
+  const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.trunc(args.limit) : undefined;
+  return searchResultText(await searchWorkspaceFiles(query, limit));
 }
 
 async function listFiles(args: Record<string, unknown>): Promise<string> {
@@ -161,12 +177,13 @@ async function writeFile(args: Record<string, unknown>, approve: WorkspaceWriteA
  * 抛异常会让整个 Agent 回合中断，模型也就失去了自我修正的机会。
  */
 export async function executeWorkspaceTool(name: string, rawArguments: string, approveWrite?: WorkspaceWriteApprover): Promise<string> {
-  if (!['workspace_list_files', 'workspace_read_file', 'workspace_write_file'].includes(name)) {
-    return `未知工具 ${name}。可用工具：workspace_list_files、workspace_read_file、workspace_write_file。`;
+  if (!['workspace_search_files', 'workspace_list_files', 'workspace_read_file', 'workspace_write_file'].includes(name)) {
+    return `未知工具 ${name}。可用工具：workspace_search_files、workspace_list_files、workspace_read_file、workspace_write_file。`;
   }
   const args = parseToolArguments(rawArguments);
   if (!args) return `工具 ${name} 的参数不是合法 JSON：${truncate(rawArguments, 200)}。请重新发起调用并给出合法 JSON。`;
   try {
+    if (name === 'workspace_search_files') return await searchFiles(args);
     if (name === 'workspace_list_files') return await listFiles(args);
     if (name === 'workspace_read_file') return await readFile(args);
     return await writeFile(args, approveWrite);

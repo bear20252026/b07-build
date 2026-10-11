@@ -3,7 +3,7 @@ import test from 'node:test';
 import { executeWorkspaceTool, parseToolArguments, workspaceToolErrorText, WORKSPACE_TOOLS } from '../src/runtime/workspace-tools';
 
 test('工具声明符合客户端校验规则', () => {
-  assert.equal(WORKSPACE_TOOLS.length, 3);
+  assert.equal(WORKSPACE_TOOLS.length, 4);
   for (const tool of WORKSPACE_TOOLS) {
     // 客户端 stream() 会按这条规则拒绝工具名。
     assert.match(tool.name, /^[A-Za-z0-9_-]{1,64}$/, `工具名不合法：${tool.name}`);
@@ -11,12 +11,19 @@ test('工具声明符合客户端校验规则', () => {
     assert.equal(Array.isArray(tool.parameters), false);
     assert.equal(tool.parameters.type, 'object');
   }
-  assert.deepEqual(WORKSPACE_TOOLS.map((tool) => tool.name), ['workspace_list_files', 'workspace_read_file', 'workspace_write_file']);
+  assert.deepEqual(WORKSPACE_TOOLS.map((tool) => tool.name), ['workspace_search_files', 'workspace_list_files', 'workspace_read_file', 'workspace_write_file']);
 });
 
 test('写文件必须声明必填参数，避免模型凭空写入', () => {
   const write = WORKSPACE_TOOLS.find((tool) => tool.name === 'workspace_write_file');
   assert.deepEqual(write?.parameters.required, ['path', 'content']);
+});
+
+test('搜索工具必须要求 query，否则模型会拿它当“列全部”用', () => {
+  const search = WORKSPACE_TOOLS.find((tool) => tool.name === 'workspace_search_files');
+  assert.deepEqual(search?.parameters.required, ['query']);
+  // 描述里必须明确压过 recursive 列目录，否则模型会退化成铺满上下文的老路子。
+  assert.match(search?.description ?? '', /优先/);
 });
 
 test('参数解析能接受空串、对象，并拒绝非对象', () => {
@@ -51,6 +58,10 @@ const invokeCalls: { readonly cmd: string; readonly args: Record<string, unknown
       invokeCalls.push({ cmd, args });
       if (cmd === 'workspace_read_file') return { path: args.path, content: 'old content', byteSize: 11, truncated: false };
       if (cmd === 'workspace_write_file') return { path: args.path, content: args.content, byteSize: String(args.content).length, truncated: false };
+      if (cmd === 'workspace_search_files') {
+        const query = String(args.query ?? '');
+        return { query, hits: query.includes('app') ? [{ path: 'src/app.ts', name: 'app.ts', kind: 'file', byteSize: 2048, score: 800 }] : [], scanned: 1234, truncatedIndex: false };
+      }
       throw new Error(`unexpected command: ${cmd}`);
     },
   },
@@ -85,6 +96,25 @@ test('目标内容与原文完全相同时跳过写入，不惊动用户', async
   assert.match(message, /完全一致/);
   assert.equal(asked, false);
   assert.equal(invokeCalls.some((call) => call.cmd === 'workspace_write_file'), false);
+});
+
+test('搜索命中时返回带体积的路径清单，供模型直接引用读取', async () => {
+  invokeCalls.length = 0;
+  const message = await executeWorkspaceTool('workspace_search_files', '{"query":"app","limit":5}');
+  assert.match(message, /命中 1 条/);
+  assert.match(message, /src\/app\.ts/);
+  assert.match(message, /2\.0 KB/);
+  assert.deepEqual(invokeCalls[0]?.args, { query: 'app', limit: 5 });
+});
+
+test('搜索无命中时给出下一步而不是让模型瞎猜路径', async () => {
+  const message = await executeWorkspaceTool('workspace_search_files', '{"query":"zzz"}');
+  assert.match(message, /没有找到/);
+  assert.match(message, /workspace_list_files/);
+});
+
+test('搜索缺 query 时直接拒绝，不允许它退化成列全部', async () => {
+  assert.match(await executeWorkspaceTool('workspace_search_files', '{}'), /缺少 query/);
 });
 
 test('错误码翻译成可执行的提示，绝不含糊其辞', () => {

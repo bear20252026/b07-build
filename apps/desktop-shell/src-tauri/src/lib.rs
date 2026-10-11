@@ -29,6 +29,8 @@ mod terminal;
 mod web_search;
 #[cfg(not(mobile))]
 mod workspace_files;
+#[cfg(not(mobile))]
+mod workspace_index;
 
 #[cfg(not(mobile))]
 use std::{path::PathBuf, sync::Mutex};
@@ -278,6 +280,7 @@ pub fn run() {
         .manage(searxng_local::SearxngState::new())
         .manage(terminal::TerminalRunState::new())
         .manage(WorkspaceDirectoryState(Mutex::new(None)))
+        .manage(workspace_index::WorkspaceIndexState::new())
         .invoke_handler(tauri::generate_handler![
             direct_provider::configure_direct_provider,
             direct_provider::discover_direct_provider,
@@ -302,6 +305,9 @@ pub fn run() {
             workspace_files::workspace_list_files,
             workspace_files::workspace_read_file,
             workspace_files::workspace_write_file,
+            workspace_index::workspace_build_index,
+            workspace_index::workspace_search_files,
+            workspace_index::workspace_project_map,
             assistant_artifacts::save_assistant_markdown_artifact,
             assistant_artifacts::read_assistant_markdown_artifact,
             assistant_artifacts::export_assistant_markdown_artifact,
