@@ -88,6 +88,13 @@ const WORKSPACE_ERRORS: Readonly<Record<string, string>> = {
   'workspace-file-not-found': '目标文件不存在：只允许覆写已存在的文件，不能凭空创建。请告诉用户先创建该文件。',
   'workspace-file-unwritable': '文件写入失败（权限不足或已被占用）。',
   'workspace-directory-unreadable': '目录无法读取。',
+  'workspace-file-is-symlink': '该路径是一个符号链接。为了不读穿、不写穿工作区边界，链接本身被拒绝操作。请改用真实文件路径。',
+  'workspace-write-approval-required': '写入被拒绝：没有携带原生审批票据。文件写入必须先由用户在确认弹窗中批准，由系统签发票据后才能执行；不能绕过确认直接写文件。',
+  'workspace-write-approval-invalid': '写入被拒绝：审批票据无效或已过期。请重新展示改动并等待用户确认，不要重试同一张票据。',
+  'workspace-write-approval-mismatch': '写入被拒绝：审批票据绑定的路径与实际写入目标不一致。请确认要写的文件后重新走确认流程。',
+  'workspace-write-approval-stale': '写入被拒绝：文件在用户批准之后又被其它程序改动了，批准时看到的原文已经不在磁盘上。请重新读取最新内容、重新展示差异并等待用户再次确认。',
+  'workspace-write-approval-content-mismatch': '写入被拒绝：实际要写入的内容与用户批准的内容不一致。必须原样写入被批准的内容，或重新走确认流程。',
+  'workspace-approval-digest-invalid': '无法签发写入票据：内容摘要不合法。请重试。',
 };
 
 /** 原生侧抛回来的是字符串错误码；其它形态（如 Tauri 包装对象）取 message 再做一次映射。 */
@@ -147,6 +154,12 @@ export interface WorkspaceWriteApprovalRequest { readonly path: string; readonly
 /** 向用户展示差异并等待决定。返回 false 表示拒绝。 */
 export interface WorkspaceWriteApprover { (request: WorkspaceWriteApprovalRequest): Promise<boolean>; }
 
+/** SHA-256 的十六进制摘要，用于把「用户批准的内容」绑定成原生票据。 */
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 async function writeFile(args: Record<string, unknown>, approve: WorkspaceWriteApprover | undefined): Promise<string> {
   const path = stringArgument(args, 'path').trim();
   const content = stringArgument(args, 'content');
@@ -163,8 +176,18 @@ async function writeFile(args: Record<string, unknown>, approve: WorkspaceWriteA
   }
   if (previous === content) return `${path} 的内容与目标内容完全一致，未写入。`;
   if (!await approve({ path, previous, next: content })) return `用户拒绝对 ${path} 的写入；未修改任何内容。请如实转告用户，并且不要再换别的方式尝试写入同一个文件。`;
+  // SEC-008：用户批准之后先到原生层领一张一次性写入票据。票据绑定
+  // 「原文摘要 + 目标内容摘要」，真正落盘由原生侧验证并原子消耗——
+  // 即使渲染层被绕过，没有票据的原生写入命令也会被拒绝。
+  let token: string;
   try {
-    const result = await invoke<FileResult>('workspace_write_file', { path, content });
+    const [previousSha256, nextSha256] = await Promise.all([sha256Hex(previous), sha256Hex(content)]);
+    token = await invoke<string>('workspace_stage_write_approval', { path, previousSha256, nextSha256 });
+  } catch (error: unknown) {
+    return workspaceToolErrorText(error);
+  }
+  try {
+    const result = await invoke<FileResult>('workspace_write_file', { path, content, approvalToken: token });
     return `已写入 ${result.path}（${result.byteSize} 字符）。`;
   } catch (error: unknown) {
     return workspaceToolErrorText(error);

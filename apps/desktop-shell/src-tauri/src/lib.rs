@@ -28,6 +28,8 @@ mod terminal;
 #[cfg(not(mobile))]
 mod web_search;
 #[cfg(not(mobile))]
+mod workspace_approval;
+#[cfg(not(mobile))]
 mod workspace_files;
 #[cfg(not(mobile))]
 mod workspace_index;
@@ -280,6 +282,7 @@ pub fn run() {
         .manage(searxng_local::SearxngState::new())
         .manage(terminal::TerminalRunState::new())
         .manage(WorkspaceDirectoryState(Mutex::new(None)))
+        .manage(workspace_approval::WorkspaceApprovalState::new())
         .manage(workspace_index::WorkspaceIndexState::new())
         .invoke_handler(tauri::generate_handler![
             direct_provider::configure_direct_provider,
@@ -305,6 +308,7 @@ pub fn run() {
             workspace_files::workspace_list_files,
             workspace_files::workspace_read_file,
             workspace_files::workspace_write_file,
+            workspace_approval::workspace_stage_write_approval,
             workspace_index::workspace_build_index,
             workspace_index::workspace_search_files,
             workspace_index::workspace_project_map,

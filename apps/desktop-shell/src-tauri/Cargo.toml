@@ -30,6 +30,8 @@ base64 = "0.22"
 pdf-extract = "0.7"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+sha2 = "0.10"
+rand = "0.8"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # AtomCode enables SChannel alongside Rustls on Windows because browser/curl-native traffic can

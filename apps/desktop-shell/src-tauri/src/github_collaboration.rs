@@ -34,6 +34,38 @@ fn valid_token(token: &str) -> bool {
     value.len() >= 20 && value.len() <= 4096 && !value.chars().any(char::is_whitespace)
 }
 
+/// 推送前检查已暂存文件名里的秘密凭据形态（SEC-010）。
+///
+/// `git add -A` 会把一切工作区改动都收进来；`git push` 只看提交不看语义。
+/// 在 add 与 commit 之间加一道文件名哨兵：`.env` / 私钥 / 证书这类文件
+/// 一旦被暂存就整次推送失败，让用户显式处理，而不是赌用户记得加 .gitignore。
+const SENSITIVE_STAGED_SUFFIXES: &[&str] = &[
+    ".pem", ".key", ".p12", ".pfx", ".jks", ".keystore",
+];
+const SENSITIVE_STAGED_NAMES: &[&str] = &[
+    ".env", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "credentials.json", "secrets.json",
+    ".npmrc", ".netrc",
+];
+
+fn sensitive_staged_file(staged: &str) -> bool {
+    for line in staged.lines() {
+        // `git diff --cached --name-only` 的每行是一个相对路径；重命名行带 \t 分隔，取最后一段。
+        let path = line.trim().rsplit('\t').next().unwrap_or(line.trim());
+        let lowered = path.trim_matches('"').to_ascii_lowercase();
+        let name = lowered.rsplit('/').next().unwrap_or(lowered.as_str());
+        if SENSITIVE_STAGED_NAMES.contains(&name) {
+            return true;
+        }
+        if SENSITIVE_STAGED_SUFFIXES
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
+        {
+            return true;
+        }
+    }
+    false
+}
+
 async fn git_output(
     state: &State<'_, WorkspaceDirectoryState>,
     args: &[&str],
@@ -179,8 +211,27 @@ pub async fn github_commit_and_push(
     if !add.status.success() {
         return Err("github-git-add-failed");
     }
+    // SEC-010：add -A 之后、commit 之前检查一遍刚暂存了什么。
+    // 秘密文件一旦进了提交，删除历史就是一场公开事故；这里直接拦在门内。
+    let staged = Command::new("git")
+        .args(["diff", "--cached", "--name-only"])
+        .current_dir(&workspace)
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .map_err(|_| "github-git-unavailable")?;
+    if !staged.status.success() {
+        return Err("github-git-unavailable");
+    }
+    if sensitive_staged_file(&String::from_utf8_lossy(&staged.stdout)) {
+        return Err("github-push-sensitive-files-staged");
+    }
+    // SEC-003 配套：commit 与 push 都加 --no-verify。
+    // 令牌经环境变量进入 git 进程，而 pre-commit / pre-push hook 是**被推送仓库里
+    // 的任意脚本**——不允许它在持有令牌的环境里执行。我们自己的确认流程
+    // （confirmed 参数）就是这里的人工闸门，不依赖仓库内的 hook。
     let commit = Command::new("git")
-        .args(["commit", "-m", commit_message])
+        .args(["commit", "--no-verify", "-m", commit_message])
         .current_dir(&workspace)
         .stdin(Stdio::null())
         .output()
@@ -194,7 +245,7 @@ pub async fn github_commit_and_push(
         STANDARD.encode(format!("x-access-token:{}", token.trim()))
     );
     let push = Command::new("git")
-        .args(["push", "origin", "HEAD"])
+        .args(["push", "--no-verify", "origin", "HEAD"])
         .current_dir(&workspace)
         .stdin(Stdio::null())
         .env("GIT_CONFIG_COUNT", "1")
@@ -211,7 +262,7 @@ pub async fn github_commit_and_push(
 
 #[cfg(test)]
 mod tests {
-    use super::valid_token;
+    use super::{sensitive_staged_file, valid_token};
 
     #[test]
     fn accepts_long_non_whitespace_personal_access_tokens() {
@@ -224,5 +275,18 @@ mod tests {
     fn rejects_short_or_whitespace_tokens() {
         assert!(!valid_token("too-short"));
         assert!(!valid_token("github_pat_with whitespace"));
+    }
+
+    #[test]
+    fn staged_secret_files_are_flagged() {
+        assert!(sensitive_staged_file(".env\nsrc/main.rs"));
+        assert!(sensitive_staged_file("src/main.rs\nconfig/server.pem"));
+        assert!(sensitive_staged_file("keys/id_rsa"));
+        assert!(sensitive_staged_file("deploy/keystore.jks"));
+        assert!(sensitive_staged_file("old\tsrc/.env"));
+        assert!(sensitive_staged_file("home/.npmrc"));
+        // 普通源码不得误伤。
+        assert!(!sensitive_staged_file("src/main.rs\npackages/ui/src/index.ts"));
+        assert!(!sensitive_staged_file("README.md"));
     }
 }

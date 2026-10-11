@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { executeWorkspaceTool, parseToolArguments, workspaceToolErrorText, WORKSPACE_TOOLS } from '../src/runtime/workspace-tools';
 
@@ -57,7 +58,19 @@ const invokeCalls: { readonly cmd: string; readonly args: Record<string, unknown
     invoke: async (cmd: string, args: Record<string, unknown>) => {
       invokeCalls.push({ cmd, args });
       if (cmd === 'workspace_read_file') return { path: args.path, content: 'old content', byteSize: 11, truncated: false };
-      if (cmd === 'workspace_write_file') return { path: args.path, content: args.content, byteSize: String(args.content).length, truncated: false };
+      if (cmd === 'workspace_stage_write_approval') {
+        // 模拟原生校验：票据必须绑定两条完整的 SHA-256 摘要。
+        const previous = String(args.previousSha256 ?? '');
+        const next = String(args.nextSha256 ?? '');
+        const hex = /^[0-9a-f]{64}$/;
+        if (!hex.test(previous) || !hex.test(next)) throw 'workspace-approval-digest-invalid';
+        return 'grant-token-123';
+      }
+      if (cmd === 'workspace_write_file') {
+        // 模拟原生 SEC-008：不带票据的写入命令直接拒绝。
+        if (!args.approvalToken) throw 'workspace-write-approval-required';
+        return { path: args.path, content: args.content, byteSize: String(args.content).length, truncated: false };
+      }
       if (cmd === 'workspace_search_files') {
         const query = String(args.query ?? '');
         return { query, hits: query.includes('app') ? [{ path: 'src/app.ts', name: 'app.ts', kind: 'file', byteSize: 2048, score: 800 }] : [], scanned: 1234, truncatedIndex: false };
@@ -77,7 +90,7 @@ test('用户拒绝时不写入，并如实告知模型', async () => {
   assert.equal(invokeCalls.some((call) => call.cmd === 'workspace_write_file'), false, '被拒绝后绝不能真的写');
 });
 
-test('用户批准后写入，且先读原文再写', async () => {
+test('用户批准后先领原生票据再写入（SEC-008 调用序）', async () => {
   invokeCalls.length = 0;
   const message = await executeWorkspaceTool('workspace_write_file', '{"path":"a.rs","content":"new"}', async (request) => {
     // 审批人必须能看到改动前的原文，否则无法判断该不该放行。
@@ -86,8 +99,22 @@ test('用户批准后写入，且先读原文再写', async () => {
     return true;
   });
   assert.match(message, /已写入 a\.rs/);
-  assert.deepEqual(invokeCalls.map((call) => call.cmd), ['workspace_read_file', 'workspace_write_file']);
+  assert.deepEqual(
+    invokeCalls.map((call) => call.cmd),
+    ['workspace_read_file', 'workspace_stage_write_approval', 'workspace_write_file'],
+    '写入前必须先签发票据：读原文 → 审批 → 领票 → 写入',
+  );
+  const staged = invokeCalls[1];
+  assert.equal(staged?.args.path, 'a.rs');
+  assert.equal(staged?.args.nextSha256, sha256Hex('new'), '票据必须绑定被批准的目标内容');
+  // 写入命令必须携带领到的票据，否则原生侧会拒绝。
+  assert.equal(invokeCalls[2]?.args.approvalToken, 'grant-token-123');
 });
+
+/** 与 workspace-tools.ts 内部实现一致的摘要函数，用于断言票据绑定的内容。 */
+function sha256Hex(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
 
 test('目标内容与原文完全相同时跳过写入，不惊动用户', async () => {
   invokeCalls.length = 0;

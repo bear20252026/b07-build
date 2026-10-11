@@ -332,8 +332,15 @@ pub fn build_index(root: &Path, ignore_rules: Option<&IgnoreRules>) -> Workspace
             .filter_map(|entry| entry.ok())
             .filter_map(|entry| {
                 let name = entry.file_name().to_string_lossy().to_string();
-                let metadata = fs::metadata(entry.path()).ok()?;
-                Some((entry.path(), name, metadata.is_dir(), metadata.len()))
+                // DirEntry::file_type() 不穿透符号链接（SEC-002）：目录符号链接
+                // 在这里现出原形并直接丢弃，跟随它就可能索引到工作区之外。
+                let file_type = entry.file_type().ok()?;
+                if file_type.is_symlink() {
+                    return None;
+                }
+                // DirEntry::metadata() 等价于 symlink_metadata，不跟随链接。
+                let metadata = entry.metadata().ok()?;
+                Some((entry.path(), name, file_type.is_dir(), metadata.len()))
             })
             .collect();
         // 同名排序，保证索引与地图输出稳定可复现。

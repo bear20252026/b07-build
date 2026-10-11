@@ -1,0 +1,18 @@
+feat(security): harden terminal, filesystem and git paths against native escape (SEC-001..011)
+
+- SEC-001/005/011 terminal: FORBIDDEN_OPERATORS now covers all shell syntax,
+  so commands are split into argv and spawned directly (no cmd /C / sh -lc);
+  PATH-resolved executables (Windows .cmd/.bat shims included); explicit
+  working directories must stay inside the workspace; atomic run_id
+  reservation plus once-only completion events.
+- SEC-002/004 filesystem: listings use DirEntry::file_type()/metadata()
+  (no symlink traversal); opens go through open_no_follow
+  (FILE_FLAG_OPEN_REPARSE_POINT / O_NOFOLLOW) with post-open handle
+  re-verification; the project index drops symlinks the same way.
+- SEC-008 approvals: native workspace_stage_write_approval mints one-time,
+  5-minute tokens bound to previous/next SHA-256; workspace_write_file
+  refuses to run without one and re-checks the on-disk previous hash so
+  third-party edits after approval are rejected as stale.
+- SEC-009 project memory: canonicalized path + no-follow reads/writes.
+- SEC-003/010 git: commit/push run with --no-verify; a staged-file sentinel
+  blocks .env/.pem/id_rsa/.npmrc-class secrets before commit.

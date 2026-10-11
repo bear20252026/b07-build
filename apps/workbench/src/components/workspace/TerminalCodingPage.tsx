@@ -8,7 +8,10 @@ const EXAMPLES = ['npm test', 'npm run build', 'cargo check', 'git status'];
 function errorText(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error ?? '');
   if (text.includes('terminal-command-confirmation-required')) return '该命令可能删除、提权或产生不可逆系统副作用。请勾选最后确认后再运行。';
-  if (text.includes('terminal-command-spawn-failed')) return 'Windows 无法启动命令解释器。请检查本机环境。';
+  if (text.includes('terminal-command-spawn-failed')) return '命令进程启动失败。请检查本机环境。';
+  if (text.includes('terminal-command-not-found')) return '命令没有在 PATH 里找到对应的可执行文件（终端现在直接启动白名单程序本身，不再经过命令解释器）。请确认工具已安装并在 PATH 中。';
+  if (text.includes('terminal-command-invalid')) return '命令无法解析为参数列表（例如引号未闭合）。请修正后重试。';
+  if (text.includes('terminal-workdir-escapes-workspace')) return '指定的工作目录不在当前工作区内，已被拒绝。';
   return text && !/[<{]/.test(text) ? text : '终端命令未能启动。';
 }
 
