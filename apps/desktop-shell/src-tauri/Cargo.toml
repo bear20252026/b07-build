@@ -32,6 +32,9 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 sha2 = "0.10"
 rand = "0.8"
+# SEC-006/007：API key 与 GitHub PAT 存入操作系统级凭据管理器（Windows Credential
+# Manager / macOS Keychain / Linux keyutils），不再落到 WebView 的 localStorage 明文。
+keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # AtomCode enables SChannel alongside Rustls on Windows because browser/curl-native traffic can

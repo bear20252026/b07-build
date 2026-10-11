@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
+import { useEffect } from 'react';
 import type { WorkbenchProviderConnection, WorkbenchProviderModelDiscovery } from '../../runtime/task-client';
 import { OFFICIAL_PROVIDER_PRESETS, type OfficialProviderPreset } from '../../runtime/official-provider-catalog';
+import { deleteCredential, loadCredential, storeCredential } from '../../runtime/credentials';
 import './ProviderSetupPage.css';
 
 type Protocol = 'openai-compatible' | 'anthropic-compatible';
@@ -9,25 +11,33 @@ function baseUrlFor(preset: OfficialProviderPreset, protocol: Protocol): string 
   return preset.defaultBaseUrls[protocol] ?? '';
 }
 
+/** SEC-006：表单预填密钥与账户密钥一样只存系统凭据管理器，localStorage 不再留明文。 */
 const SAVED_API_KEYS_STORAGE = 'awo.provider-api-keys.v1';
 
-type SavedApiKeys = Readonly<Record<string, string>>;
-
-function loadSavedApiKeys(): SavedApiKeys {
-  try {
-    const candidate: unknown = JSON.parse(window.localStorage.getItem(SAVED_API_KEYS_STORAGE) ?? '{}');
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return {};
-    return Object.fromEntries(Object.entries(candidate).filter(([id, key]) => /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id) && typeof key === 'string' && key.length <= 4096));
-  } catch { return {}; }
+function savedApiKeyAccount(providerId: string): string {
+  return `provider/${providerId}`;
 }
 
-function savedApiKey(providerId: string): string { return loadSavedApiKeys()[providerId] ?? ''; }
+/** 旧版 localStorage 明文密钥表一次性搬进凭据管理器，随后删除本地条目。 */
+async function ensureSavedKeysMigrated(): Promise<void> {
+  try {
+    const candidate: unknown = JSON.parse(window.localStorage.getItem(SAVED_API_KEYS_STORAGE) ?? '{}');
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return;
+    const legacy = Object.fromEntries(Object.entries(candidate as Record<string, unknown>).filter(([id, key]) => /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id) && typeof key === 'string' && Boolean(key) && key.length <= 4096)) as Record<string, string>;
+    if (Object.keys(legacy).length === 0) { window.localStorage.removeItem(SAVED_API_KEYS_STORAGE); return; }
+    for (const [id, key] of Object.entries(legacy)) await storeCredential(savedApiKeyAccount(id), key);
+    window.localStorage.removeItem(SAVED_API_KEYS_STORAGE);
+  } catch { /* 迁移失败不影响主流程。 */ }
+}
 
-function saveApiKey(providerId: string, apiKey: string): void {
-  const current = { ...loadSavedApiKeys() };
-  if (apiKey) current[providerId] = apiKey;
-  else delete current[providerId];
-  window.localStorage.setItem(SAVED_API_KEYS_STORAGE, JSON.stringify(current));
+async function loadSavedApiKey(providerId: string): Promise<string> {
+  await ensureSavedKeysMigrated();
+  return (await loadCredential(savedApiKeyAccount(providerId))) ?? '';
+}
+
+async function saveSavedApiKey(providerId: string, apiKey: string): Promise<void> {
+  if (apiKey) await storeCredential(savedApiKeyAccount(providerId), apiKey);
+  else await deleteCredential(savedApiKeyAccount(providerId));
 }
 
 export interface ProviderSetupPageProps {
@@ -51,12 +61,19 @@ export function ProviderSetupPage({ error, pendingProviderId, discoveredModels =
   const [model, setModel] = useState(firstPreset.defaultModel);
   const [baseUrl, setBaseUrl] = useState(baseUrlFor(firstPreset, 'openai-compatible'));
   const [baseUrlDirty, setBaseUrlDirty] = useState(false);
-  const [apiKey, setApiKey] = useState(() => savedApiKey(firstPreset.id));
+  const [apiKey, setApiKey] = useState('');
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const selected = useMemo(() => OFFICIAL_PROVIDER_PRESETS.find((item) => item.id === providerId) ?? firstPreset, [providerId, firstPreset]);
   const isSubmitting = pendingProviderId === (customMode ? 'custom' : providerId);
   const discovery = !customMode ? discoveredModels[providerId] : undefined;
+  // SEC-006：密钥从凭据管理器异步预填（目标切换时先清空旧输入，避免串号）。
+  const keyTarget = customMode ? 'custom' : providerId;
+  useEffect(() => {
+    let alive = true;
+    void loadSavedApiKey(keyTarget).then((secret) => { if (alive && secret) setApiKey(secret); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [keyTarget]);
 
   const choosePreset = (nextProviderId: string) => {
     const next = OFFICIAL_PROVIDER_PRESETS.find((item) => item.id === nextProviderId) ?? firstPreset;
@@ -68,7 +85,7 @@ export function ProviderSetupPage({ error, pendingProviderId, discoveredModels =
     setModel(next.defaultModel);
     setBaseUrl(baseUrlFor(next, nextProtocol));
     setBaseUrlDirty(false);
-    setApiKey(savedApiKey(next.id));
+    setApiKey('');
     setApiKeyVisible(false);
     setAdvancedOpen(false);
   };
@@ -79,7 +96,7 @@ export function ProviderSetupPage({ error, pendingProviderId, discoveredModels =
     setModel('my-compatible-model');
     setBaseUrl('');
     setBaseUrlDirty(false);
-    setApiKey(savedApiKey('custom'));
+    setApiKey('');
     setApiKeyVisible(false);
     setAdvancedOpen(false);
   };
@@ -99,7 +116,7 @@ export function ProviderSetupPage({ error, pendingProviderId, discoveredModels =
     } else {
       onConfigure(providerId, { displayName: displayName.trim(), model: model.trim(), baseUrl: baseUrl.trim(), protocol, apiKey });
     }
-    saveApiKey(customMode ? 'custom' : providerId, apiKey);
+    void saveSavedApiKey(customMode ? 'custom' : providerId, apiKey).catch(() => undefined);
   };
 
   return (
@@ -124,7 +141,7 @@ export function ProviderSetupPage({ error, pendingProviderId, discoveredModels =
           {!customMode && advancedOpen && <div className="provider-advanced-fields"><label><span>模型名称</span><input value={model} list={`official-models-${selected.id}`} maxLength={128} onChange={(event) => setModel(event.target.value)} placeholder={selected.defaultModel} /><datalist id={`official-models-${selected.id}`}>{selected.officialModels.map((item) => <option key={item} value={item} />)}</datalist></label><label><span>显示名称</span><input value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} placeholder={`我的 ${selected.title}`} /></label></div>}
           <label className="provider-base-url-field"><span>连接地址 / Base URL（{protocol === 'openai-compatible' ? 'OpenAI' : 'Anthropic'}）</span><input value={baseUrl} inputMode="url" maxLength={512} onChange={(event) => { setBaseUrl(event.target.value); setBaseUrlDirty(true); }} placeholder={customMode ? 'https://api.example.com/v1' : baseUrlFor(selected, protocol) || '按供应商文档填写 HTTPS Base URL'} /><small>填写供应商控制台给出的协议对应基础地址；不要输入完整 chat completion 或 messages 操作路径。</small></label>
           {!customMode && baseUrlFor(selected, protocol) && <button type="button" className="provider-default-url" title="用该供应商当前所选协议的官方默认 Base URL 覆盖本框内容。" onClick={restoreOfficialBaseUrl}>使用当前协议的官方默认地址</button>}
-          <label className="provider-key-field"><span>API key</span><div className="provider-key-input-row"><input value={apiKey} type={apiKeyVisible ? 'text' : 'password'} autoComplete="off" onChange={(event) => { const next = event.target.value; setApiKey(next); saveApiKey(customMode ? 'custom' : providerId, next); }} placeholder="粘贴 API key" /><button type="button" onClick={() => setApiKeyVisible((visible) => !visible)}>{apiKeyVisible ? '隐藏' : '显示'}</button><button type="button" onClick={() => { setApiKey(''); saveApiKey(customMode ? 'custom' : providerId, ''); }}>清除</button></div><small>按你的要求，密钥保存在此 Windows 用户的本地应用存储中，可随时显示；预置和自定义连接使用同一保存方式。</small></label>
+          <label className="provider-key-field"><span>API key</span><div className="provider-key-input-row"><input value={apiKey} type={apiKeyVisible ? 'text' : 'password'} autoComplete="off" onChange={(event) => setApiKey(event.target.value)} onBlur={() => { void saveSavedApiKey(customMode ? 'custom' : providerId, apiKey).catch(() => undefined); }} placeholder="粘贴 API key" /><button type="button" onClick={() => setApiKeyVisible((visible) => !visible)}>{apiKeyVisible ? '隐藏' : '显示'}</button><button type="button" onClick={() => { setApiKey(''); void saveSavedApiKey(customMode ? 'custom' : providerId, '').catch(() => undefined); }}>清除</button></div><small>密钥保存在当前 Windows 用户的系统凭据管理器中（失焦时保存），可随时显示；预置和自定义连接使用同一保存方式。</small></label>
           {apiKey.trimStart().startsWith('tp-') && <p className="provider-compatibility-note">已识别 MiMo Token Plan `tp-` 密钥：即使使用“自定义 API”，桌面直连也会使用官方 `api-key` 请求头；不经 本机能力服务，也无需手填认证头。</p>}
           {!customMode && <div className="provider-model-discovery"><div><strong>可用模型</strong><p>连接后可按当前协议、地址和会话密钥查询；查询不到时仍可按供应商文档手动填写模型名称。</p></div><button type="button" title="按当前已连接会话的协议、Base URL 和 API key 查询公开模型列表。" disabled={isSubmitting} onClick={() => onDiscoverModels(providerId)}>{isSubmitting ? '正在查询…' : '查询模型'}</button>{discovery?.outcome === 'reachable' && discovery.models.length === 0 && <span className="provider-model-manual">该服务未提供标准模型列表，请手动填写模型名称。</span>}{discovery && discovery.models.length > 0 && <div className="provider-model-options" aria-label="查询到的模型">{discovery.models.map((item) => <button type="button" key={item} title={`使用 ${item} 作为本次连接的模型名称。`} onClick={() => { setModel(item); setAdvancedOpen(true); }}>{item}</button>)}</div>}</div>}
         </div>

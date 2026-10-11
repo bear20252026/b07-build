@@ -16,7 +16,7 @@ function errorText(error: unknown): string {
 }
 
 export function GitHubCollaborationPanel() {
-  const [token, setToken] = useState(() => loadGithubCollaborationPreferences().token);
+  const [token, setToken] = useState('');
   const [identity, setIdentity] = useState<GithubIdentity>();
   const [status, setStatus] = useState<GithubWorkspaceStatus>();
   const [preflight, setPreflight] = useState<GithubWorkspacePreflight>();
@@ -24,13 +24,15 @@ export function GitHubCollaborationPanel() {
   const [confirmed, setConfirmed] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
+  // SEC-007：令牌从系统凭据管理器异步取回（含 localStorage 明文的首次迁移）。
+  useEffect(() => { let alive = true; void loadGithubCollaborationPreferences().then((preferences) => { if (alive && preferences.token) setToken(preferences.token); }).catch(() => undefined); return () => { alive = false; }; }, []);
   const refreshStatus = (): void => { setPending(true); setError(undefined); void githubCollaborationClient.status().then(setStatus).catch((next: unknown) => setError(errorText(next))).finally(() => setPending(false)); };
   useEffect(refreshStatus, []);
-  const test = (): void => { setPending(true); setError(undefined); saveGithubCollaborationPreferences({ schemaVersion: 1, token }); void githubCollaborationClient.testToken(token).then(setIdentity).catch((next: unknown) => setError(errorText(next))).finally(() => setPending(false)); };
-  const push = (): void => { setPending(true); setError(undefined); saveGithubCollaborationPreferences({ schemaVersion: 1, token }); void githubCollaborationClient.commitAndPush(token, message, confirmed).then((next) => { setStatus(next); setConfirmed(false); }).catch((next: unknown) => setError(errorText(next))).finally(() => setPending(false)); };
+  const test = (): void => { setPending(true); setError(undefined); void saveGithubCollaborationPreferences({ schemaVersion: 1, token }).catch(() => setError('令牌无法写入系统凭据管理器，请重试。')); void githubCollaborationClient.testToken(token).then(setIdentity).catch((next: unknown) => setError(errorText(next))).finally(() => setPending(false)); };
+  const push = (): void => { setPending(true); setError(undefined); void saveGithubCollaborationPreferences({ schemaVersion: 1, token }).catch(() => setError('令牌无法写入系统凭据管理器，请重试。')); void githubCollaborationClient.commitAndPush(token, message, confirmed).then((next) => { setStatus(next); setConfirmed(false); }).catch((next: unknown) => setError(errorText(next))).finally(() => setPending(false)); };
   const runPreflight = (): void => { setPending(true); setError(undefined); void githubCollaborationClient.preflight().then(setPreflight).catch((next: unknown) => setError(errorText(next))).finally(() => setPending(false)); };
   return <section className="github-collaboration-panel" aria-label="GitHub 代码协作">
-    <div className="github-collaboration-heading"><div><span>GITHUB COLLABORATION</span><h2>本地变更 · 明确提交 · 确认推送</h2><p>令牌只保存在当前 Windows 用户的本地应用数据中；不会进入聊天、模型请求、日志、Git 远程地址或发布清单。</p></div><button disabled={pending} onClick={refreshStatus} type="button">刷新变更</button></div>
+    <div className="github-collaboration-heading"><div><span>GITHUB COLLABORATION</span><h2>本地变更 · 明确提交 · 确认推送</h2><p>令牌保存在当前 Windows 用户的系统凭据管理器中，不落浏览器存储；不会进入聊天、模型请求、日志、Git 远程地址或发布清单。</p></div><button disabled={pending} onClick={refreshStatus} type="button">刷新变更</button></div>
     {error && <p className="github-collaboration-error" role="alert">{error}</p>}
     <label>GitHub 个人访问令牌<input autoComplete="off" onChange={(event) => setToken(event.target.value)} placeholder="github_pat_… 或 ghp_…" type="password" value={token} /></label>
     <div className="github-collaboration-row"><button disabled={pending || !token.trim()} onClick={test} type="button">测试令牌</button>{identity && <span>已连接：{identity.name ?? identity.login}（{identity.login}）</span>}</div>

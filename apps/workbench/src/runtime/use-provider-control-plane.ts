@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useEffect } from 'react';
 import type { WorkbenchProviderConnection, WorkbenchProviderConnectionProbe, WorkbenchProviderInference, WorkbenchProviderModelDiscovery } from './task-client';
 import { directProviderClient, type DirectProviderConnection, type DirectProviderProtocol } from './direct-provider-client';
-import { loadDirectProviderAccounts, saveDirectProviderAccount } from './direct-provider-accounts';
+import { restoreDirectProviderAccounts, saveDirectProviderAccount } from './direct-provider-accounts';
 import { createProviderTraceId, recordProviderDiagnostic } from './provider-diagnostics';
 
 export type ProviderErrorText = (error: unknown) => string;
@@ -84,19 +84,24 @@ export function useProviderControlPlane(): ProviderControlPlane {
   const [streaming, setStreaming] = useState<Readonly<Record<string, WorkbenchProviderStreamingOutput | undefined>>>({});
   const [error, setError] = useState<string>();
   const [pendingProviderId, setPendingProviderId] = useState<string>();
-  const [restoring, setRestoring] = useState(() => typeof window !== 'undefined' && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) && loadDirectProviderAccounts().length > 0);
+  const [restoring, setRestoring] = useState(() => typeof window !== 'undefined' && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__));
 
   useEffect(() => {
-    const accounts = loadDirectProviderAccounts();
     const nativeRuntime = typeof window !== 'undefined' && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
-    if (!nativeRuntime || accounts.length === 0) { setRestoring(false); return; }
+    if (!nativeRuntime) { setRestoring(false); return; }
     let disposed = false;
-    void Promise.allSettled(accounts.map((account) => directProviderClient.configure(account))).then((results) => {
-      if (disposed) return;
-      const restored = results.flatMap((result) => result.status === 'fulfilled' ? [asConnection(result.value)] : []);
-      if (restored.length > 0) setConnections((current) => restored.reduce((next, connection) => replaceConnection(next, connection), current));
-      if (restored.length !== accounts.length) setError('部分已保存模型无法恢复到桌面原生会话；请在 API 连接中重新连接该模型。');
-    }).finally(() => { if (!disposed) setRestoring(false); });
+    // SEC-006：密钥本体从系统凭据管理器取回（含 localStorage 明文的首次迁移）。
+    void restoreDirectProviderAccounts().then((accounts) => {
+      if (disposed) return undefined;
+      if (accounts.length === 0) { setRestoring(false); return undefined; }
+      return Promise.allSettled(accounts.map((account) => directProviderClient.configure(account))).then((results) => {
+        if (disposed) return;
+        const restored = results.flatMap((result) => result.status === 'fulfilled' ? [asConnection(result.value)] : []);
+        if (restored.length > 0) setConnections((current) => restored.reduce((next, connection) => replaceConnection(next, connection), current));
+        if (restored.length !== accounts.length) setError('部分已保存模型无法恢复到桌面原生会话；请在 API 连接中重新连接该模型。');
+      });
+    }).catch(() => { if (!disposed) setError('已保存模型的凭据读取失败；请在 API 连接中重新输入密钥。'); })
+      .finally(() => { if (!disposed) setRestoring(false); });
     return () => { disposed = true; };
   }, []);
 
@@ -108,7 +113,7 @@ export function useProviderControlPlane(): ProviderControlPlane {
     setPendingProviderId(providerId); setError(undefined);
     void (async () => {
       const result = await directProviderClient.configure({ providerId, displayName: input.displayName?.trim() || providerId, protocol: input.protocol ?? 'openai-compatible', baseUrl: input.baseUrl ?? '', model: input.model ?? '', apiKey: input.apiKey });
-      saveDirectProviderAccount({ schemaVersion: 1, providerId: result.providerId, displayName: result.displayName, protocol: result.protocol, baseUrl: input.baseUrl ?? '', model: result.defaultModel, apiKey: input.apiKey });
+      await saveDirectProviderAccount({ schemaVersion: 1, providerId: result.providerId, displayName: result.displayName, protocol: result.protocol, baseUrl: input.baseUrl ?? '', model: result.defaultModel, apiKey: input.apiKey });
       setConnections((current) => replaceConnection(current, asConnection(result)));
       recordProviderDiagnostic({ providerId, model: result.defaultModel, stage: 'configured', outcome: 'succeeded', startedAt, traceId });
       configured = true;
@@ -129,7 +134,7 @@ export function useProviderControlPlane(): ProviderControlPlane {
     setPendingProviderId('custom'); setError(undefined);
     void (async () => {
       const result = await directProviderClient.configure({ providerId, ...input });
-      saveDirectProviderAccount({ schemaVersion: 1, providerId: result.providerId, displayName: result.displayName, protocol: result.protocol, baseUrl: input.baseUrl, model: result.defaultModel, apiKey: input.apiKey });
+      await saveDirectProviderAccount({ schemaVersion: 1, providerId: result.providerId, displayName: result.displayName, protocol: result.protocol, baseUrl: input.baseUrl, model: result.defaultModel, apiKey: input.apiKey });
       setConnections((current) => replaceConnection(current, asConnection(result)));
       recordProviderDiagnostic({ providerId: result.providerId, model: result.defaultModel, stage: 'configured', outcome: 'succeeded', startedAt, traceId });
       configured = true;

@@ -9,6 +9,7 @@
 mod assistant_artifacts;
 #[cfg(not(mobile))]
 mod conversation_store;
+mod credentials;
 mod direct_provider;
 mod external_url;
 #[cfg(not(mobile))]
@@ -292,6 +293,9 @@ pub fn run() {
             conversation_store::conversation_store_load,
             conversation_store::conversation_store_upsert,
             conversation_store::conversation_store_remove,
+            credentials::credential_store,
+            credentials::credential_load,
+            credentials::credential_delete,
             external_url::open_external_url,
             web_search::search_web,
             last30days::run_last30days_research,
