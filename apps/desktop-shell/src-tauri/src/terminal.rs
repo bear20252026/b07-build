@@ -64,25 +64,112 @@ fn valid_run_id(value: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
 }
 
+/// 允许执行的可执行文件名。终端只用于构建、测试与查看，不用于系统管理。
+///
+/// 这里刻意用「白名单」而不是「危险名单」：危险名单永远补不完，
+/// 而漏掉一个白名单条目最坏的结果只是某个命令跑不了。
+const ALLOWED_EXECUTABLES: &[&str] = &[
+    // 版本控制
+    "git", // Node 生态
+    "npm", "npx", "pnpm", "yarn", "node", "bun", "deno", // Rust
+    "cargo", "rustc", "rustup", // Python
+    "python", "python3", "pip", "pip3", "uv", "poetry", "pytest",
+    // 其它语言工具链
+    "go", "java", "mvn", "gradle", "dotnet", "make", "cmake", // 检查与测试
+    "ls", "dir", "cat", "type", "echo", "pwd", "find", "grep", "rg", "head", "tail", "wc", "tree",
+    "which", "where", "env", "whoami", "tsc", "tsx", "eslint", "prettier", "vitest", "jest",
+    "ruff", "mypy",
+];
+
+/// 无论可执行文件是否在白名单内都绝不执行的片段。这些是会丢数据或改系统状态的操作，
+/// `confirm_dangerous` 也不能放行——它们根本不该出现在一条命令里。
+const DENIED_PATTERNS: &[&str] = &[
+    "rm -rf",
+    "rm -fr",
+    "rmdir /",
+    "del /",
+    "del /f",
+    "remove-item -recurse",
+    "format ",
+    "mkfs",
+    "diskpart",
+    "dd if=",
+    "shutdown",
+    "restart-computer",
+    "stop-computer",
+    "stop-process -force",
+    "taskkill",
+    "reg delete",
+    "reg add",
+    "net user",
+    "schtasks",
+    "runas",
+    "-verb runas",
+    "sudo",
+    "git push --force",
+    "git push -f",
+    "chmod 777",
+    "set-executionpolicy",
+    "iex(",
+    "invoke-expression",
+    "curl | sh",
+    "wget | sh",
+    "| sh",
+    "| bash",
+    "| powershell",
+    "| cmd",
+];
+
+/// 允许执行但会改变仓库或对外发布状态的片段：需要调用方显式确认。
+const CONFIRMATION_PATTERNS: &[&str] = &[
+    "git push",
+    "git reset --hard",
+    "git clean",
+    "npm publish",
+    "cargo publish",
+];
+
+/// 不允许命令拼接与重定向。一条命令就是一条命令：
+/// `npm test && rm -rf x` 这类组合会让白名单完全失效。
+const FORBIDDEN_OPERATORS: &[&str] = &["&&", "||", ";", "\n", "\r", "`", "$(", ">"];
+
+/// 取出命令的首个词作为可执行文件名。带路径或引号包裹的一律不认，
+/// 否则 `C:\Windows\System32\format` 之类能绕过白名单。
+fn executable_name(command: &str) -> Option<String> {
+    let first = command
+        .split_whitespace()
+        .next()?
+        .trim_matches(|ch| ch == '"' || ch == '\'');
+    if first.is_empty() || first.contains('/') || first.contains('\\') || first.contains(':') {
+        return None;
+    }
+    Some(first.to_ascii_lowercase())
+}
+
+/// 命令准入判定：返回 Some(错误码) 表示拒绝执行。
+/// 顺序很重要——先硬拒绝、再禁止拼接、最后才看白名单。
+fn command_denial(command: &str) -> Option<&'static str> {
+    let value = command.to_ascii_lowercase();
+    if DENIED_PATTERNS.iter().any(|needle| value.contains(needle)) {
+        return Some("terminal-command-denied");
+    }
+    if FORBIDDEN_OPERATORS
+        .iter()
+        .any(|needle| value.contains(needle))
+    {
+        return Some("terminal-command-chaining-denied");
+    }
+    match executable_name(command) {
+        Some(name) if ALLOWED_EXECUTABLES.contains(&name.as_str()) => None,
+        _ => Some("terminal-command-not-allowed"),
+    }
+}
+
 fn requires_confirmation(command: &str) -> bool {
     let value = command.to_ascii_lowercase();
-    [
-        "rm -rf",
-        "remove-item",
-        "del /",
-        "rmdir /",
-        "format ",
-        "diskpart",
-        "shutdown",
-        "restart-computer",
-        "stop-computer",
-        "reg delete",
-        "git push --force",
-        "runas",
-        "start-process -verb runas",
-    ]
-    .iter()
-    .any(|needle| value.contains(needle))
+    CONFIRMATION_PATTERNS
+        .iter()
+        .any(|needle| value.contains(needle))
 }
 
 fn command_for(command: &str) -> Command {
@@ -137,6 +224,10 @@ pub async fn start_terminal_command(
     let command = request.command.trim();
     if command.is_empty() || command.len() > 16_000 {
         return Err("terminal-command-invalid");
+    }
+    // 白名单准入：不在名单上的命令根本不启动进程，而不是先跑起来再看后果。
+    if let Some(denial) = command_denial(command) {
+        return Err(denial);
     }
     if requires_confirmation(command) && !request.confirm_dangerous {
         return Err("terminal-command-confirmation-required");
@@ -243,13 +334,104 @@ pub async fn cancel_terminal_command(
 
 #[cfg(test)]
 mod tests {
-    use super::{requires_confirmation, valid_run_id};
+    use super::{command_denial, executable_name, requires_confirmation, valid_run_id};
+
     #[test]
-    fn requires_final_confirmation_only_for_high_impact_command_patterns() {
-        assert!(!requires_confirmation("npm test"));
-        assert!(requires_confirmation("Remove-Item -Recurse C:\\tmp"));
-        assert!(requires_confirmation("git push --force"));
+    fn allows_build_test_and_inspection_commands() {
+        for command in [
+            "npm test",
+            "cargo build --release",
+            "git status",
+            "python -m pytest",
+            "ls -la",
+            "rg TODO src",
+        ] {
+            assert_eq!(command_denial(command), None, "应当允许：{command}");
+        }
     }
+
+    #[test]
+    fn rejects_executables_outside_the_allowlist() {
+        for command in [
+            "curl https://example.com",
+            "powershell Get-Process",
+            "bash script.sh",
+            "tccutil reset",
+        ] {
+            assert_eq!(
+                command_denial(command),
+                Some("terminal-command-not-allowed"),
+                "应当拒绝：{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn destructive_patterns_are_denied_even_under_an_allowed_executable() {
+        // 白名单挡不住「git status && rm -rf /」这类组合，所以硬拒绝必须独立存在。
+        for command in [
+            "git status && rm -rf /",
+            "npm run build | sh",
+            "echo hi; format C:",
+            "git push --force",
+        ] {
+            assert_eq!(
+                command_denial(command),
+                Some("terminal-command-denied"),
+                "应当硬拒绝：{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn command_chaining_and_redirection_are_denied() {
+        for command in [
+            "npm test && npm run build",
+            "cat a > b.txt",
+            "ls $(whoami)",
+            "echo `id`",
+        ] {
+            assert_eq!(
+                command_denial(command),
+                Some("terminal-command-chaining-denied"),
+                "应当拒绝拼接：{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn paths_and_quotes_cannot_walk_around_the_allowlist() {
+        assert_eq!(executable_name("C:\\Windows\\System32\\format"), None);
+        assert_eq!(executable_name("/bin/rm -rf /"), None);
+        assert_eq!(executable_name("\"npm\" test"), Some("npm".to_owned()));
+        // 写成绝对路径的可执行文件不认：否则任意路径下的同名程序都能进白名单。
+        assert_eq!(
+            command_denial("/usr/bin/npm test"),
+            Some("terminal-command-not-allowed")
+        );
+        assert_eq!(
+            command_denial(".\\tools\\npm test"),
+            Some("terminal-command-not-allowed")
+        );
+        // 又带路径又带破坏性片段时，硬拒绝优先于白名单判定。
+        assert_eq!(
+            command_denial("/bin/rm -rf /"),
+            Some("terminal-command-denied")
+        );
+    }
+
+    #[test]
+    fn state_changing_but_legitimate_commands_still_need_confirmation() {
+        assert!(!requires_confirmation("npm test"));
+        assert!(requires_confirmation("git push origin main"));
+        assert!(requires_confirmation("npm publish"));
+        // 已被硬拒绝的命令不再走确认流程。
+        assert_eq!(
+            command_denial("git push --force"),
+            Some("terminal-command-denied")
+        );
+    }
+
     #[test]
     fn validates_run_identifiers() {
         assert!(valid_run_id("run-123"));
