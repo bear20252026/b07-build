@@ -12,6 +12,7 @@ import { createWorkbenchCommandCatalog, type WorkbenchCommand } from './componen
 import { resolveWorkbenchSurface } from './components/layout/workbench-surface';
 import { ChatHome } from './components/workspace/ChatHome';
 import { ComposerAttachments, mergeComposerFileAttachments, type ComposerFileAttachment } from './components/workspace/ComposerAttachments';
+import { WorkspaceWriteApproval } from './components/workspace/WorkspaceWriteApproval';
 import { WORKBENCH_PROFILE_IDS } from './components/workspace/agent-profiles';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
@@ -622,6 +623,7 @@ export function App() {
       {activePage === 'workspace' && <HomeFloatingCompanion desktopCompanionAvailable={!androidRuntime && companionStudioPreferences.desktopResidencyMode === 'windows-native' && typeof window !== 'undefined' && Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)} preferences={companionPreferences} presentation={floatingCompanionPreferences} onOpenDesktopCompanion={openDesktopCompanion} onOpenSettings={() => setActivePage('companion')} onPresentationChange={updateFloatingCompanion} />}
       {isSettings && <SettingsOverlay onClose={() => setActivePage('workspace')} title={pageTitle[activePage]}>{settingsContent}</SettingsOverlay>}
       {inspectorSurface === 'workspace-files' && <WorkbenchOverlay description="独立工作区文件窗口。目录、导入和预览只在你明确操作时发生；不会扫描、上传或执行文件。" onClose={() => setInspectorSurface(undefined)} title="工作区与文件" tone="api"><WorkspaceFilesPage preferences={workspaceFilePreferences} onChange={updateWorkspaceFiles} /></WorkbenchOverlay>}
+      {directConversations.pendingWorkspaceWrite && <WorkspaceWriteApproval request={directConversations.pendingWorkspaceWrite} onResolve={directConversations.resolveWorkspaceWrite} />}
       {inspectorSurface === 'terminal-coding' && <WorkbenchOverlay description="独立终端与编码窗口。命令只在你明确点击运行后以当前 Windows 用户权限执行；输出可见并可停止。" onClose={() => setInspectorSurface(undefined)} title="终端与编码" tone="api"><TerminalCodingPage workspace={workspaceFilePreferences} /></WorkbenchOverlay>}
       {inspectorSurface === 'project-memory' && <WorkbenchOverlay description="项目持久记忆是当前已选择工作区中的可见 Markdown 文件。主人可以直接编辑；模型只在发送时读取其内容作为项目上下文。" onClose={() => setInspectorSurface(undefined)} title="项目记忆" tone="artifacts"><ProjectMemoryPanel /></WorkbenchOverlay>}
       {inspectorSurface === 'context-budget' && <WorkbenchOverlay description="本地字符预算投影独立呈现会话、项目记忆、草稿和附件元数据。读取项目记忆需显式点击；不会导出正文、图片、密钥或文件路径。" onClose={() => setInspectorSurface(undefined)} title="上下文预算" tone="artifacts"><ContextBudgetPanel conversation={directConversations.activeConversation} draft={draft} pendingAttachmentBytes={composerAttachments.reduce((total, attachment) => total + attachment.descriptor.byteSize, 0)} pendingAttachmentCount={composerAttachments.length} selection={taskModelSelection} /></WorkbenchOverlay>}

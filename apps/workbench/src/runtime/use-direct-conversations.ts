@@ -12,7 +12,7 @@ import { recordSessionPerformance } from './session-performance-ledger';
 import { conversationStore } from './conversation-store';
 import { historyCharBudgetFor } from './context-budget';
 import { runAgentTurn } from './agent-tool-loop';
-import { executeWorkspaceTool, WORKSPACE_TOOLS } from './workspace-tools';
+import { executeWorkspaceTool, WORKSPACE_TOOLS, type WorkspaceWriteApprovalRequest } from './workspace-tools';
 
 export interface DirectConversationSelection { readonly providerId: string; readonly model?: string; }
 export interface DirectConversationActivity { readonly kind: 'reasoning' | 'web-search' | 'research' | 'hybrid-search' | 'searxng' | 'attachment' | 'tool'; readonly text: string; readonly createdAt: number; readonly sources?: readonly WebSearchSource[]; }
@@ -192,6 +192,10 @@ export interface DirectConversations {
   readonly searching: boolean;
   readonly error?: string;
   readonly checkpoints: readonly DirectConversationCheckpoint[];
+  /** Agent 请求覆写某个工作区文件时挂起的确认；为空表示当前没有待确认的写入。 */
+  readonly pendingWorkspaceWrite?: WorkspaceWriteApprovalRequest;
+  /** 批准(true)或拒绝(false)当前挂起的写入。 */
+  resolveWorkspaceWrite(approved: boolean): void;
   create(selection: DirectConversationSelection, projectId?: string): string;
   select(id: string): void;
   clearSelection(): void;
@@ -213,11 +217,30 @@ export function useDirectConversations(): DirectConversations {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string>();
   const [checkpoints, setCheckpoints] = useState<readonly DirectConversationCheckpoint[]>(loadCheckpoints);
+  const [pendingWorkspaceWrite, setPendingWorkspaceWrite] = useState<WorkspaceWriteApprovalRequest>();
+  const pendingWriteResolve = useRef<((approved: boolean) => void) | undefined>(undefined);
   const mountedRef = useRef(true);
   const deferredPersistTimer = useRef<number | undefined>(undefined);
   const deferredPersistSnapshot = useRef<readonly DirectConversation[] | undefined>(undefined);
   const latestConversations = useRef<readonly DirectConversation[]>([]);
   useEffect(() => () => { mountedRef.current = false; }, []);
+  /** Agent 想覆写文件时挂起等待用户决定；没有这个入口，写入工具会直接拒绝。 */
+  const requestWorkspaceWriteApproval = useCallback((request: WorkspaceWriteApprovalRequest): Promise<boolean> => new Promise<boolean>((resolve) => {
+    pendingWriteResolve.current = resolve;
+    setPendingWorkspaceWrite(request);
+  }), []);
+  const resolveWorkspaceWrite = useCallback((approved: boolean): void => {
+    const resolve = pendingWriteResolve.current;
+    pendingWriteResolve.current = undefined;
+    setPendingWorkspaceWrite(undefined);
+    resolve?.(approved);
+  }, []);
+  // 组件卸载时若还有挂起的写入，一律按拒绝处理：不能让 Agent 回合永远卡在等待里。
+  useEffect(() => () => {
+    const resolve = pendingWriteResolve.current;
+    pendingWriteResolve.current = undefined;
+    resolve?.(false);
+  }, []);
   const flushDeferredPersist = useCallback((): void => {
     if (deferredPersistTimer.current !== undefined) { window.clearTimeout(deferredPersistTimer.current); deferredPersistTimer.current = undefined; }
     const snapshot = deferredPersistSnapshot.current; deferredPersistSnapshot.current = undefined;
@@ -412,7 +435,7 @@ export function useDirectConversations(): DirectConversations {
           ...(selection.model ? { model: selection.model } : {}),
           messages: messagesForProvider,
           tools: WORKSPACE_TOOLS,
-          execute: executeWorkspaceTool,
+          execute: (name, args) => executeWorkspaceTool(name, args, requestWorkspaceWriteApproval),
           onText,
           onReasoning,
           onToolResult: (call, result) => {
@@ -441,7 +464,7 @@ export function useDirectConversations(): DirectConversations {
       update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.filter((message) => message.id !== streamingMessageId), updatedAt: Date.now() })));
       return false;
     } finally { setStreaming(false); }
-  }, [activeConversation, streaming, update]);
+  }, [activeConversation, streaming, update, requestWorkspaceWriteApproval]);
 
-  return { conversations, activeConversation, streaming, searching, error, checkpoints, create, select, clearSelection, rename, remove, createCheckpoint, branchFromMessage, restoreCheckpoint, exportActive, send };
+  return { conversations, activeConversation, streaming, searching, error, checkpoints, pendingWorkspaceWrite, resolveWorkspaceWrite, create, select, clearSelection, rename, remove, createCheckpoint, branchFromMessage, restoreCheckpoint, exportActive, send };
 }

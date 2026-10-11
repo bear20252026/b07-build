@@ -126,13 +126,33 @@ async function readFile(args: Record<string, unknown>): Promise<string> {
   return truncate(`文件 ${result.path}（${result.byteSize} 字符${result.truncated ? '，已截断' : ''}）：\n${result.content}`, MAX_TOOL_RESULT_CHARS);
 }
 
-async function writeFile(args: Record<string, unknown>): Promise<string> {
+/** 一次待确认的写入。`previous` 是文件当前内容，`next` 是模型想写进去的完整内容。 */
+export interface WorkspaceWriteApprovalRequest { readonly path: string; readonly previous: string; readonly next: string; }
+/** 向用户展示差异并等待决定。返回 false 表示拒绝。 */
+export interface WorkspaceWriteApprover { (request: WorkspaceWriteApprovalRequest): Promise<boolean>; }
+
+async function writeFile(args: Record<string, unknown>, approve: WorkspaceWriteApprover | undefined): Promise<string> {
   const path = stringArgument(args, 'path').trim();
   const content = stringArgument(args, 'content');
   if (!path) return '缺少 path 参数：请提供相对于工作区根的文件路径。';
   if (!content) return '缺少 content 参数：拒绝写入空内容，这会清空目标文件。请确认你真的要清空它。';
-  const result = await invoke<FileResult>('workspace_write_file', { path, content });
-  return `已写入 ${result.path}（${result.byteSize} 字符）。`;
+  // 没有审批入口就绝不写入。宁可让这次调用失败，也不能让模型绕开人直接改文件。
+  if (!approve) return `写入 ${path} 需要用户确认，但当前会话没有提供确认入口；未写入任何内容。请如实告诉用户：改文件必须由用户本人确认或直接自行修改。`;
+  // 先把原文读出来，用户才能看到到底要被改成什么样。
+  let previous: string;
+  try {
+    previous = (await invoke<FileResult>('workspace_read_file', { path })).content;
+  } catch (error: unknown) {
+    return workspaceToolErrorText(error);
+  }
+  if (previous === content) return `${path} 的内容与目标内容完全一致，未写入。`;
+  if (!await approve({ path, previous, next: content })) return `用户拒绝对 ${path} 的写入；未修改任何内容。请如实转告用户，并且不要再换别的方式尝试写入同一个文件。`;
+  try {
+    const result = await invoke<FileResult>('workspace_write_file', { path, content });
+    return `已写入 ${result.path}（${result.byteSize} 字符）。`;
+  } catch (error: unknown) {
+    return workspaceToolErrorText(error);
+  }
 }
 
 /**
@@ -140,7 +160,7 @@ async function writeFile(args: Record<string, unknown>): Promise<string> {
  * 任何失败都以“失败描述”的形式返回而不是抛出：工具结果必须是模型能读到的一句话，
  * 抛异常会让整个 Agent 回合中断，模型也就失去了自我修正的机会。
  */
-export async function executeWorkspaceTool(name: string, rawArguments: string): Promise<string> {
+export async function executeWorkspaceTool(name: string, rawArguments: string, approveWrite?: WorkspaceWriteApprover): Promise<string> {
   if (!['workspace_list_files', 'workspace_read_file', 'workspace_write_file'].includes(name)) {
     return `未知工具 ${name}。可用工具：workspace_list_files、workspace_read_file、workspace_write_file。`;
   }
@@ -149,7 +169,7 @@ export async function executeWorkspaceTool(name: string, rawArguments: string): 
   try {
     if (name === 'workspace_list_files') return await listFiles(args);
     if (name === 'workspace_read_file') return await readFile(args);
-    return await writeFile(args);
+    return await writeFile(args, approveWrite);
   } catch (error: unknown) {
     return workspaceToolErrorText(error);
   }
