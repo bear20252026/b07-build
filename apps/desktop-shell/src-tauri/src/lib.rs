@@ -321,6 +321,7 @@ pub fn run() {
             zcode_process::start_zcode_agent,
             zcode_process::zcode_write_stdin,
             zcode_process::stop_zcode_agent,
+            zcode_process::zcode_workspace_root,
             assistant_artifacts::save_assistant_markdown_artifact,
             assistant_artifacts::read_assistant_markdown_artifact,
             assistant_artifacts::export_assistant_markdown_artifact,

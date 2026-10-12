@@ -13,6 +13,7 @@ import { resolveWorkbenchSurface } from './components/layout/workbench-surface';
 import { ChatHome } from './components/workspace/ChatHome';
 import { ComposerAttachments, mergeComposerFileAttachments, type ComposerFileAttachment } from './components/workspace/ComposerAttachments';
 import { WorkspaceWriteApproval } from './components/workspace/WorkspaceWriteApproval';
+import { useZcodeSession } from './runtime/zcode/use-zcode-session';
 import { WORKBENCH_PROFILE_IDS } from './components/workspace/agent-profiles';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
@@ -80,6 +81,7 @@ const TaskPage = lazy(async () => ({ default: (await import('./components/worksp
 const HomeFloatingCompanion = lazy(async () => ({ default: (await import('./components/workspace/HomeFloatingCompanion')).HomeFloatingCompanion }));
 const DesktopCompanionSurface = lazy(async () => ({ default: (await import('./components/workspace/DesktopCompanionSurface')).DesktopCompanionSurface }));
 const WorkspaceFilesPage = lazy(async () => ({ default: (await import('./components/workspace/WorkspaceFilesPage')).WorkspaceFilesPage }));
+const ZCodeSessionPanel = lazy(async () => ({ default: (await import('./components/workspace/ZCodeSessionPanel')).ZCodeSessionPanel }));
 const TerminalCodingPage = lazy(async () => ({ default: (await import('./components/workspace/TerminalCodingPage')).TerminalCodingPage }));
 const ProjectBoard = lazy(async () => ({ default: (await import('./components/workspace/ProjectBoard')).ProjectBoard }));
 const ProjectMemoryPanel = lazy(async () => ({ default: (await import('./components/workspace/ProjectMemoryPanel')).ProjectMemoryPanel }));
@@ -183,7 +185,7 @@ export function App() {
   const [researchMode, setResearchMode] = useState<'web-search' | Last30DaysMode | 'hybrid' | 'searxng-local'>('web-search');
   const [composerCollapsed, setComposerCollapsed] = useState(false);
   const [composerAttachments, setComposerAttachments] = useState<readonly ComposerFileAttachment[]>([]);
-  const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding' | 'project-memory' | 'context-budget' | 'conversation-checkpoints' | 'usage-ledger' | 'session-performance' | 'real-progress' | 'local-knowledge' | 'github-collaboration'>();
+  const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding' | 'project-memory' | 'context-budget' | 'conversation-checkpoints' | 'usage-ledger' | 'session-performance' | 'real-progress' | 'local-knowledge' | 'github-collaboration' | 'zcode-session'>();
   const [activeGoal, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
   const [authorityMode, setAuthorityMode] = useState<WorkbenchAuthorityMode>('review');
@@ -194,6 +196,7 @@ export function App() {
   const [floatingCompanionPreferences, setFloatingCompanionPreferences] = useState(() => loadFloatingCompanionPreferences());
   const [companionStudioPreferences, setCompanionStudioPreferences] = useState(() => loadCompanionStudioPreferences());
   const [workspaceFilePreferences, setWorkspaceFilePreferences] = useState(() => loadWorkspaceFilePreferences());
+  const zcodeSession = useZcodeSession();
   const [assistantArtifacts, setAssistantArtifacts] = useState(() => loadAssistantArtifacts());
   const [artifactRailOpen, setArtifactRailOpen] = useState(false);
   const [artifactRailWidth, setArtifactRailWidth] = useState(() => {
@@ -485,6 +488,7 @@ export function App() {
               {!androidRuntime && <button aria-label="打开终端与编码窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('terminal-coding')} title="打开本地终端；仅在你明确点击运行后以当前 Windows 用户权限执行命令。" type="button">›_</button>}
               <button aria-label="打开项目持久记忆" className="titlebar-icon-button" onClick={() => setInspectorSurface('project-memory')} title="打开当前工作区的 AI_WORK_OS_MEMORY.md；可由主人编辑，发送时按预算作为项目上下文提供给模型。" type="button">◫</button>
               {!androidRuntime && <button aria-label="打开 GitHub 代码协作" className="titlebar-icon-button" onClick={() => setInspectorSurface('github-collaboration')} title="查看当前工作区 Git 变更，测试本地令牌，并在明确确认后提交和推送到 GitHub。" type="button">⌘</button>}
+              {!androidRuntime && <button aria-label="打开 ZCode Agent 会话" className="titlebar-icon-button" onClick={() => setInspectorSurface('zcode-session')} title="连接 ZCode 协议会话：回合文本、工具调用层级与权限请求实时投影；所有写入仍走工作区确认。" type="button">⬡</button>}
               <button aria-label="打开右侧项目产物扩展框" className="titlebar-icon-button" onClick={openArtifactExtension} title="打开可伸缩右侧项目产物扩展框；只显示受控文件投影与已确认保存的 Markdown 回复。" type="button">▧</button>
               {!androidRuntime && <button aria-label="打开 Companion 独立窗口" className="titlebar-icon-button" onClick={() => setInspectorSurface('companion')} title="打开独立 Companion 角色窗口；不会切换模型或授予权限。" type="button">◉</button>}
             </div>
@@ -633,6 +637,7 @@ export function App() {
       {inspectorSurface === 'real-progress' && <WorkbenchOverlay description="真实阶段状态只汇总已有原生连接回执、显式本地知识库索引与当前聊天接收状态；打开不会启动连接、上传、检索或自动推进步骤。" onClose={() => setInspectorSurface(undefined)} title="真实阶段状态" tone="artifacts"><RealProgressPanel chatError={directSetupError ?? directConversations.error} connectionCount={providerControl.connections.length} messageCount={directConversations.activeConversation?.messages.length ?? 0} pendingProviderId={providerControl.pendingProviderId} streaming={directConversations.streaming} /></WorkbenchOverlay>}
       {inspectorSurface === 'local-knowledge' && <WorkbenchOverlay description="本地知识库只处理主人明确粘贴或选择的资料；仅保存有界术语索引和来源预览，不自动扫描、上传或加入 Provider 上下文。" onClose={() => setInspectorSurface(undefined)} title="本地知识库" tone="artifacts"><LocalKnowledgePanel projectId={projectWorkspace.selectedProjectId} /></WorkbenchOverlay>}
       {inspectorSurface === 'github-collaboration' && <WorkbenchOverlay description="GitHub 协作先展示本地变更，再由主人明确确认提交和推送。个人访问令牌只保存在当前 Windows 用户的本地应用数据中。" onClose={() => setInspectorSurface(undefined)} title="GitHub 代码协作" tone="api"><GitHubCollaborationPanel /></WorkbenchOverlay>}
+      {inspectorSurface === 'zcode-session' && <WorkbenchOverlay description="ZCode 协议会话把回合文本、工具调用层级和权限请求实时投影到本地视图。连接、发送与权限裁决都由主人显式操作；路径只在本机内存流转。" onClose={() => setInspectorSurface(undefined)} title="ZCode Agent 会话" tone="api"><ZCodeSessionPanel session={zcodeSession} /></WorkbenchOverlay>}
       {inspectorSurface === 'artifacts' && <WorkbenchOverlay description="当前 task/run 的受控文件检查器。可查看 Markdown、代码、JSON、差异和用户发起的交付包，不读取任意本机目录。" onClose={() => setInspectorSurface(undefined)} title="项目产物" tone="artifacts"><PreviewPanel localServiceReady={localServiceReady} taskId={snapshot?.taskId} runId={snapshot?.runId} files={taskFiles} deliveries={deliveries} onFilePreview={taskExecution.loadFilePreview} onFileDiff={taskExecution.loadFileDiff} onCreateDelivery={taskExecution.createDelivery} deliveryDownloadUrl={taskExecution.deliveryDownloadUrl} /></WorkbenchOverlay>}
       {inspectorSurface === 'companion' && <WorkbenchOverlay description="独立角色窗口。角色、对话与 API 连接保持分离；高影响能力仍需未来的单独权限设计。" onClose={() => setInspectorSurface(undefined)} title="Companion" tone="companion"><CompanionWindow localServiceReady={localServiceReady} preferences={companionPreferences} onOpenApi={() => { setInspectorSurface(undefined); setActivePage('models'); }} onOpenControls={() => { setInspectorSurface(undefined); setActivePage('companion'); }} /></WorkbenchOverlay>}
       {artifactRailOpen && <ArtifactExtensionPanel assistantArtifacts={assistantArtifacts} onClose={() => setArtifactRailOpen(false)} onExportAssistantArtifact={exportAssistantArtifact} onPreviewAssistantArtifact={previewAssistantArtifact} onPreviewTaskFile={taskExecution.loadFilePreview} onResize={updateArtifactRailWidth} taskFiles={taskFiles} width={artifactRailWidth} />}

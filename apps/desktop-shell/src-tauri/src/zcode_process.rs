@@ -330,6 +330,22 @@ pub async fn stop_zcode_agent(
     Ok(())
 }
 
+/// 返回当前工作区根的绝对路径，仅供 ZCode Agent 会话使用（session/create 的
+/// workspace.workspacePath 与 start_zcode_agent 的工作目录同源）。
+///
+/// 与「选择工作区时 WebView 只收 label」的一般隐私立场不同：协议握手必须有真实
+/// 路径，而这个路径本来就会通过 start_zcode_agent 的工作目录约束回到本进程。
+/// 该路径只在本机内存中流转，不落盘、不上传、不进诊断日志；未选择工作区时报错。
+#[tauri::command]
+pub fn zcode_workspace_root(
+    workspace: State<'_, WorkspaceDirectoryState>,
+) -> Result<String, &'static str> {
+    let root = crate::workspace_files::selected_root(&workspace)?;
+    root.to_str()
+        .map(str::to_owned)
+        .ok_or("workspace-root-unavailable")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

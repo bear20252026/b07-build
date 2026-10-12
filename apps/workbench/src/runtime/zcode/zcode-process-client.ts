@@ -87,6 +87,16 @@ export async function stopZcodeAgent(
   await deps.invoke('stop_zcode_agent', { request: { runId } });
 }
 
+/**
+ * 当前工作区根的绝对路径，仅供 ZCode Agent 会话握手（session/create）使用。
+ * 路径只在本机内存流转：不落盘、不上传、不进诊断日志。
+ */
+export async function zcodeWorkspaceRoot(deps: ZCodeProcessDeps = defaultDeps): Promise<string> {
+  if (!nativeRuntime()) throw new Error('zcode-native-unavailable');
+  const root = await deps.invoke('zcode_workspace_root', {});
+  return typeof root === 'string' ? root : '';
+}
+
 /** 订阅协议行事件（stdout=NDJSON 协议帧，stderr=诊断日志）与退出事件。 */
 export async function subscribeZcodeProcess(
   handlers: {
