@@ -44,6 +44,3 @@ export * from './infrastructure/sqlite/native-host-authentication-store.js';
 export * from './infrastructure/sqlite/component-management-receipt-store.js';
 export * from './infrastructure/sqlite/component-provenance-store.js';
 export * from './trusted-desktop-issuer.js';
-export * from './code-editing/patch-parser.js';
-export * from './code-editing/patch-apply.js';
-export * from './code-editing/patch-policy.js';

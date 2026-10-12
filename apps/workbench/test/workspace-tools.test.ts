@@ -4,7 +4,7 @@ import test from 'node:test';
 import { executeWorkspaceTool, parseToolArguments, workspaceToolErrorText, WORKSPACE_TOOLS } from '../src/runtime/workspace-tools';
 
 test('工具声明符合客户端校验规则', () => {
-  assert.equal(WORKSPACE_TOOLS.length, 4);
+  assert.equal(WORKSPACE_TOOLS.length, 5);
   for (const tool of WORKSPACE_TOOLS) {
     // 客户端 stream() 会按这条规则拒绝工具名。
     assert.match(tool.name, /^[A-Za-z0-9_-]{1,64}$/, `工具名不合法：${tool.name}`);
@@ -12,7 +12,7 @@ test('工具声明符合客户端校验规则', () => {
     assert.equal(Array.isArray(tool.parameters), false);
     assert.equal(tool.parameters.type, 'object');
   }
-  assert.deepEqual(WORKSPACE_TOOLS.map((tool) => tool.name), ['workspace_search_files', 'workspace_list_files', 'workspace_read_file', 'workspace_write_file']);
+  assert.deepEqual(WORKSPACE_TOOLS.map((tool) => tool.name), ['workspace_search_files', 'workspace_list_files', 'workspace_read_file', 'workspace_write_file', 'workspace_patch_file']);
 });
 
 test('写文件必须声明必填参数，避免模型凭空写入', () => {
@@ -53,11 +53,21 @@ test('没有审批入口时绝不写入，也不假装成功', async () => {
 
 // 直接桩掉 Tauri 桥接，这样能把「先读原文 → 问人 → 才写」这条真实路径跑完。
 const invokeCalls: { readonly cmd: string; readonly args: Record<string, unknown> }[] = [];
+/** 按 path 覆写 workspace_read_file 的返回内容；未命中的路径回落到 'old content'。 */
+const readOverrides = new Map<string, string>();
+/** 声明为「工作区里不存在」的路径：读取时抛原生错误码，用于覆盖 file-not-found 分支。 */
+const missingPaths = new Set<string>();
 (globalThis as unknown as { window: unknown }).window = {
   __TAURI_INTERNALS__: {
     invoke: async (cmd: string, args: Record<string, unknown>) => {
       invokeCalls.push({ cmd, args });
-      if (cmd === 'workspace_read_file') return { path: args.path, content: 'old content', byteSize: 11, truncated: false };
+      if (cmd === 'workspace_read_file') {
+        const path = String(args.path ?? '');
+        if (missingPaths.has(path)) throw 'workspace-path-not-found';
+        if (!readOverrides.has(path)) return { path, content: 'old content', byteSize: 11, truncated: false };
+        const content = readOverrides.get(path)!;
+        return { path, content, byteSize: content.length, truncated: false };
+      }
       if (cmd === 'workspace_stage_write_approval') {
         // 模拟原生校验：票据必须绑定两条完整的 SHA-256 摘要。
         const previous = String(args.previousSha256 ?? '');
@@ -155,4 +165,104 @@ test('错误码翻译成可执行的提示，绝不含糊其辞', () => {
 test('未知错误也不伪装成成功', () => {
   assert.match(workspaceToolErrorText('something-new'), /工具执行失败/);
   assert.match(workspaceToolErrorText({ message: 'workspace-path-absolute' }), /相对路径/);
+});
+
+function patchToolText(sections: string[]): string {
+  return ['*** Begin Patch', ...sections, '*** End Patch'].join('\n');
+}
+
+test('补丁：单文件精确修改走 读原文 → 审批 → 票据 → 写入 的完整链路', async () => {
+  readOverrides.set('src/app.ts', 'const timeout = 5;\n');
+  invokeCalls.length = 0;
+  const message = await executeWorkspaceTool('workspace_patch_file', JSON.stringify({
+    patch: patchToolText(['*** Update File: src/app.ts', '@@', '-const timeout = 5;', '+const timeout = 10;']),
+  }), async (request) => {
+    assert.equal(request.path, 'src/app.ts');
+    assert.equal(request.previous, 'const timeout = 5;\n');
+    assert.equal(request.next, 'const timeout = 10;\n');
+    return true;
+  });
+  assert.match(message, /已写入 1 个文件/);
+  assert.match(message, /- 已写入 src\/app\.ts/);
+  assert.deepEqual(
+    invokeCalls.map((call) => call.cmd),
+    ['workspace_read_file', 'workspace_stage_write_approval', 'workspace_write_file'],
+  );
+  readOverrides.delete('src/app.ts');
+});
+
+test('补丁：多文件逐个审批；第二个文件被拒时第一个保持已写入且如实上报（非原子）', async () => {
+  readOverrides.set('a.ts', 'alpha\n');
+  readOverrides.set('b.ts', 'beta\n');
+  invokeCalls.length = 0;
+  const approved: string[] = [];
+  const message = await executeWorkspaceTool('workspace_patch_file', JSON.stringify({
+    patch: patchToolText([
+      '*** Update File: a.ts', '@@', '-alpha', '+ALPHA',
+      '*** Update File: b.ts', '@@', '-beta', '+BETA',
+    ]),
+  }), async (request) => {
+    approved.push(request.path);
+    return approved.length < 2; // 第二个文件拒绝
+  });
+  assert.deepEqual(approved, ['a.ts', 'b.ts']);
+  assert.match(message, /用户拒绝对 b\.ts 的修改/);
+  assert.match(message, /已写入 1 个文件：a\.ts/);
+  assert.match(message, /非原子/);
+  assert.match(message, /不要再换别的方式/);
+  // b.ts 绝不能真的写盘。
+  const writes = invokeCalls.filter((call) => call.cmd === 'workspace_write_file');
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0]?.args.path, 'a.ts');
+  readOverrides.delete('a.ts');
+  readOverrides.delete('b.ts');
+});
+
+test('补丁：add/delete/move 与不存在的文件被策略拒绝，且不会惊动审批', async () => {
+  readOverrides.set('exists.ts', 'x\n');
+  missingPaths.add('missing.ts');
+  invokeCalls.length = 0;
+  let asked = false;
+  const message = await executeWorkspaceTool('workspace_patch_file', JSON.stringify({
+    patch: patchToolText([
+      '*** Add File: new.ts', '+content',
+      '*** Delete File: gone.ts',
+      '*** Update File: ../escape.ts', '@@', '-x', '+y',
+      '*** Update File: missing.ts', '@@', '-x', '+y',
+      '*** Update File: exists.ts', '@@', '-x', '+y',
+    ]),
+  }), async () => { asked = true; return true; });
+  assert.match(message, /拒绝 new\.ts：第一期只支持更新已存在的文件/);
+  assert.match(message, /拒绝 gone\.ts：第一期只支持更新已存在的文件/);
+  assert.match(message, /拒绝 \.\.\/escape\.ts：路径超出工作区范围/);
+  assert.match(message, /拒绝 missing\.ts：文件在工作区中不存在/);
+  assert.match(message, /- 已写入 exists\.ts/);
+  assert.equal(asked, true); // 唯一合法目标仍要走审批
+  const writes = invokeCalls.filter((call) => call.cmd === 'workspace_write_file');
+  assert.equal(writes.length, 1);
+  readOverrides.delete('exists.ts');
+  missingPaths.delete('missing.ts');
+});
+
+test('补丁：格式错误返回可修正的提示，不抛出、不写入', async () => {
+  invokeCalls.length = 0;
+  const message = await executeWorkspaceTool('workspace_patch_file', JSON.stringify({ patch: 'not a patch' }));
+  assert.match(message, /补丁解析失败/);
+  assert.match(message, /Begin\/End markers/);
+  assert.equal(invokeCalls.length, 0);
+});
+
+test('补丁：缺 patch 参数与空补丁都被拒绝', async () => {
+  assert.match(await executeWorkspaceTool('workspace_patch_file', '{}'), /缺少 patch 参数/);
+  assert.match(await executeWorkspaceTool('workspace_patch_file', JSON.stringify({ patch: '*** Begin Patch\n*** End Patch' })), /补丁为空/);
+});
+
+test('补丁：没有审批入口时绝不写入', async () => {
+  readOverrides.set('c.ts', 'old content\n');
+  const message = await executeWorkspaceTool('workspace_patch_file', JSON.stringify({
+    patch: patchToolText(['*** Update File: c.ts', '@@', '-old content', '+new content']),
+  }));
+  assert.match(message, /需要用户逐文件确认/);
+  assert.match(message, /未写入任何内容/);
+  readOverrides.delete('c.ts');
 });

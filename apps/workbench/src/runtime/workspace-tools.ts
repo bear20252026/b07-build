@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { derivePatchedContent, normalizeRelativePath, parseStructuredPatch, planPatchSections, type ParsedPatch } from '@awo/protocol';
 import type { DirectProviderTool } from './direct-provider-client';
 import { nativeErrorCode, searchResultText, searchWorkspaceFiles } from './workspace-index';
 
@@ -65,6 +66,23 @@ export const WORKSPACE_TOOLS: readonly DirectProviderTool[] = [
         content: { type: 'string', description: '写入的完整文件内容，会整体替换原内容。' },
       },
       required: ['path', 'content'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'workspace_patch_file',
+    description: [
+      '用结构化补丁精确修改工作区内**已经存在**的文本文件，可以一次改多个文件。',
+      '格式：*** Begin Patch 开头、*** End Patch 结尾；每个文件一段：*** Update File: <相对路径>，可选一行 @@ <上下文行> 锚定位置，随后每行以空格开头表示保留、- 开头表示删除、+ 开头表示新增；单个 hunk 末尾可用一行 *** End of File 表示锚定到文件末尾。',
+      '示例：*** Begin Patch\\n*** Update File: src/app.ts\\n@@ const config\\n-const timeout = 5\\n+const timeout = 10\\n*** End Patch。',
+      '与 workspace_write_file 的整文件覆写相比，补丁只改动指定行，更适合小修改；多文件补丁会按顺序**逐个**请求用户确认，不是原子事务——中途被拒绝时已写入的文件保持已写入。',
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        patch: { type: 'string', description: '完整的结构化补丁文本（含 *** Begin Patch / *** End Patch 包裹）。' },
+      },
+      required: ['patch'],
       additionalProperties: false,
     },
   },
@@ -160,6 +178,23 @@ async function sha256Hex(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+/** SEC-008 落盘共用路径：领一次性票据（绑定原文/目标摘要）→ 原生验证并原子消耗后写入。 */
+async function writeApprovedContent(path: string, previous: string, content: string): Promise<string> {
+  let token: string;
+  try {
+    const [previousSha256, nextSha256] = await Promise.all([sha256Hex(previous), sha256Hex(content)]);
+    token = await invoke<string>('workspace_stage_write_approval', { path, previousSha256, nextSha256 });
+  } catch (error: unknown) {
+    return workspaceToolErrorText(error);
+  }
+  try {
+    const result = await invoke<FileResult>('workspace_write_file', { path, content, approvalToken: token });
+    return `已写入 ${result.path}（${result.byteSize} 字符）。`;
+  } catch (error: unknown) {
+    return workspaceToolErrorText(error);
+  }
+}
+
 async function writeFile(args: Record<string, unknown>, approve: WorkspaceWriteApprover | undefined): Promise<string> {
   const path = stringArgument(args, 'path').trim();
   const content = stringArgument(args, 'content');
@@ -176,22 +211,109 @@ async function writeFile(args: Record<string, unknown>, approve: WorkspaceWriteA
   }
   if (previous === content) return `${path} 的内容与目标内容完全一致，未写入。`;
   if (!await approve({ path, previous, next: content })) return `用户拒绝对 ${path} 的写入；未修改任何内容。请如实转告用户，并且不要再换别的方式尝试写入同一个文件。`;
-  // SEC-008：用户批准之后先到原生层领一张一次性写入票据。票据绑定
-  // 「原文摘要 + 目标内容摘要」，真正落盘由原生侧验证并原子消耗——
-  // 即使渲染层被绕过，没有票据的原生写入命令也会被拒绝。
-  let token: string;
+  return writeApprovedContent(path, previous, content);
+}
+
+/** 单次补丁工具最多处理的文件 section 数：多文件补丁逐个走审批，太多会变成审批疲劳。 */
+const MAX_PATCH_SECTIONS = 20;
+
+const PATCH_REJECTION_REASONS: Readonly<Record<string, string>> = {
+  'phase1-update-only': '第一期只支持更新已存在的文件（新建 / 删除 / 移动文件暂不支持）',
+  'path-escapes-workspace': '路径超出工作区范围或格式非法',
+  'file-not-found': '文件在工作区中不存在',
+  'duplicate-patch-target': '同一文件在补丁中出现多次',
+};
+
+/**
+ * 结构化补丁 → 逐文件 diff 审批 → SEC-008 票据写入。
+ * 逐文件顺序执行且**明确非原子**：中途被拒绝或失败时，已写入的文件保持已写入，
+ * 结果里如实列出每个文件的去向，绝不把「部分成功」说成「全部完成」。
+ */
+async function patchFile(args: Record<string, unknown>, approve: WorkspaceWriteApprover | undefined): Promise<string> {
+  const patchText = stringArgument(args, 'patch');
+  if (!patchText.trim()) return '缺少 patch 参数：请给出完整的结构化补丁文本（以 *** Begin Patch 开头、*** End Patch 结尾）。';
+
+  // 解析与计划是只读的，先做完，让模型无论有没有审批入口都能先拿到格式反馈。
+  let sections: ParsedPatch[];
   try {
-    const [previousSha256, nextSha256] = await Promise.all([sha256Hex(previous), sha256Hex(content)]);
-    token = await invoke<string>('workspace_stage_write_approval', { path, previousSha256, nextSha256 });
+    sections = parseStructuredPatch(patchText);
   } catch (error: unknown) {
-    return workspaceToolErrorText(error);
+    return `补丁解析失败：${error instanceof Error ? error.message : String(error)}。请检查补丁格式（*** Begin Patch / *** Update File: 路径 / 空格=保留、-=删除、+=新增 / *** End Patch），重新生成后重试。`;
   }
-  try {
-    const result = await invoke<FileResult>('workspace_write_file', { path, content, approvalToken: token });
-    return `已写入 ${result.path}（${result.byteSize} 字符）。`;
-  } catch (error: unknown) {
-    return workspaceToolErrorText(error);
+  if (sections.length === 0) return '补丁为空：没有任何文件 section。请至少包含一个 *** Update File: 段。';
+  if (sections.length > MAX_PATCH_SECTIONS) return `补丁一次涉及 ${sections.length} 个文件，超过上限 ${MAX_PATCH_SECTIONS}。请拆分成多次调用，每次只改少量文件。`;
+  // 没有审批入口就绝不写入、也绝不开始逐文件确认。宁可让这次调用失败，也不能让模型绕开人改文件。
+  if (!approve) return '补丁写入需要用户逐文件确认，但当前会话没有提供确认入口；未写入任何内容。请如实告诉用户：改文件必须由用户本人确认或直接自行修改。';
+
+  // 先把所有语法合法的目标路径的原文读出来：既作为 policy 的存在性依据，也作为 diff 的原文。
+  const previousByPath = new Map<string, string>();
+  const readFailures = new Map<string, string>();
+  for (const section of sections) {
+    const path = normalizeRelativePath(section.path);
+    if (!path || previousByPath.has(path) || readFailures.has(path)) continue;
+    try {
+      previousByPath.set(path, (await invoke<FileResult>('workspace_read_file', { path })).content);
+    } catch (error: unknown) {
+      readFailures.set(path, workspaceToolErrorText(error));
+    }
   }
+
+  const plan = planPatchSections(sections, { existingFiles: new Set(previousByPath.keys()) });
+  const rejectionLines = plan.rejections.map((item) => `- ${item.path}：${PATCH_REJECTION_REASONS[item.reason] ?? item.reason}`);
+  if (plan.updates.length === 0) {
+    return ['补丁没有任何可执行的更新：', ...rejectionLines, '请修正后重新提交。'].join('\n');
+  }
+
+  const written: string[] = [];
+  const skipped: string[] = [];
+  const lenient: string[] = [];
+  for (const update of plan.updates) {
+    const previous = previousByPath.get(update.path) ?? '';
+    let next: string;
+    let strict: boolean;
+    try {
+      const derived = derivePatchedContent(previous, update.chunks);
+      next = derived.content;
+      strict = derived.strict;
+    } catch (error: unknown) {
+      return [
+        `补丁应用失败（${update.path}）：${error instanceof Error ? error.message : String(error)}`,
+        `已写入 ${written.length} 个文件：${written.join('、') || '无'}；其余文件（含 ${update.path}）未做任何修改。`,
+        '这是非原子操作，请修正补丁后重新提交，只包含还需要修改的文件。',
+      ].join('\n');
+    }
+    if (next === previous) {
+      skipped.push(update.path);
+      continue;
+    }
+    if (!strict) lenient.push(update.path);
+    if (!await approve({ path: update.path, previous, next })) {
+      return [
+        `用户拒绝对 ${update.path} 的修改；未写入任何剩余文件。`,
+        `已写入 ${written.length} 个文件：${written.join('、') || '无'}。`,
+        '这是非原子操作，请如实转告用户实际写入了哪些文件，并且不要再换别的方式尝试写入被拒绝的文件。',
+      ].join('\n');
+    }
+    const outcome = await writeApprovedContent(update.path, previous, next);
+    if (!outcome.startsWith('已写入')) {
+      return [
+        `写入 ${update.path} 失败：${outcome}`,
+        `已写入 ${written.length} 个文件：${written.join('、') || '无'}；其余文件未做任何修改。`,
+        '请如实告知用户，不要重试同一批文件。',
+      ].join('\n');
+    }
+    written.push(update.path);
+  }
+
+  const lines: string[] = [];
+  lines.push(written.length ? `已写入 ${written.length} 个文件：` : '没有文件被写入：');
+  for (const path of written) lines.push(`- 已写入 ${path}${lenient.includes(path) ? '（注意：补丁通过宽松匹配命中，实际改动可能超出字面描述，已在审批差异中展示）' : ''}`);
+  for (const path of skipped) lines.push(`- ${path}：应用补丁后内容与原文完全一致，未写入。`);
+  lines.push(...rejectionLines.map((line) => `- 拒绝 ${line.slice(2)}`));
+  for (const [path, message] of readFailures) {
+    if (!previousByPath.has(path) && !plan.updates.some((update) => update.path === path)) lines.push(`- ${path}：读取失败，未纳入本次执行（${message}）`);
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -200,8 +322,8 @@ async function writeFile(args: Record<string, unknown>, approve: WorkspaceWriteA
  * 抛异常会让整个 Agent 回合中断，模型也就失去了自我修正的机会。
  */
 export async function executeWorkspaceTool(name: string, rawArguments: string, approveWrite?: WorkspaceWriteApprover): Promise<string> {
-  if (!['workspace_search_files', 'workspace_list_files', 'workspace_read_file', 'workspace_write_file'].includes(name)) {
-    return `未知工具 ${name}。可用工具：workspace_search_files、workspace_list_files、workspace_read_file、workspace_write_file。`;
+  if (!['workspace_search_files', 'workspace_list_files', 'workspace_read_file', 'workspace_write_file', 'workspace_patch_file'].includes(name)) {
+    return `未知工具 ${name}。可用工具：workspace_search_files、workspace_list_files、workspace_read_file、workspace_write_file、workspace_patch_file。`;
   }
   const args = parseToolArguments(rawArguments);
   if (!args) return `工具 ${name} 的参数不是合法 JSON：${truncate(rawArguments, 200)}。请重新发起调用并给出合法 JSON。`;
@@ -209,6 +331,7 @@ export async function executeWorkspaceTool(name: string, rawArguments: string, a
     if (name === 'workspace_search_files') return await searchFiles(args);
     if (name === 'workspace_list_files') return await listFiles(args);
     if (name === 'workspace_read_file') return await readFile(args);
+    if (name === 'workspace_patch_file') return await patchFile(args, approveWrite);
     return await writeFile(args, approveWrite);
   } catch (error: unknown) {
     return workspaceToolErrorText(error);
