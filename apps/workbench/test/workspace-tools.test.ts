@@ -297,7 +297,7 @@ test('补丁：原生 commit 失败的错误码（含定位后缀）翻译成可
   readOverrides.delete('d.ts');
 });
 
-test('补丁：add/delete/move 与不存在的文件被策略拒绝，且不会惊动审批', async () => {
+test('补丁：整批校验、整批拒绝——任何一段被策略拒绝时整批不进入审批', async () => {
   readOverrides.set('exists.ts', 'x\n');
   missingPaths.add('missing.ts');
   missingPaths.add('new.ts');
@@ -313,15 +313,14 @@ test('补丁：add/delete/move 与不存在的文件被策略拒绝，且不会�
       '*** Update File: exists.ts', '@@', '-x', '+y',
     ]),
   }), async () => { asked = true; return true; });
-  assert.match(message, /已应用 2 个文件操作/);
-  assert.match(message, /- 新建 new\.ts/);
-  assert.match(message, /- 写入 exists\.ts/);
-  assert.match(message, /拒绝 gone\.ts：文件在工作区中不存在/);
-  assert.match(message, /拒绝 \.\.\/escape\.ts：路径超出工作区范围/);
-  assert.match(message, /拒绝 missing\.ts：文件在工作区中不存在/);
-  assert.equal(asked, true); // 唯一合法目标仍要走审批
-  const commits = invokeCalls.filter((call) => call.cmd === 'workspace_commit_patch');
-  assert.equal(commits.length, 1);
+  // R1 审计 03：不再裁剪部分补丁继续审批——整批拒绝且未做任何修改。
+  assert.match(message, /整批校验不通过，未做任何修改/);
+  assert.match(message, /- gone\.ts：文件在工作区中不存在/);
+  assert.match(message, /- \.\.\/escape\.ts：路径超出工作区范围/);
+  assert.match(message, /- missing\.ts：文件在工作区中不存在/);
+  assert.equal(asked, false); // 有拒绝段就不惊动审批
+  assert.equal(invokeCalls.some((call) => call.cmd === 'workspace_stage_patch_batch'), false);
+  assert.equal(invokeCalls.some((call) => call.cmd === 'workspace_commit_patch'), false);
   readOverrides.delete('exists.ts');
   missingPaths.delete('missing.ts');
   missingPaths.delete('new.ts');

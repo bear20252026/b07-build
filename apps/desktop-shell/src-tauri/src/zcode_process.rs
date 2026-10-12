@@ -36,19 +36,31 @@ struct ZCodeProcess {
     exited: Arc<AtomicBool>,
 }
 
+/// 运行注册表：reserved（预留）/ runs（活跃）/ finished（完成去重）共用一把锁——
+/// 「预留 → 登记」「退出 → 回收」都必须是原子状态迁移，否则并发启动会撕裂状态
+/// （R1 审计 06：释放 reserved 与写入 runs 曾分属两把锁）。
+#[derive(Default)]
+struct ZCodeRegistry {
+    runs: HashMap<String, ZCodeProcess>,
+    reserved: HashSet<String>,
+    finished: HashSet<String>,
+}
+
+/// finished 去重集上限：run_id 本就是一次性 UUID，超出后整集清空即可（退一次幂）。
+const MAX_FINISHED_ENTRIES: usize = 4_096;
+
+/// 单行 NDJSON 帧上限：与 valid_frame_line 的写入上限一致；超限视为协议违规。
+const MAX_LINE_BYTES: usize = 1_048_576;
+
 /// 运行状态：reserved/finished 语义与终端一致（SEC-005）。
 pub struct ZCodeProcessState {
-    runs: Arc<Mutex<HashMap<String, ZCodeProcess>>>,
-    reserved: Arc<Mutex<HashSet<String>>>,
-    finished: Arc<Mutex<HashSet<String>>>,
+    registry: Arc<Mutex<ZCodeRegistry>>,
 }
 
 impl ZCodeProcessState {
     pub fn new() -> Self {
         Self {
-            runs: Arc::new(Mutex::new(HashMap::new())),
-            reserved: Arc::new(Mutex::new(HashSet::new())),
-            finished: Arc::new(Mutex::new(HashSet::new())),
+            registry: Arc::new(Mutex::new(ZCodeRegistry::default())),
         }
     }
 }
@@ -144,14 +156,15 @@ pub async fn start_zcode_agent(
         return Err("zcode-executable-invalid");
     }
     let directory = working_directory(&workspace, request.working_directory.as_deref())?;
-    // SEC-005：原子预留，spawn 失败释放。
+    // SEC-005：原子预留，spawn 失败释放（同一把锁内检查 + 占位）。
     {
-        let runs = state.runs.lock().await;
-        let mut reserved = state.reserved.lock().await;
-        if runs.contains_key(&request.run_id) || reserved.contains(&request.run_id) {
+        let mut registry = state.registry.lock().await;
+        if registry.runs.contains_key(&request.run_id)
+            || registry.reserved.contains(&request.run_id)
+        {
             return Err("zcode-run-already-active");
         }
-        reserved.insert(request.run_id.clone());
+        registry.reserved.insert(request.run_id.clone());
     }
     // 固定追加 agent-server 子命令；可执行文件带路径分隔符时按路径直接用，
     // 否则走 PATH 解析（复用终端的解析逻辑，Windows 上含 .exe/.cmd 垫片处理）。
@@ -163,7 +176,7 @@ pub async fn start_zcode_agent(
         match resolve_executable(executable) {
             Some(path) => path,
             None => {
-                state.reserved.lock().await.remove(&request.run_id);
+                state.registry.lock().await.reserved.remove(&request.run_id);
                 return Err("zcode-executable-not-found");
             }
         }
@@ -179,37 +192,53 @@ pub async fn start_zcode_agent(
     let mut child = match process.spawn() {
         Ok(child) => child,
         Err(_) => {
-            state.reserved.lock().await.remove(&request.run_id);
+            state.registry.lock().await.reserved.remove(&request.run_id);
             return Err("zcode-spawn-failed");
         }
     };
     let stdin = child
         .stdin
         .take()
-        .ok_or_else(|| "zcode-process-pipes-unavailable")?;
+        .ok_or("zcode-process-pipes-unavailable")?;
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| "zcode-process-pipes-unavailable")?;
+        .ok_or("zcode-process-pipes-unavailable")?;
     let stderr = child
         .stderr
         .take()
-        .ok_or_else(|| "zcode-process-pipes-unavailable")?;
+        .ok_or("zcode-process-pipes-unavailable")?;
     let run_id = request.run_id.clone();
-    state.reserved.lock().await.remove(&run_id);
     let stop = Arc::new(Notify::new());
     let exited = Arc::new(AtomicBool::new(false));
-    state.runs.lock().await.insert(
+    {
+        // 预留 → 登记：同一把锁内原子迁移。
+        let mut registry = state.registry.lock().await;
+        registry.reserved.remove(&run_id);
+        registry.runs.insert(
+            run_id.clone(),
+            ZCodeProcess {
+                stdin: Arc::new(Mutex::new(Some(stdin))),
+                stop: stop.clone(),
+                exited: exited.clone(),
+            },
+        );
+    }
+    tauri::async_runtime::spawn(relay_lines(
+        app.clone(),
         run_id.clone(),
-        ZCodeProcess {
-            stdin: Arc::new(Mutex::new(Some(stdin))),
-            stop: stop.clone(),
-            exited: exited.clone(),
-        },
-    );
-    tauri::async_runtime::spawn(relay_lines(app.clone(), run_id.clone(), "stdout", stdout));
-    tauri::async_runtime::spawn(relay_lines(app.clone(), run_id.clone(), "stderr", stderr));
-    let finished = state.finished.clone();
+        "stdout",
+        stdout,
+        stop.clone(),
+    ));
+    tauri::async_runtime::spawn(relay_lines(
+        app.clone(),
+        run_id.clone(),
+        "stderr",
+        stderr,
+        stop.clone(),
+    ));
+    let registry = state.registry.clone();
     let exit_run_id = run_id.clone();
     // 退出监控独占 Child：select! 在「自然退出」与「stop 信号 → kill」之间裁决，
     // 全程不碰共享锁。退出后置 exited 标志、按 SEC-005 只发布一次完成事件。
@@ -224,9 +253,19 @@ pub async fn start_zcode_agent(
             }
         };
         exited.store(true, Ordering::SeqCst);
-        let mut finished = finished.lock().await;
-        if finished.insert(run_id.clone()) {
-            drop(finished);
+        // 发布一次完成事件（SEC-005），并在同一把锁内回收活跃记录：退出后 runs
+        // 不残留；finished 去重集有界（run_id 是一次性 UUID，整集清空退一次幂）。
+        let should_emit = {
+            let mut registry = registry.lock().await;
+            let first = registry.finished.insert(run_id.clone());
+            if registry.finished.len() > MAX_FINISHED_ENTRIES {
+                registry.finished.clear();
+                registry.finished.insert(run_id.clone());
+            }
+            registry.runs.remove(&run_id);
+            first
+        };
+        if should_emit {
             let _ = app.emit(
                 "zcode-protocol-exit",
                 ZCodeExitEvent {
@@ -239,27 +278,79 @@ pub async fn start_zcode_agent(
     Ok(ZCodeAgentStartResponse { run_id })
 }
 
-async fn relay_lines<R>(app: AppHandle, run_id: String, stream: &'static str, reader: R)
-where
+/// 逐行转发 stdout/stderr。读取按段扫描并强限单行字节数：超限视为协议违规，
+/// 先请求停止异常子进程再终止转发，防止无界行耗尽内存（R1 审计 06）。
+async fn relay_lines<R>(
+    app: AppHandle,
+    run_id: String,
+    stream: &'static str,
+    reader: R,
+    stop: Arc<Notify>,
+) where
     R: tokio::io::AsyncRead + Unpin,
 {
-    let mut reader = BufReader::new(reader);
-    let mut line = String::new();
+    let mut reader = BufReader::with_capacity(64 * 1024, reader);
     loop {
-        line.clear();
-        match reader.read_line(&mut line).await {
-            Ok(0) => return,
-            Ok(_) => {
-                let _ = app.emit(
-                    "zcode-protocol-line",
-                    ZCodeLineEvent {
-                        run_id: run_id.clone(),
-                        stream,
-                        text: line.trim_end_matches(['\r', '\n']).to_string(),
-                    },
-                );
+        let mut line: Vec<u8> = Vec::with_capacity(4096);
+        let exceeded;
+        let eof;
+        loop {
+            let available = match tokio::io::AsyncBufReadExt::fill_buf(&mut reader).await {
+                Ok(available) => available,
+                Err(_) => return,
+            };
+            if available.is_empty() {
+                eof = true;
+                exceeded = false;
+                break;
             }
-            Err(_) => return,
+            match available.iter().position(|&byte| byte == b'\n') {
+                Some(position) => {
+                    line.extend_from_slice(&available[..position]);
+                    reader.consume(position + 1);
+                    eof = false;
+                    exceeded = false;
+                    break;
+                }
+                None => {
+                    line.extend_from_slice(available);
+                    let consumed = available.len();
+                    reader.consume(consumed);
+                    if line.len() > MAX_LINE_BYTES {
+                        eof = false;
+                        exceeded = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if exceeded {
+            let _ = app.emit(
+                "zcode-protocol-line",
+                ZCodeLineEvent {
+                    run_id,
+                    stream: "stderr",
+                    text: "zcode-line-limit-exceeded".to_string(),
+                },
+            );
+            stop.notify_one();
+            return;
+        }
+        if eof && line.is_empty() {
+            return;
+        }
+        let _ = app.emit(
+            "zcode-protocol-line",
+            ZCodeLineEvent {
+                run_id: run_id.clone(),
+                stream,
+                text: String::from_utf8_lossy(&line)
+                    .trim_end_matches(['\r', '\n'])
+                    .to_string(),
+            },
+        );
+        if eof {
+            return;
         }
     }
 }
@@ -281,9 +372,10 @@ pub async fn zcode_write_stdin(
         return Err("zcode-frame-invalid");
     }
     let process = state
-        .runs
+        .registry
         .lock()
         .await
+        .runs
         .get(&request.run_id)
         .map(|process| (process.stdin.clone(), process.exited.clone()))
         .ok_or("zcode-run-not-active")?;
@@ -319,9 +411,10 @@ pub async fn stop_zcode_agent(
     request: StopZCodeAgentRequest,
 ) -> Result<(), &'static str> {
     let process = state
-        .runs
+        .registry
         .lock()
         .await
+        .runs
         .get(&request.run_id)
         .map(|process| (process.stdin.clone(), process.stop.clone()))
         .ok_or("zcode-run-not-active")?;

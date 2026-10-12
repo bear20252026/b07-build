@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { ZCodeAgentAdapter, type ZCodeAgentEvent, type ZCodePermissionRequestContext } from './zcode-agent-adapter';
+import { ZCodeAgentAdapter, type ZCodeAgentEvent, type ZCodePermissionRequestContext, type ZCodeUserInputRequestContext } from './zcode-agent-adapter';
 import { initialZcodeSessionProjection, reduceZcodeSessionEvent, type ZcodeSessionProjectionState } from './zcode-session-projector';
 import { zcodeWorkspaceRoot } from './zcode-process-client';
 import { reconcileAgentToolCallTree, type AgentToolCallTreeNode } from '../agent-tool-tree';
@@ -7,18 +7,18 @@ import { reconcileAgentToolCallTree, type AgentToolCallTreeNode } from '../agent
 /**
  * ZCode 会话 React 挂载点：adapter（子进程 + 协议）→ 事件投影 → 层级树。
  *
- * 职责边界：这里是唯一持有 adapter 实例与权限裁决回调的地方。权限裁决走
- * 「队列一个待决请求 → 用户点击 → respond」的最小闭环，与 use-direct-conversations
- * 的 pendingWorkspaceWrite 模式一致；没有裁决回调时 adapter 层缺省 deny（fail-closed），
- * 这里挂上回调后由用户逐条决定。
- *
- * 事件归约用 useReducer（reduceZcodeSessionEvent 是纯函数）；层级树每轮用
- * reconcileAgentToolCallTree 与上一棵树做引用稳定对比，避免流式更新击穿 memo。
+ * 职责边界：这里是唯一持有 adapter 实例与裁决回调的地方。反向请求（权限 /
+ * 用户输入）进入**带 id 的审批队列**——两条并发请求各占一位、各答一次，
+ * 关闭会话时对全部未决请求明确拒绝（fail-closed）。响应契约按 ZCode 协议
+ * 分流：requestPermission → { decision }，requestUserInput → { action }。
  */
 
 export type ZcodeSessionStatus = 'idle' | 'connecting' | 'connected' | 'closed' | 'error';
 
-export interface ZcodePendingPermission {
+export interface ZcodePendingRequest {
+  /** 队列内唯一标识：来自请求参数的 requestId，缺失时由本地计数生成。 */
+  readonly id: string;
+  readonly kind: 'permission' | 'userInput';
   readonly toolName: string;
   readonly reason: string;
   readonly riskLevel: string;
@@ -32,10 +32,12 @@ export interface ZcodeSessionController {
   readonly error?: string;
   readonly projection: ZcodeSessionProjectionState;
   readonly toolTree: readonly AgentToolCallTreeNode[];
-  readonly pendingPermission?: ZcodePendingPermission;
+  /** 未决反向请求队列（权限 + 用户输入）；UI 逐条渲染、逐条应答。 */
+  readonly pendingRequests: readonly ZcodePendingRequest[];
+  readonly streamIncomplete: boolean;
   connect(options: { executable: string; workspacePath?: string }): Promise<void>;
   send(content: string): Promise<void>;
-  respondPermission(decision: 'allow' | 'deny', reason?: string): void;
+  respondRequest(id: string, decision: 'allow' | 'deny', reason?: string): void;
   close(): Promise<void>;
 }
 
@@ -53,9 +55,11 @@ export function useZcodeSession(): ZcodeSessionController {
   const [sessionId, setSessionId] = useState<string>();
   const [error, setError] = useState<string>();
   const [projection, setProjection] = useState<ZcodeSessionProjectionState>(initialZcodeSessionProjection);
-  const [pendingPermission, setPendingPermission] = useState<ZcodePendingPermission>();
+  const [pendingRequests, setPendingRequests] = useState<readonly ZcodePendingRequest[]>([]);
+  const [streamIncomplete, setStreamIncomplete] = useState(false);
   const adapterRef = useRef<ZCodeAgentAdapter | undefined>(undefined);
   const treeRef = useRef<readonly AgentToolCallTreeNode[]>([]);
+  const requestCounter = useRef(0);
   const [, setTreeTick] = useState(0);
 
   const applyEvent = useCallback((event: ZCodeAgentEvent): void => {
@@ -76,6 +80,8 @@ export function useZcodeSession(): ZcodeSessionController {
     setStatus('connecting');
     setError(undefined);
     setProjection(initialZcodeSessionProjection);
+    setPendingRequests([]);
+    setStreamIncomplete(false);
     treeRef.current = [];
     // 工作区路径缺省时向原生侧查询当前选中工作区根（与会话进程的工作目录同源）。
     const workspacePath = (options.workspacePath ?? await zcodeWorkspaceRoot()).trim();
@@ -83,19 +89,44 @@ export function useZcodeSession(): ZcodeSessionController {
     const adapter = new ZCodeAgentAdapter({
       executable,
       workspace: { workspacePath, workspaceKey: workspacePath },
-      onEvent: (event) => applyEvent(event),
+      onEvent: (event) => {
+        applyEvent(event);
+        if (event.kind === 'notification' && event.method === 'session/streamIncomplete') {
+          setStreamIncomplete(true);
+        }
+      },
       onPermissionRequest: (context: ZCodePermissionRequestContext) => {
         const params = (context.params ?? {}) as Record<string, unknown>;
-        setPendingPermission({
-          toolName: typeof params.toolName === 'string' ? params.toolName : context.method,
-          reason: typeof params.reason === 'string' ? params.reason : '',
-          riskLevel: typeof params.riskLevel === 'string' ? params.riskLevel : 'unknown',
-          inputPreview: inputPreview(params.input),
-          resolve: (decision, reason) => {
-            setPendingPermission(undefined);
-            context.respond(decision, reason);
+        const id = typeof params.requestId === 'string' && params.requestId ? params.requestId : `perm-${++requestCounter.current}`;
+        setPendingRequests((current) => [
+          ...current,
+          {
+            id,
+            kind: 'permission',
+            toolName: typeof params.toolName === 'string' ? params.toolName : context.method,
+            reason: typeof params.reason === 'string' ? params.reason : '',
+            riskLevel: typeof params.riskLevel === 'string' ? params.riskLevel : 'unknown',
+            inputPreview: inputPreview(params.input),
+            resolve: (decision, reason) => context.respond(decision, reason),
           },
-        });
+        ]);
+      },
+      onUserInputRequest: (context: ZCodeUserInputRequestContext) => {
+        const params = (context.params ?? {}) as Record<string, unknown>;
+        const id = typeof params.requestId === 'string' && params.requestId ? params.requestId : `input-${++requestCounter.current}`;
+        setPendingRequests((current) => [
+          ...current,
+          {
+            id,
+            kind: 'userInput',
+            toolName: typeof params.toolName === 'string' ? params.toolName : '用户输入',
+            reason: typeof params.prompt === 'string' ? params.prompt : '',
+            riskLevel: 'unknown',
+            inputPreview: Array.isArray(params.questions) ? inputPreview(params.questions) : inputPreview(params.input),
+            // 契约映射：界面上的「允许/拒绝」→ 协议的 accept/decline（R1 审计 04）。
+            resolve: (decision, reason) => context.respond(decision === 'allow' ? 'accept' : 'decline', undefined, reason),
+          },
+        ]);
       },
       onExit: (code) => {
         adapterRef.current = undefined;
@@ -122,22 +153,41 @@ export function useZcodeSession(): ZcodeSessionController {
     await adapter.send(content);
   }, []);
 
-  const respondPermission = useCallback((decision: 'allow' | 'deny', reason?: string): void => {
-    setPendingPermission((current) => {
-      current?.resolve(decision, reason);
-      return undefined;
+  const respondRequest = useCallback((id: string, decision: 'allow' | 'deny', reason?: string): void => {
+    setPendingRequests((current) => {
+      // 先移除再应答：同一条请求不可能被应答两次（重复点击是 no-op）。
+      const target = current.find((request) => request.id === id);
+      if (!target) return current;
+      target.resolve(decision, reason);
+      return current.filter((request) => request.id !== id);
     });
   }, []);
 
   const close = useCallback(async (): Promise<void> => {
     const adapter = adapterRef.current;
     adapterRef.current = undefined;
-    setPendingPermission(undefined);
+    // 关闭会话 = 对全部未决请求明确拒绝，不允许有请求悬空（R1 审计 05）。
+    setPendingRequests((current) => {
+      for (const request of current) request.resolve('deny', 'session closed');
+      return [];
+    });
     setStatus((current) => (current === 'idle' ? current : 'closed'));
     await adapter?.close().catch(() => undefined);
   }, []);
 
   const toolTree = useMemo(() => treeRef.current, [projection.toolCalls]);
 
-  return { status, ...(sessionId ? { sessionId } : {}), ...(error ? { error } : {}), projection, toolTree, ...(pendingPermission ? { pendingPermission } : {}), connect, send, respondPermission, close };
+  return {
+    status,
+    ...(sessionId ? { sessionId } : {}),
+    ...(error ? { error } : {}),
+    projection,
+    toolTree,
+    pendingRequests,
+    streamIncomplete,
+    connect,
+    send,
+    respondRequest,
+    close,
+  };
 }

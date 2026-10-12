@@ -116,6 +116,6 @@ mod tests {
     #[test]
     fn memory_budget_is_enforced_before_any_io() {
         // 超限内容在拿到路径之前就该被拒绝——这条断言把上限本身钉进测试。
-        assert!(MAX_MEMORY_BYTES < 1_000_000);
+        const _: () = assert!(MAX_MEMORY_BYTES < 1_000_000);
     }
 }

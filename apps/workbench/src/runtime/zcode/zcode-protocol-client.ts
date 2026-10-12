@@ -79,6 +79,7 @@ export class ZCodeProtocolClient {
   private unlisten: (() => void) | undefined;
   private readonly notificationHandlers = new Set<(method: string, params: unknown) => void>();
   private readonly serverRequestHandlers = new Set<ZCodeServerRequestHandler>();
+  private readonly exitHandlers = new Set<(code: number | null) => void>();
   private readonly stderrLog: string[] = [];
 
   constructor(private readonly options: ZCodeProtocolClientOptions) {
@@ -118,6 +119,14 @@ export class ZCodeProtocolClient {
     return () => this.serverRequestHandlers.delete(handler);
   }
 
+  /** 订阅子进程退出（含退出码）；adapter 用它把退出状态传到会话 UI（R1 审计 06）。 */
+  onExit(handler: (code: number | null) => void): () => void {
+    // 已退出的客户端立即补发一次：订阅迟到也要看到终态。
+    if (this.exited) handler(this.exitCode ?? null);
+    this.exitHandlers.add(handler);
+    return () => this.exitHandlers.delete(handler);
+  }
+
   /** 回发反向请求的应答帧（`{id, result}`）。 */
   async respond(id: ZCodeServerRequestId, result: unknown): Promise<void> {
     await this.deps.writeLine(this.runId, JSON.stringify({ id, result }));
@@ -139,6 +148,11 @@ export class ZCodeProtocolClient {
         this.exited = true;
         this.exitCode = payload.code;
         this.rejectAllPending(new ZCodeProtocolError('zcode-transport-closed', `ZCode 协议子进程已退出（code=${payload.code ?? 'null'}）。`));
+        for (const handler of this.exitHandlers) {
+          try {
+            handler(payload.code);
+          } catch { /* 单个监听器异常不阻断退出分发。 */ }
+        }
       },
     });
     try {
@@ -165,7 +179,18 @@ export class ZCodeProtocolClient {
       }, this.requestTimeoutMs);
       this.pending.set(id, { resolve, reject, timer });
     });
-    await this.deps.writeLine(this.runId, JSON.stringify({ id, method, ...(params === undefined ? {} : { params }) }));
+    try {
+      await this.deps.writeLine(this.runId, JSON.stringify({ id, method, ...(params === undefined ? {} : { params }) }));
+    } catch (error) {
+      // 写入失败 = 这条请求永远等不到应答：立即清理挂起项并传播发送错误，
+      // 不能把它留在 pending 里空等超时（R1 审计 06）。
+      const entry = this.pending.get(id);
+      if (entry) {
+        clearTimeout(entry.timer);
+        this.pending.delete(id);
+      }
+      throw error instanceof Error ? error : new ZCodeProtocolError('zcode-stdin-write-failed', '写入 ZCode 协议子进程失败。');
+    }
     return promise;
   }
 

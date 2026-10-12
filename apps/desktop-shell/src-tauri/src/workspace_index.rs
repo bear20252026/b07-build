@@ -131,9 +131,9 @@ fn segment_matches(pattern: &str, value: &str) -> bool {
     let value: Vec<char> = value.chars().collect();
     let mut row: Vec<bool> = vec![false; value.len() + 1];
     row[0] = true;
-    for index in 0..pattern.len() {
+    for &token in &pattern {
         let mut next = vec![false; value.len() + 1];
-        match pattern[index] {
+        match token {
             '*' => {
                 let mut matched = false;
                 for column in 0..=value.len() {
@@ -367,7 +367,7 @@ pub fn build_index(root: &Path, ignore_rules: Option<&IgnoreRules>) -> Workspace
             let display = if parent_display.is_empty() {
                 name.clone()
             } else {
-                format!("{}/{}", parent_display, &name)
+                format!("{}/{}", parent_display, name)
             };
             if is_directory {
                 if is_vcs_directory(&name) {
