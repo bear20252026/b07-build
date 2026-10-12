@@ -63,7 +63,7 @@ pub fn is_sha256_hex(value: &str) -> bool {
 
 /// 语法层校验票据要绑定的相对路径：非空、非绝对、不允许向上穿越。
 /// 真正的边界校验仍在写入时由 canonicalize 前缀检查完成，这里只挡明显恶意输入。
-fn grantable_path(path: &str) -> Result<String, &'static str> {
+pub(crate) fn grantable_path(path: &str) -> Result<String, &'static str> {
     let trimmed = path.trim();
     if trimmed.is_empty() || trimmed.len() > 512 {
         return Err("workspace-path-invalid");

@@ -34,6 +34,7 @@ mod workspace_approval;
 mod workspace_files;
 #[cfg(not(mobile))]
 mod workspace_index;
+mod workspace_patch;
 mod zcode_process;
 
 #[cfg(not(mobile))]
@@ -285,6 +286,7 @@ pub fn run() {
         .manage(terminal::TerminalRunState::new())
         .manage(WorkspaceDirectoryState(Mutex::new(None)))
         .manage(workspace_approval::WorkspaceApprovalState::new())
+        .manage(workspace_patch::WorkspacePatchState::new())
         .manage(workspace_index::WorkspaceIndexState::new())
         .manage(zcode_process::ZCodeProcessState::new())
         .invoke_handler(tauri::generate_handler![
@@ -322,6 +324,8 @@ pub fn run() {
             zcode_process::zcode_write_stdin,
             zcode_process::stop_zcode_agent,
             zcode_process::zcode_workspace_root,
+            workspace_patch::workspace_stage_patch_batch,
+            workspace_patch::workspace_commit_patch,
             assistant_artifacts::save_assistant_markdown_artifact,
             assistant_artifacts::read_assistant_markdown_artifact,
             assistant_artifacts::export_assistant_markdown_artifact,

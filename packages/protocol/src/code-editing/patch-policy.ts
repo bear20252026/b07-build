@@ -1,12 +1,14 @@
-// 一个文件=一种作用：结构化 Patch 的第一期策略——把解析结果筛成「可安全执行的计划」。
+// 一个文件=一种作用：结构化 Patch 的策略——把解析结果筛成「可安全执行的计划」。
 //
-// 第一期边界（审计结论，故意从窄）：
-// - 只允许「更新已存在文件」；add / delete / move 一律拒绝（第二期走 Rust 显式审批接口）；
-// - 路径必须是工作区内的相对 POSIX 路径：拒绝绝对路径、盘符、`..` 逃逸、反斜杠外的
-//   空段；symlink 由 Rust 文件层拒绝（workspace_files 已不列出不穿越符号链接）；
-// - 重复目标拒绝：同一文件被两个 section 更新时顺序语义易错，第一期直接拒绝。
+// 第一期边界（缺省，故意从窄）：只允许「更新已存在文件」；add / delete / move 一律拒绝。
+// 第二期（allowStructureChanges 显式开启）：放开 add / delete / move，但仍然——
+// - 路径必须是工作区内的相对 POSIX 路径：拒绝绝对路径、盘符、`..` 逃逸、空段；
+// - add 的目标必须不存在；delete / move 的源必须存在；move 的目标必须不存在；
+//   存在性由调用方提供的 existingFiles 集合判定（Rust workspace_files 已不列出不
+//   穿越 symlink 的路径），真正的磁盘级复核在原生 commit 时再做一遍；
+// - 同一文件的重复目标拒绝（无论哪种操作）。
 //
-// 策略只产出计划，不做 I/O；写入仍走 b07 原生审批 + Rust 路径约束。
+// 策略只产出计划，不做 I/O；写入走原生批量事务（stage → 审批 → commit）。
 
 import type { PatchChunk, ParsedPatch } from './patch-parser.js';
 
@@ -15,25 +17,38 @@ export interface PatchFileUpdate {
   chunks: PatchChunk[];
 }
 
+/** 计划中的一条可执行操作；kind 决定原生侧的写入方式。 */
+export type SafePatchOperation =
+  | { kind: 'update'; path: string; chunks: PatchChunk[]; movePath?: string }
+  | { kind: 'add'; path: string; contents: string }
+  | { kind: 'delete'; path: string };
+
 export interface PatchPlanRejection {
   path: string;
   /** 稳定的拒绝原因码，供审批界面与审计记录使用。 */
-  reason: 'phase1-update-only' | 'path-escapes-workspace' | 'file-not-found' | 'duplicate-patch-target';
+  reason:
+    | 'phase1-update-only'
+    | 'path-escapes-workspace'
+    | 'file-not-found'
+    | 'file-already-exists'
+    | 'duplicate-patch-target';
   detail?: string;
 }
 
 export interface SafePatchPlan {
-  updates: PatchFileUpdate[];
+  operations: SafePatchOperation[];
   rejections: PatchPlanRejection[];
 }
 
 export interface PatchPlanOptions {
   /** 当前工作区内「真实存在且非符号链接」的相对路径集合（由 Rust workspace_files 列出）。 */
   existingFiles: ReadonlySet<string>;
+  /** 第二期开关：允许 add / delete / move。缺省 false（第一期行为不变）。 */
+  allowStructureChanges?: boolean;
 }
 
 export function planPatchSections(sections: readonly ParsedPatch[], options: PatchPlanOptions): SafePatchPlan {
-  const updates: PatchFileUpdate[] = [];
+  const operations: SafePatchOperation[] = [];
   const rejections: PatchPlanRejection[] = [];
   const seen = new Set<string>();
 
@@ -41,37 +56,88 @@ export function planPatchSections(sections: readonly ParsedPatch[], options: Pat
     rejections.push({ path, reason, ...(detail === undefined ? {} : { detail }) });
   };
 
+  const structureAllowed = options.allowStructureChanges === true;
+
   for (const section of sections) {
     if (section.type === 'add') {
-      reject(section.path, 'phase1-update-only', 'add file');
+      const path = normalizeRelativePath(section.path);
+      if (!structureAllowed) {
+        reject(section.path, 'phase1-update-only', 'add file');
+        continue;
+      }
+      if (path === undefined) {
+        reject(section.path, 'path-escapes-workspace');
+        continue;
+      }
+      if (options.existingFiles.has(path)) {
+        reject(path, 'file-already-exists');
+        continue;
+      }
+      if (seen.has(path)) {
+        reject(path, 'duplicate-patch-target');
+        continue;
+      }
+      seen.add(path);
+      operations.push({ kind: 'add', path, contents: section.contents });
       continue;
     }
     if (section.type === 'delete') {
-      reject(section.path, 'phase1-update-only', 'delete file');
+      const path = normalizeRelativePath(section.path);
+      if (!structureAllowed) {
+        reject(section.path, 'phase1-update-only', 'delete file');
+        continue;
+      }
+      if (path === undefined) {
+        reject(section.path, 'path-escapes-workspace');
+        continue;
+      }
+      if (!options.existingFiles.has(path)) {
+        reject(path, 'file-not-found');
+        continue;
+      }
+      if (seen.has(path)) {
+        reject(path, 'duplicate-patch-target');
+        continue;
+      }
+      seen.add(path);
+      operations.push({ kind: 'delete', path });
       continue;
     }
-    if (section.movePath !== undefined) {
-      reject(section.path, 'phase1-update-only', 'move file');
-      continue;
-    }
-    const path = normalizeRelativePath(section.path);
-    if (path === undefined) {
+
+    // update（可能带 move）
+    const sourcePath = normalizeRelativePath(section.path);
+    const movePath = section.movePath !== undefined ? normalizeRelativePath(section.movePath) : undefined;
+    if (sourcePath === undefined || (section.movePath !== undefined && movePath === undefined)) {
       reject(section.path, 'path-escapes-workspace');
       continue;
     }
-    if (seen.has(path)) {
-      reject(path, 'duplicate-patch-target');
+    if (section.movePath !== undefined && !structureAllowed) {
+      reject(sourcePath, 'phase1-update-only', 'move file');
       continue;
     }
-    if (!options.existingFiles.has(path)) {
-      reject(path, 'file-not-found');
+    if (movePath !== undefined && options.existingFiles.has(movePath)) {
+      reject(movePath, 'file-already-exists');
       continue;
     }
-    seen.add(path);
-    updates.push({ path, chunks: section.chunks });
+    if (!options.existingFiles.has(sourcePath)) {
+      reject(sourcePath, 'file-not-found');
+      continue;
+    }
+    if (seen.has(sourcePath) || (movePath !== undefined && seen.has(movePath))) {
+      reject(sourcePath, 'duplicate-patch-target');
+      continue;
+    }
+    seen.add(sourcePath);
+    if (movePath !== undefined) seen.add(movePath);
+    operations.push({
+      kind: 'update',
+      path: sourcePath,
+      chunks: section.chunks,
+      ...(movePath !== undefined ? { movePath } : {}),
+    });
   }
 
-  return { updates, rejections };
+  return { operations, rejections };
 }
 
 /** 归一化为工作区相对 POSIX 路径；不合法（逃逸/绝对/盘符）返回 undefined。 */

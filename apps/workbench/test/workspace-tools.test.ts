@@ -57,6 +57,9 @@ const invokeCalls: { readonly cmd: string; readonly args: Record<string, unknown
 const readOverrides = new Map<string, string>();
 /** 声明为「工作区里不存在」的路径：读取时抛原生错误码，用于覆盖 file-not-found 分支。 */
 const missingPaths = new Set<string>();
+/** 批量提交桩的 scripted 行为：失败码或应答用的操作清单。 */
+let patchCommitFailure: string | undefined;
+let lastStagedOperations: readonly Record<string, unknown>[] | undefined;
 (globalThis as unknown as { window: unknown }).window = {
   __TAURI_INTERNALS__: {
     invoke: async (cmd: string, args: Record<string, unknown>) => {
@@ -80,6 +83,29 @@ const missingPaths = new Set<string>();
         // 模拟原生 SEC-008：不带票据的写入命令直接拒绝。
         if (!args.approvalToken) throw 'workspace-write-approval-required';
         return { path: args.path, content: args.content, byteSize: String(args.content).length, truncated: false };
+      }
+      if (cmd === 'workspace_stage_patch_batch') {
+        const operations = (args.request as { operations?: unknown[] })?.operations;
+        if (!Array.isArray(operations) || operations.length === 0) throw 'workspace-patch-empty';
+        // 模拟原生：整批校验哈希形态后签发票据，并记住批次内容供 commit 应答。
+        for (const operation of operations as Record<string, unknown>[]) {
+          for (const key of ['previousSha256', 'nextSha256']) {
+            const value = operation[key];
+            if (typeof value === 'string' && !/^[0-9a-f]{64}$/.test(value)) throw 'workspace-approval-digest-invalid';
+          }
+        }
+        lastStagedOperations = operations as readonly Record<string, unknown>[];
+        return 'patch-batch-token-1';
+      }
+      if (cmd === 'workspace_commit_patch') {
+        if (args.token !== 'patch-batch-token-1') throw 'workspace-write-approval-invalid';
+        if (patchCommitFailure) throw patchCommitFailure;
+        const operations = lastStagedOperations ?? [];
+        return {
+          applied: operations.map((operation) => ({ kind: operation.kind, path: (operation.movePath as string | undefined) ?? operation.path, byteSize: (operation.nextContent as string | undefined)?.length ?? 0 })),
+          rolledBack: [],
+          rollbackErrors: [],
+        };
       }
       if (cmd === 'workspace_search_files') {
         const query = String(args.query ?? '');
@@ -171,9 +197,10 @@ function patchToolText(sections: string[]): string {
   return ['*** Begin Patch', ...sections, '*** End Patch'].join('\n');
 }
 
-test('补丁：单文件精确修改走 读原文 → 审批 → 票据 → 写入 的完整链路', async () => {
+test('补丁：单文件精确修改走 读原文 → 逐文件审批 → 整批票据 → 原子提交 的完整链路', async () => {
   readOverrides.set('src/app.ts', 'const timeout = 5;\n');
   invokeCalls.length = 0;
+  lastStagedOperations = undefined;
   const message = await executeWorkspaceTool('workspace_patch_file', JSON.stringify({
     patch: patchToolText(['*** Update File: src/app.ts', '@@', '-const timeout = 5;', '+const timeout = 10;']),
   }), async (request) => {
@@ -182,19 +209,23 @@ test('补丁：单文件精确修改走 读原文 → 审批 → 票据 → 写�
     assert.equal(request.next, 'const timeout = 10;\n');
     return true;
   });
-  assert.match(message, /已写入 1 个文件/);
-  assert.match(message, /- 已写入 src\/app\.ts/);
+  assert.match(message, /已应用 1 个文件操作/);
+  assert.match(message, /- 写入 src\/app\.ts（20 字符）/);
   assert.deepEqual(
     invokeCalls.map((call) => call.cmd),
-    ['workspace_read_file', 'workspace_stage_write_approval', 'workspace_write_file'],
+    ['workspace_read_file', 'workspace_stage_patch_batch', 'workspace_commit_patch'],
   );
+  assert.equal(lastStagedOperations?.length, 1);
+  assert.equal(lastStagedOperations?.[0]?.kind, 'update');
+  assert.equal(lastStagedOperations?.[0]?.nextContent, 'const timeout = 10;\n');
   readOverrides.delete('src/app.ts');
 });
 
-test('补丁：多文件逐个审批；第二个文件被拒时第一个保持已写入且如实上报（非原子）', async () => {
+test('补丁：多文件逐个审批；第二个文件被拒时整批不写（审批在前、写入在后）', async () => {
   readOverrides.set('a.ts', 'alpha\n');
   readOverrides.set('b.ts', 'beta\n');
   invokeCalls.length = 0;
+  lastStagedOperations = undefined;
   const approved: string[] = [];
   const message = await executeWorkspaceTool('workspace_patch_file', JSON.stringify({
     patch: patchToolText([
@@ -207,20 +238,70 @@ test('补丁：多文件逐个审批；第二个文件被拒时第一个保持�
   });
   assert.deepEqual(approved, ['a.ts', 'b.ts']);
   assert.match(message, /用户拒绝对 b\.ts 的修改/);
-  assert.match(message, /已写入 1 个文件：a\.ts/);
-  assert.match(message, /非原子/);
+  assert.match(message, /整批补丁不会写入/);
+  assert.match(message, /包括之前已确认的文件/);
   assert.match(message, /不要再换别的方式/);
-  // b.ts 绝不能真的写盘。
-  const writes = invokeCalls.filter((call) => call.cmd === 'workspace_write_file');
-  assert.equal(writes.length, 1);
-  assert.equal(writes[0]?.args.path, 'a.ts');
+  // 拒绝发生在 stage 之前：既不签发票据也不落盘。
+  assert.equal(invokeCalls.some((call) => call.cmd === 'workspace_stage_patch_batch'), false);
+  assert.equal(invokeCalls.some((call) => call.cmd === 'workspace_commit_patch'), false);
   readOverrides.delete('a.ts');
   readOverrides.delete('b.ts');
+});
+
+test('补丁第二期：add / delete / move 走原生批量事务，操作载荷带完整摘要', async () => {
+  readOverrides.set('src/old.ts', 'obsolete\n');
+  missingPaths.add('src/new.ts');
+  missingPaths.add('src/renamed.ts');
+  invokeCalls.length = 0;
+  lastStagedOperations = undefined;
+  const seenRequests: string[] = [];
+  const message = await executeWorkspaceTool('workspace_patch_file', JSON.stringify({
+    patch: patchToolText([
+      '*** Add File: src/new.ts', '+export const fresh = 1;',
+      '*** Delete File: src/junk.ts',
+      '*** Update File: src/old.ts', '*** Move to: src/renamed.ts', '@@', '-obsolete', '+renamed',
+    ]),
+  }), async (request) => {
+    seenRequests.push(`${request.path}|${request.previous === '' ? 'empty' : 'content'}|${request.next === '' ? 'empty' : 'content'}`);
+    return true;
+  });
+  assert.match(message, /已应用 3 个文件操作/);
+  assert.match(message, /- 新建 src\/new\.ts/);
+  assert.match(message, /- 删除 src\/junk\.ts/);
+  assert.match(message, /- 写入 src\/renamed\.ts/);
+  assert.deepEqual(seenRequests, [
+    'src/new.ts|empty|content',
+    'src/junk.ts|content|empty',
+    'src/old.ts → src/renamed.ts|content|content',
+  ]);
+  assert.equal(lastStagedOperations?.length, 3);
+  assert.deepEqual(lastStagedOperations?.map((operation) => operation.kind), ['add', 'delete', 'update']);
+  assert.equal(lastStagedOperations?.[0]?.nextContent, 'export const fresh = 1;\n');
+  assert.equal(lastStagedOperations?.[2]?.movePath, 'src/renamed.ts');
+  readOverrides.delete('src/old.ts');
+  missingPaths.delete('src/new.ts');
+  missingPaths.delete('src/renamed.ts');
+});
+
+test('补丁：原生 commit 失败的错误码（含定位后缀）翻译成可读提示', async () => {
+  readOverrides.set('d.ts', 'old content\n');
+  patchCommitFailure = 'workspace-patch-destination-exists:update:d.ts';
+  invokeCalls.length = 0;
+  const message = await executeWorkspaceTool('workspace_patch_file', JSON.stringify({
+    patch: patchToolText(['*** Update File: d.ts', '@@', '-old content', '+new content']),
+  }), async () => true);
+  assert.match(message, /补丁落盘失败/);
+  assert.match(message, /移动目标已存在/);
+  assert.match(message, /update · d\.ts/);
+  patchCommitFailure = undefined;
+  readOverrides.delete('d.ts');
 });
 
 test('补丁：add/delete/move 与不存在的文件被策略拒绝，且不会惊动审批', async () => {
   readOverrides.set('exists.ts', 'x\n');
   missingPaths.add('missing.ts');
+  missingPaths.add('new.ts');
+  missingPaths.add('gone.ts');
   invokeCalls.length = 0;
   let asked = false;
   const message = await executeWorkspaceTool('workspace_patch_file', JSON.stringify({
@@ -232,16 +313,19 @@ test('补丁：add/delete/move 与不存在的文件被策略拒绝，且不会�
       '*** Update File: exists.ts', '@@', '-x', '+y',
     ]),
   }), async () => { asked = true; return true; });
-  assert.match(message, /拒绝 new\.ts：第一期只支持更新已存在的文件/);
-  assert.match(message, /拒绝 gone\.ts：第一期只支持更新已存在的文件/);
+  assert.match(message, /已应用 2 个文件操作/);
+  assert.match(message, /- 新建 new\.ts/);
+  assert.match(message, /- 写入 exists\.ts/);
+  assert.match(message, /拒绝 gone\.ts：文件在工作区中不存在/);
   assert.match(message, /拒绝 \.\.\/escape\.ts：路径超出工作区范围/);
   assert.match(message, /拒绝 missing\.ts：文件在工作区中不存在/);
-  assert.match(message, /- 已写入 exists\.ts/);
   assert.equal(asked, true); // 唯一合法目标仍要走审批
-  const writes = invokeCalls.filter((call) => call.cmd === 'workspace_write_file');
-  assert.equal(writes.length, 1);
+  const commits = invokeCalls.filter((call) => call.cmd === 'workspace_commit_patch');
+  assert.equal(commits.length, 1);
   readOverrides.delete('exists.ts');
   missingPaths.delete('missing.ts');
+  missingPaths.delete('new.ts');
+  missingPaths.delete('gone.ts');
 });
 
 test('补丁：格式错误返回可修正的提示，不抛出、不写入', async () => {

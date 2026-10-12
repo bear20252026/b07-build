@@ -95,7 +95,7 @@ test('第一期策略：只放行更新已存在文件，add/delete/move/逃逸�
     ].join('\n'),
   );
   const plan = planPatchSections(sections, { existingFiles: new Set(['src/a.ts', 'src/b.ts']) });
-  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ path: 'src/a.ts', chunks: [{ oldLines: ['old'], newLines: ['new'], endOfFile: false }] }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.operations)), [{ kind: 'update', path: 'src/a.ts', chunks: [{ oldLines: ['old'], newLines: ['new'], endOfFile: false }] }]);
   assert.deepEqual(
     plan.rejections.map((item) => [item.path, item.reason]),
     [
@@ -106,6 +106,49 @@ test('第一期策略：只放行更新已存在文件，add/delete/move/逃逸�
       ['C:/abs/path.ts', 'path-escapes-workspace'],
       ['src/missing.ts', 'file-not-found'],
       ['src/a.ts', 'duplicate-patch-target'],
+    ],
+  );
+});
+
+test('第二期策略：放开 add/delete/move，但存在性前提仍然成立', () => {
+  const sections = parseStructuredPatch(
+    [
+      '*** Begin Patch',
+      '*** Add File: src/new.ts',
+      '+export const fresh = 1;',
+      '*** Add File: src/a.ts',
+      '+x',
+      '*** Delete File: src/old.ts',
+      '*** Delete File: src/absent.ts',
+      '*** Update File: src/a.ts',
+      '*** Move to: src/renamed.ts',
+      '@@',
+      '-old',
+      '+new',
+      '*** Update File: src/a.ts',
+      '*** Move to: src/old.ts',
+      '@@',
+      ' x',
+      '*** Update File: src/old.ts',
+      '*** Move to: ../escape.ts',
+      '@@',
+      ' x',
+      '*** End Patch',
+    ].join('\n'),
+  );
+  const plan = planPatchSections(sections, { existingFiles: new Set(['src/a.ts', 'src/old.ts']), allowStructureChanges: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.operations)), [
+    { kind: 'add', path: 'src/new.ts', contents: 'export const fresh = 1;\n' },
+    { kind: 'delete', path: 'src/old.ts' },
+    { kind: 'update', path: 'src/a.ts', chunks: [{ oldLines: ['old'], newLines: ['new'], endOfFile: false }], movePath: 'src/renamed.ts' },
+  ]);
+  assert.deepEqual(
+    plan.rejections.map((item) => [item.path, item.reason]),
+    [
+      ['src/a.ts', 'file-already-exists'],
+      ['src/absent.ts', 'file-not-found'],
+      ['src/old.ts', 'file-already-exists'],
+      ['src/old.ts', 'path-escapes-workspace'],
     ],
   );
 });

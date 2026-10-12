@@ -80,7 +80,7 @@ pub(crate) fn selected_root(
 }
 
 /// 语法层校验：相对路径里不允许出现绝对路径特征或向上穿越。
-fn reject_unsafe_relative(relative: &str) -> Result<(), &'static str> {
+pub(crate) fn reject_unsafe_relative(relative: &str) -> Result<(), &'static str> {
     if relative.trim().is_empty() {
         return Err("workspace-path-empty");
     }
@@ -95,7 +95,7 @@ fn reject_unsafe_relative(relative: &str) -> Result<(), &'static str> {
 }
 
 /// 把相对路径解析成工作区内的绝对路径，并确认规范化后仍位于根之内。
-fn resolve_within(root: &Path, relative: &str) -> Result<PathBuf, &'static str> {
+pub(crate) fn resolve_within(root: &Path, relative: &str) -> Result<PathBuf, &'static str> {
     reject_unsafe_relative(relative)?;
     let canonical_root = root
         .canonicalize()
@@ -112,7 +112,7 @@ fn resolve_within(root: &Path, relative: &str) -> Result<PathBuf, &'static str> 
 }
 
 /// 统一转成 `/` 分隔，让模型拿到的路径引用在任何平台上都是同一种写法。
-fn to_relative_key(root: &Path, absolute: &Path) -> String {
+pub(crate) fn to_relative_key(root: &Path, absolute: &Path) -> String {
     absolute
         .strip_prefix(root)
         .map(|tail| {

@@ -72,10 +72,10 @@ export const WORKSPACE_TOOLS: readonly DirectProviderTool[] = [
   {
     name: 'workspace_patch_file',
     description: [
-      '用结构化补丁精确修改工作区内**已经存在**的文本文件，可以一次改多个文件。',
-      '格式：*** Begin Patch 开头、*** End Patch 结尾；每个文件一段：*** Update File: <相对路径>，可选一行 @@ <上下文行> 锚定位置，随后每行以空格开头表示保留、- 开头表示删除、+ 开头表示新增；单个 hunk 末尾可用一行 *** End of File 表示锚定到文件末尾。',
+      '用结构化补丁修改工作区文件，可以一次改多个文件：更新已存在文件（*** Update File:）、新建文件（*** Add File:，父目录必须已存在）、删除文件（*** Delete File:）、移动/重命名（*** Update File: 后跟一行 *** Move to:）。',
+      '格式：*** Begin Patch 开头、*** End Patch 结尾；每个文件一段，hunk 以 @@ 可选上下文行开始，每行以空格开头表示保留、- 开头表示删除、+ 开头表示新增；单个 hunk 末尾可用一行 *** End of File 锚定到文件末尾。',
       '示例：*** Begin Patch\\n*** Update File: src/app.ts\\n@@ const config\\n-const timeout = 5\\n+const timeout = 10\\n*** End Patch。',
-      '与 workspace_write_file 的整文件覆写相比，补丁只改动指定行，更适合小修改；多文件补丁会按顺序**逐个**请求用户确认，不是原子事务——中途被拒绝时已写入的文件保持已写入。',
+      '每个文件都会独立请求用户确认（没有「总是允许」）；全部确认后由原生事务一次性落盘，中途拒绝则整批不写。',
     ].join('\n'),
     parameters: {
       type: 'object',
@@ -221,13 +221,59 @@ const PATCH_REJECTION_REASONS: Readonly<Record<string, string>> = {
   'phase1-update-only': '第一期只支持更新已存在的文件（新建 / 删除 / 移动文件暂不支持）',
   'path-escapes-workspace': '路径超出工作区范围或格式非法',
   'file-not-found': '文件在工作区中不存在',
+  'file-already-exists': '目标已存在：新建 / 移动到已存在的路径会被拒绝',
   'duplicate-patch-target': '同一文件在补丁中出现多次',
 };
 
+interface WorkspacePatchOperation {
+  kind: 'update' | 'add' | 'delete';
+  path: string;
+  movePath?: string;
+  previousSha256?: string;
+  nextSha256?: string;
+  nextContent?: string;
+}
+
+interface WorkspacePatchCommitResult {
+  readonly applied: readonly { readonly kind: string; readonly path: string; readonly byteSize: number }[];
+  readonly rolledBack: readonly string[];
+  readonly rollbackErrors: readonly string[];
+}
+
+const PATCH_NATIVE_ERROR_CODES: Readonly<Record<string, string>> = {
+  'workspace-patch-empty': '补丁批次为空。',
+  'workspace-patch-too-many-operations': '单批补丁操作数超过原生上限。',
+  'workspace-patch-digest-missing': '补丁批次缺少内容摘要（原文哈希或目标哈希）。',
+  'workspace-patch-content-missing': '补丁批次缺少目标内容。',
+  'workspace-patch-kind-invalid': '补丁操作类型不被原生层接受。',
+  'workspace-patch-duplicate-path': '同一批次里出现了重复路径。',
+  'workspace-patch-destination-exists': '移动目标已存在，被拒绝。',
+  'workspace-patch-parent-missing': '新建文件的父目录不存在；请先创建目录。',
+  'workspace-patch-move-self': '移动的源与目标是同一路径。',
+  'workspace-file-already-exists': '新建文件时目标已存在（可能在审批后被其它程序创建）。',
+  'workspace-patch-state-unavailable': '原生补丁票据状态不可用，请重试。',
+};
+
+/** 原生批量事务错误可能是 "code:kind:path"（带操作定位），拆开翻译并附上路径。 */
+function patchNativeErrorText(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error ?? '');
+  const colon = raw.indexOf(':');
+  if (colon > 0) {
+    const code = raw.slice(0, colon);
+    const text = PATCH_NATIVE_ERROR_CODES[code] ?? WORKSPACE_ERRORS[code];
+    if (text) return `${text}（涉及 ${raw.slice(colon + 1).replace(':', ' · ')}）`;
+  }
+  const direct = PATCH_NATIVE_ERROR_CODES[raw] ?? WORKSPACE_ERRORS[raw];
+  return direct ?? `工具执行失败：${raw || '未知错误'}。请如实告诉用户，不要假装成功。`;
+}
+
 /**
- * 结构化补丁 → 逐文件 diff 审批 → SEC-008 票据写入。
- * 逐文件顺序执行且**明确非原子**：中途被拒绝或失败时，已写入的文件保持已写入，
- * 结果里如实列出每个文件的去向，绝不把「部分成功」说成「全部完成」。
+ * 结构化补丁 → 逐文件 diff 审批 → 原生批量事务落盘。
+ *
+ * 审批在前、写入在后：每个文件独立确认（没有「总是允许」），全部批准后才
+ * stage + commit 一次。因此用户拒绝中途任何一个文件时**什么都没写**；
+ * 只有 commit 阶段的磁盘错误才可能造成部分应用，原生侧会回滚已应用部分
+ * 并如实返回 rolledBack / rollbackErrors，这里原样转告。
  */
 async function patchFile(args: Record<string, unknown>, approve: WorkspaceWriteApprover | undefined): Promise<string> {
   const patchText = stringArgument(args, 'patch');
@@ -240,17 +286,24 @@ async function patchFile(args: Record<string, unknown>, approve: WorkspaceWriteA
   } catch (error: unknown) {
     return `补丁解析失败：${error instanceof Error ? error.message : String(error)}。请检查补丁格式（*** Begin Patch / *** Update File: 路径 / 空格=保留、-=删除、+=新增 / *** End Patch），重新生成后重试。`;
   }
-  if (sections.length === 0) return '补丁为空：没有任何文件 section。请至少包含一个 *** Update File: 段。';
+  if (sections.length === 0) return '补丁为空：没有任何文件 section。请至少包含一个 *** Update File: / *** Add File: / *** Delete File: 段。';
   if (sections.length > MAX_PATCH_SECTIONS) return `补丁一次涉及 ${sections.length} 个文件，超过上限 ${MAX_PATCH_SECTIONS}。请拆分成多次调用，每次只改少量文件。`;
   // 没有审批入口就绝不写入、也绝不开始逐文件确认。宁可让这次调用失败，也不能让模型绕开人改文件。
   if (!approve) return '补丁写入需要用户逐文件确认，但当前会话没有提供确认入口；未写入任何内容。请如实告诉用户：改文件必须由用户本人确认或直接自行修改。';
 
-  // 先把所有语法合法的目标路径的原文读出来：既作为 policy 的存在性依据，也作为 diff 的原文。
+  // 把所有候选路径（含 move 目标）的原文读出来：既作为策略的存在性依据，也作为 diff 的原文。
   const previousByPath = new Map<string, string>();
   const readFailures = new Map<string, string>();
+  const candidatePaths = new Set<string>();
   for (const section of sections) {
     const path = normalizeRelativePath(section.path);
-    if (!path || previousByPath.has(path) || readFailures.has(path)) continue;
+    if (path) candidatePaths.add(path);
+    if (section.type === 'update' && section.movePath !== undefined) {
+      const movePath = normalizeRelativePath(section.movePath);
+      if (movePath) candidatePaths.add(movePath);
+    }
+  }
+  for (const path of candidatePaths) {
     try {
       previousByPath.set(path, (await invoke<FileResult>('workspace_read_file', { path })).content);
     } catch (error: unknown) {
@@ -258,60 +311,98 @@ async function patchFile(args: Record<string, unknown>, approve: WorkspaceWriteA
     }
   }
 
-  const plan = planPatchSections(sections, { existingFiles: new Set(previousByPath.keys()) });
+  const plan = planPatchSections(sections, { existingFiles: new Set(previousByPath.keys()), allowStructureChanges: true });
   const rejectionLines = plan.rejections.map((item) => `- ${item.path}：${PATCH_REJECTION_REASONS[item.reason] ?? item.reason}`);
-  if (plan.updates.length === 0) {
-    return ['补丁没有任何可执行的更新：', ...rejectionLines, '请修正后重新提交。'].join('\n');
-  }
 
-  const written: string[] = [];
-  const skipped: string[] = [];
-  const lenient: string[] = [];
-  for (const update of plan.updates) {
-    const previous = previousByPath.get(update.path) ?? '';
+  interface PreparedOperation { readonly operation: WorkspacePatchOperation; readonly displayPath: string; readonly previous: string; readonly next: string; readonly lenient: boolean }
+  const prepared: PreparedOperation[] = [];
+  for (const operation of plan.operations) {
+    if (operation.kind === 'add') {
+      prepared.push({ operation: { kind: 'add', path: operation.path, nextContent: operation.contents, nextSha256: await sha256Hex(operation.contents) }, displayPath: operation.path, previous: '', next: operation.contents, lenient: false });
+      continue;
+    }
+    if (operation.kind === 'delete') {
+      const previous = previousByPath.get(operation.path);
+      if (previous === undefined) continue; // 读不到原文的删除由拒绝列表说明
+      prepared.push({ operation: { kind: 'delete', path: operation.path, previousSha256: await sha256Hex(previous) }, displayPath: operation.path, previous, next: '', lenient: false });
+      continue;
+    }
+    const previous = previousByPath.get(operation.path);
+    if (previous === undefined) continue;
     let next: string;
     let strict: boolean;
     try {
-      const derived = derivePatchedContent(previous, update.chunks);
+      const derived = derivePatchedContent(previous, operation.chunks);
       next = derived.content;
       strict = derived.strict;
     } catch (error: unknown) {
       return [
-        `补丁应用失败（${update.path}）：${error instanceof Error ? error.message : String(error)}`,
-        `已写入 ${written.length} 个文件：${written.join('、') || '无'}；其余文件（含 ${update.path}）未做任何修改。`,
-        '这是非原子操作，请修正补丁后重新提交，只包含还需要修改的文件。',
+        `补丁应用失败（${operation.path}）：${error instanceof Error ? error.message : String(error)}`,
+        '尚未写入任何内容。请修正补丁后重新提交。',
       ].join('\n');
     }
-    if (next === previous) {
-      skipped.push(update.path);
-      continue;
-    }
-    if (!strict) lenient.push(update.path);
-    if (!await approve({ path: update.path, previous, next })) {
+    if (next === previous && operation.movePath === undefined) continue; // 无变化
+    prepared.push({
+      operation: {
+        kind: 'update',
+        path: operation.path,
+        previousSha256: await sha256Hex(previous),
+        nextSha256: await sha256Hex(next),
+        nextContent: next,
+        ...(operation.movePath ? { movePath: operation.movePath } : {}),
+      },
+      displayPath: operation.movePath ? `${operation.path} → ${operation.movePath}` : operation.path,
+      previous,
+      next,
+      lenient: !strict,
+    });
+  }
+
+  if (prepared.length === 0) {
+    return ['补丁没有任何可执行的更新：', ...rejectionLines, '请修正后重新提交。'].join('\n');
+  }
+
+  const lenientPaths: string[] = [];
+  for (const item of prepared) {
+    if (item.lenient) lenientPaths.push(item.displayPath);
+    if (!await approve({ path: item.displayPath, previous: item.previous, next: item.next })) {
       return [
-        `用户拒绝对 ${update.path} 的修改；未写入任何剩余文件。`,
-        `已写入 ${written.length} 个文件：${written.join('、') || '无'}。`,
-        '这是非原子操作，请如实转告用户实际写入了哪些文件，并且不要再换别的方式尝试写入被拒绝的文件。',
+        `用户拒绝对 ${item.displayPath} 的修改；整批补丁不会写入（审批在前、写入在后），包括之前已确认的文件。`,
+        '请如实转告用户，并且不要再换别的方式尝试写入被拒绝的文件。',
       ].join('\n');
     }
-    const outcome = await writeApprovedContent(update.path, previous, next);
-    if (!outcome.startsWith('已写入')) {
-      return [
-        `写入 ${update.path} 失败：${outcome}`,
-        `已写入 ${written.length} 个文件：${written.join('、') || '无'}；其余文件未做任何修改。`,
-        '请如实告知用户，不要重试同一批文件。',
-      ].join('\n');
-    }
-    written.push(update.path);
+  }
+
+  // 全部批准后才到原生层：一张整批票据绑定全部操作的摘要，commit 原子消耗并复核磁盘前提。
+  let result: WorkspacePatchCommitResult;
+  try {
+    const token = await invoke<string>('workspace_stage_patch_batch', { request: { operations: prepared.map((item) => item.operation) } });
+    result = await invoke<WorkspacePatchCommitResult>('workspace_commit_patch', { token });
+  } catch (error: unknown) {
+    return [
+      `补丁落盘失败：${patchNativeErrorText(error)}`,
+      '尚未写入任何内容（写入前的原生复核失败），或失败部分已被原生回滚。请重新读取相关文件、重新生成补丁后再试。',
+    ].join('\n');
   }
 
   const lines: string[] = [];
-  lines.push(written.length ? `已写入 ${written.length} 个文件：` : '没有文件被写入：');
-  for (const path of written) lines.push(`- 已写入 ${path}${lenient.includes(path) ? '（注意：补丁通过宽松匹配命中，实际改动可能超出字面描述，已在审批差异中展示）' : ''}`);
-  for (const path of skipped) lines.push(`- ${path}：应用补丁后内容与原文完全一致，未写入。`);
+  lines.push(`已应用 ${result.applied.length} 个文件操作：`);
+  for (const item of result.applied) {
+    const verb = item.kind === 'add' ? '新建' : item.kind === 'delete' ? '删除' : '写入';
+    lines.push(`- ${verb} ${item.path}${item.kind === 'delete' ? '' : `（${item.byteSize} 字符）`}${lenientPaths.some((path) => path === item.path || path.startsWith(`${item.path} →`)) ? '（注意：补丁通过宽松匹配命中，实际改动可能超出字面描述）' : ''}`);
+  }
+  if (result.rolledBack.length) lines.push(`- 提交过程中失败的操作已回滚：${result.rolledBack.join('、')}`);
+  if (result.rollbackErrors.length) lines.push(`- ⚠ 以下文件回滚失败，需要人工检查：${result.rollbackErrors.join('、')}`);
   lines.push(...rejectionLines.map((line) => `- 拒绝 ${line.slice(2)}`));
+  // 读取失败只对「没被任何操作或拒绝覆盖」的路径有意义（add 的候选目标按设计就是读不到的）。
+  const accounted = new Set<string>();
+  for (const operation of plan.operations) {
+    accounted.add(operation.path);
+    if (operation.kind === 'update' && operation.movePath) accounted.add(operation.movePath);
+  }
+  for (const item of plan.rejections) accounted.add(item.path);
   for (const [path, message] of readFailures) {
-    if (!previousByPath.has(path) && !plan.updates.some((update) => update.path === path)) lines.push(`- ${path}：读取失败，未纳入本次执行（${message}）`);
+    if (!accounted.has(path)) lines.push(`- ${path}：读取失败，未纳入本次执行（${message}）`);
   }
   return lines.join('\n');
 }
