@@ -420,7 +420,11 @@ pub async fn start_terminal_command(
     let run_id = request.run_id.clone();
     let child = Arc::new(Mutex::new(child));
     state.reserved.lock().await.remove(&run_id);
-    state.runs.lock().await.insert(run_id.clone(), child.clone());
+    state
+        .runs
+        .lock()
+        .await
+        .insert(run_id.clone(), child.clone());
     tauri::async_runtime::spawn(relay_lines(app.clone(), run_id.clone(), "stdout", stdout));
     tauri::async_runtime::spawn(relay_lines(app.clone(), run_id.clone(), "stderr", stderr));
     let runs = state.runs.clone();
@@ -592,15 +596,26 @@ mod tests {
                 "c".to_owned()
             ])
         );
-        assert_eq!(split_argv("git commit -m \"fix: two words\"").as_deref().map(|argv| argv.len()), Some(4));
+        assert_eq!(
+            split_argv("git commit -m \"fix: two words\"")
+                .as_deref()
+                .map(|argv| argv.len()),
+            Some(4)
+        );
         assert_eq!(split_argv("git commit -m \"unterminated"), None);
         assert_eq!(split_argv("   "), None);
     }
 
     #[test]
     fn paths_and_quotes_cannot_walk_around_the_allowlist() {
-        assert_eq!(executable_name(&split_argv("C:\\Windows\\System32\\format").expect("argv")), None);
-        assert_eq!(executable_name(&split_argv("/bin/rm -rf /").expect("argv")), None);
+        assert_eq!(
+            executable_name(&split_argv("C:\\Windows\\System32\\format").expect("argv")),
+            None
+        );
+        assert_eq!(
+            executable_name(&split_argv("/bin/rm -rf /").expect("argv")),
+            None
+        );
         assert_eq!(
             executable_name(&split_argv("\"npm\" test").expect("argv")),
             Some("npm".to_owned())

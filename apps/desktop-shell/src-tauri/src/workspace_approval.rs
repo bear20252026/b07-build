@@ -112,7 +112,10 @@ pub fn workspace_stage_write_approval(
         // 内容没变就不该有任何写入，更不该为它发票据。
         return Err("workspace-approval-content-unchanged");
     }
-    let mut grants = state.0.lock().map_err(|_| "workspace-approval-unavailable")?;
+    let mut grants = state
+        .0
+        .lock()
+        .map_err(|_| "workspace-approval-unavailable")?;
     let now = now_ms();
     grants.retain(|_, grant| grant.expires_at_ms > now);
     while grants.len() >= MAX_OUTSTANDING_GRANTS {
@@ -127,7 +130,10 @@ pub fn workspace_stage_write_approval(
     }
     let mut token_bytes = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut token_bytes);
-    let token: String = token_bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    let token: String = token_bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     grants.insert(
         token.clone(),
         Grant {
@@ -146,7 +152,10 @@ pub(crate) fn consume_grant(
     state: &State<'_, WorkspaceApprovalState>,
     token: &str,
 ) -> Result<Grant, &'static str> {
-    let mut grants = state.0.lock().map_err(|_| "workspace-approval-unavailable")?;
+    let mut grants = state
+        .0
+        .lock()
+        .map_err(|_| "workspace-approval-unavailable")?;
     let grant = grants
         .remove(token)
         .ok_or("workspace-write-approval-invalid")?;
@@ -181,10 +190,22 @@ mod tests {
     #[test]
     fn grant_paths_reject_traversal_and_absolute_forms() {
         assert_eq!(grantable_path("src/main.rs").as_deref(), Ok("src/main.rs"));
-        assert_eq!(grantable_path("  src/main.rs ").as_deref(), Ok("src/main.rs"));
-        assert_eq!(grantable_path("../secrets"), Err("workspace-path-escapes-root"));
-        assert_eq!(grantable_path("a/../../b"), Err("workspace-path-escapes-root"));
-        assert_eq!(grantable_path("/etc/passwd"), Err("workspace-path-absolute"));
+        assert_eq!(
+            grantable_path("  src/main.rs ").as_deref(),
+            Ok("src/main.rs")
+        );
+        assert_eq!(
+            grantable_path("../secrets"),
+            Err("workspace-path-escapes-root")
+        );
+        assert_eq!(
+            grantable_path("a/../../b"),
+            Err("workspace-path-escapes-root")
+        );
+        assert_eq!(
+            grantable_path("/etc/passwd"),
+            Err("workspace-path-absolute")
+        );
         assert_eq!(grantable_path("C:\\x"), Err("workspace-path-absolute"));
         assert_eq!(grantable_path(""), Err("workspace-path-invalid"));
     }

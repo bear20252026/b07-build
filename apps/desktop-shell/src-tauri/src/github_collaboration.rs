@@ -39,12 +39,17 @@ fn valid_token(token: &str) -> bool {
 /// `git add -A` 会把一切工作区改动都收进来；`git push` 只看提交不看语义。
 /// 在 add 与 commit 之间加一道文件名哨兵：`.env` / 私钥 / 证书这类文件
 /// 一旦被暂存就整次推送失败，让用户显式处理，而不是赌用户记得加 .gitignore。
-const SENSITIVE_STAGED_SUFFIXES: &[&str] = &[
-    ".pem", ".key", ".p12", ".pfx", ".jks", ".keystore",
-];
+const SENSITIVE_STAGED_SUFFIXES: &[&str] = &[".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"];
 const SENSITIVE_STAGED_NAMES: &[&str] = &[
-    ".env", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "credentials.json", "secrets.json",
-    ".npmrc", ".netrc",
+    ".env",
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "credentials.json",
+    "secrets.json",
+    ".npmrc",
+    ".netrc",
 ];
 
 fn sensitive_staged_file(staged: &str) -> bool {
@@ -286,7 +291,9 @@ mod tests {
         assert!(sensitive_staged_file("old\tsrc/.env"));
         assert!(sensitive_staged_file("home/.npmrc"));
         // 普通源码不得误伤。
-        assert!(!sensitive_staged_file("src/main.rs\npackages/ui/src/index.ts"));
+        assert!(!sensitive_staged_file(
+            "src/main.rs\npackages/ui/src/index.ts"
+        ));
         assert!(!sensitive_staged_file("README.md"));
     }
 }

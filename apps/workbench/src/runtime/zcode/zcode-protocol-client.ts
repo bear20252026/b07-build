@@ -27,6 +27,16 @@ export interface ZCodeProtocolDeps {
   }): Promise<() => void>;
 }
 
+/** 服务端反向请求的 id（协议允许 string | number，见 zcodeProtocolRequestIdSchema）。 */
+export type ZCodeServerRequestId = number | string;
+
+/** 服务端反向请求（带 id 的 {id, method, params} 帧）处理器。 */
+export type ZCodeServerRequestHandler = (
+  id: ZCodeServerRequestId,
+  method: string,
+  params: unknown,
+) => void;
+
 export const defaultZcodeProtocolDeps: ZCodeProtocolDeps = {
   start: (runId, executable, workingDirectory) => startZcodeAgent(runId, executable, workingDirectory),
   writeLine: (runId, line) => writeZcodeStdin(runId, line),
@@ -68,6 +78,7 @@ export class ZCodeProtocolClient {
   private exitCode: number | null | undefined = undefined;
   private unlisten: (() => void) | undefined;
   private readonly notificationHandlers = new Set<(method: string, params: unknown) => void>();
+  private readonly serverRequestHandlers = new Set<ZCodeServerRequestHandler>();
   private readonly stderrLog: string[] = [];
 
   constructor(private readonly options: ZCodeProtocolClientOptions) {
@@ -95,6 +106,26 @@ export class ZCodeProtocolClient {
   onNotification(handler: (method: string, params: unknown) => void): () => void {
     this.notificationHandlers.add(handler);
     return () => this.notificationHandlers.delete(handler);
+  }
+
+  /**
+   * 订阅服务端反向请求（`interaction/requestPermission` 等带 id 的请求帧）。
+   * 未注册任何处理器时，反向请求会被立即以 -32601 拒绝（fail-closed，
+   * 避免 server 挂起等待一个永远不会到来的应答）。
+   */
+  onServerRequest(handler: ZCodeServerRequestHandler): () => void {
+    this.serverRequestHandlers.add(handler);
+    return () => this.serverRequestHandlers.delete(handler);
+  }
+
+  /** 回发反向请求的应答帧（`{id, result}`）。 */
+  async respond(id: ZCodeServerRequestId, result: unknown): Promise<void> {
+    await this.deps.writeLine(this.runId, JSON.stringify({ id, result }));
+  }
+
+  /** 回发反向请求的错误帧（`{id, error}`）。 */
+  async respondError(id: ZCodeServerRequestId, code: number, message: string): Promise<void> {
+    await this.deps.writeLine(this.runId, JSON.stringify({ id, error: { code, message } }));
   }
 
   /** spawn 子进程并接管 stdout/stderr/exit 事件流。 */
@@ -162,6 +193,20 @@ export class ZCodeProtocolClient {
       return;
     }
     if (!message || typeof message !== 'object') return;
+    // 服务端反向请求：带 id 且带 method。必须先于应答/通知分支判断。
+    if ('id' in message && 'method' in message) {
+      if (this.serverRequestHandlers.size === 0) {
+        void this.respondError(message.id as ZCodeServerRequestId, -32601, 'no interaction handler attached')
+          .catch(() => undefined);
+        return;
+      }
+      for (const handler of this.serverRequestHandlers) {
+        try {
+          handler(message.id as ZCodeServerRequestId, message.method, message.params);
+        } catch { /* 单个监听器异常不阻断分发。 */ }
+      }
+      return;
+    }
     if ('id' in message && 'result' in message) {
       const entry = this.pending.get(message.id as number);
       if (entry) {

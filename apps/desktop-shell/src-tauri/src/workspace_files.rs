@@ -68,7 +68,9 @@ pub struct WorkspaceFileContent {
     pub truncated: bool,
 }
 
-pub(crate) fn selected_root(state: &State<'_, WorkspaceDirectoryState>) -> Result<PathBuf, &'static str> {
+pub(crate) fn selected_root(
+    state: &State<'_, WorkspaceDirectoryState>,
+) -> Result<PathBuf, &'static str> {
     state
         .0
         .lock()
@@ -145,32 +147,34 @@ pub(crate) fn open_no_follow(path: &Path, write: bool) -> Result<fs::File, &'sta
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(0o200000); // O_NOFOLLOW
     }
-    options.open(path).map_err(|_| {
-        // 打开失败时给出更精确的原因：目标本身是符号链接就明说，拒绝读穿或写穿。
-        if fs::symlink_metadata(path)
-            .map(|metadata| metadata.file_type().is_symlink())
-            .unwrap_or(false)
-        {
-            "workspace-file-is-symlink"
-        } else if write {
-            "workspace-file-unwritable"
-        } else {
-            "workspace-file-unreadable"
-        }
-    })
-    .and_then(|file| {
-        // Windows 的 FILE_FLAG_OPEN_REPARSE_POINT 打开链接本身会**成功**（拿到
-        // 的是 reparse point 句柄），Unix 的 O_NOFOLLOW 才直接报错。所以打开
-        // 成功后必须复核句柄：不是普通文件（符号链接、目录等）一律拒绝。
-        if file
-            .metadata()
-            .map(|metadata| metadata.file_type().is_symlink() || !metadata.is_file())
-            .unwrap_or(true)
-        {
-            return Err("workspace-file-is-symlink");
-        }
-        Ok(file)
-    })
+    options
+        .open(path)
+        .map_err(|_| {
+            // 打开失败时给出更精确的原因：目标本身是符号链接就明说，拒绝读穿或写穿。
+            if fs::symlink_metadata(path)
+                .map(|metadata| metadata.file_type().is_symlink())
+                .unwrap_or(false)
+            {
+                "workspace-file-is-symlink"
+            } else if write {
+                "workspace-file-unwritable"
+            } else {
+                "workspace-file-unreadable"
+            }
+        })
+        .and_then(|file| {
+            // Windows 的 FILE_FLAG_OPEN_REPARSE_POINT 打开链接本身会**成功**（拿到
+            // 的是 reparse point 句柄），Unix 的 O_NOFOLLOW 才直接报错。所以打开
+            // 成功后必须复核句柄：不是普通文件（符号链接、目录等）一律拒绝。
+            if file
+                .metadata()
+                .map(|metadata| metadata.file_type().is_symlink() || !metadata.is_file())
+                .unwrap_or(true)
+            {
+                return Err("workspace-file-is-symlink");
+            }
+            Ok(file)
+        })
 }
 
 /// 复核已打开的句柄确实是普通文件，不是链接也不是目录。
@@ -212,7 +216,11 @@ fn collect(
             if file_type.is_symlink() {
                 return None;
             }
-            let kind = if file_type.is_dir() { "directory" } else { "file" };
+            let kind = if file_type.is_dir() {
+                "directory"
+            } else {
+                "file"
+            };
             if kind == "directory" && SKIPPED_DIRECTORIES.contains(&name.as_str()) {
                 return None;
             }
@@ -255,7 +263,13 @@ pub fn workspace_list_files(
         return Err("workspace-path-not-directory");
     }
     let mut entries = Vec::new();
-    let truncated = collect(&root, &directory, recursive.unwrap_or(false), 0, &mut entries)?;
+    let truncated = collect(
+        &root,
+        &directory,
+        recursive.unwrap_or(false),
+        0,
+        &mut entries,
+    )?;
     Ok(WorkspaceFileList {
         root_label: root.to_string_lossy().to_string(),
         entries,

@@ -74,10 +74,19 @@ mod tests {
     fn accounts_are_restricted() {
         assert_eq!(validate_account("provider/mimo-token-plan-cn"), Ok(()));
         assert_eq!(validate_account("github/token"), Ok(()));
-        assert_eq!(validate_account("github/token v2"), Err("credential-account-invalid"));
-        assert_eq!(validate_account("../escape"), Err("credential-account-invalid"));
+        assert_eq!(
+            validate_account("github/token v2"),
+            Err("credential-account-invalid")
+        );
+        assert_eq!(
+            validate_account("../escape"),
+            Err("credential-account-invalid")
+        );
         assert_eq!(validate_account(""), Err("credential-account-invalid"));
-        assert_eq!(validate_account(&"a".repeat(129)), Err("credential-account-invalid"));
+        assert_eq!(
+            validate_account(&"a".repeat(129)),
+            Err("credential-account-invalid")
+        );
     }
 
     #[test]
@@ -91,6 +100,9 @@ mod tests {
             credential_store("provider/__test__".to_string(), "x".repeat(4097)),
             Err("credential-secret-invalid")
         );
-        assert_eq!(credential_store("../escape".to_string(), "x".to_string()), Err("credential-account-invalid"));
+        assert_eq!(
+            credential_store("../escape".to_string(), "x".to_string()),
+            Err("credential-account-invalid")
+        );
     }
 }

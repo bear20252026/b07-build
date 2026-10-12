@@ -201,7 +201,12 @@ fn compile_rule(line: &str) -> Option<IgnoreRule> {
     if segments.is_empty() {
         return None;
     }
-    Some(IgnoreRule { kind, directory_only, anchored, segments })
+    Some(IgnoreRule {
+        kind,
+        directory_only,
+        anchored,
+        segments,
+    })
 }
 
 #[derive(Debug, Default)]
@@ -573,8 +578,16 @@ impl MapBudget {
 ///
 /// 纯深度优先会在 `apps/` 里就把预算花光，`packages/` 一行都出不来；
 /// 广度优先保证每个顶层分支都能露脸，这才是“地图”。
-pub fn project_map(index: &WorkspaceIndex, max_lines: usize, max_chars: usize) -> WorkspaceProjectMap {
-    let file_count = index.entries.iter().filter(|entry| entry.kind == "file").count();
+pub fn project_map(
+    index: &WorkspaceIndex,
+    max_lines: usize,
+    max_chars: usize,
+) -> WorkspaceProjectMap {
+    let file_count = index
+        .entries
+        .iter()
+        .filter(|entry| entry.kind == "file")
+        .count();
     let directory_count = index
         .entries
         .iter()
@@ -600,9 +613,19 @@ pub fn project_map(index: &WorkspaceIndex, max_lines: usize, max_chars: usize) -
         .filter(|entry| entry.kind == "directory")
         .collect();
     // 先按深度再按路径＝广度优先展开顺序。
-    directories.sort_by(|left, right| left.depth.cmp(&right.depth).then(left.path.cmp(&right.path)));
+    directories.sort_by(|left, right| {
+        left.depth
+            .cmp(&right.depth)
+            .then(left.path.cmp(&right.path))
+    });
 
-    let mut budget = MapBudget { lines: Vec::new(), used: 0, max_lines, max_chars, truncated: false };
+    let mut budget = MapBudget {
+        lines: Vec::new(),
+        used: 0,
+        max_lines,
+        max_chars,
+        truncated: false,
+    };
     for entry in root_files.iter().take(MAP_FILES_PER_DIRECTORY) {
         let line = format!("file {} ({})", entry.path, format_bytes(entry.byte_size));
         if !budget.push(line) {
@@ -610,7 +633,10 @@ pub fn project_map(index: &WorkspaceIndex, max_lines: usize, max_chars: usize) -
         }
     }
     if root_files.len() > MAP_FILES_PER_DIRECTORY {
-        budget.push(format!("… 根目录还有 {} 个文件", root_files.len() - MAP_FILES_PER_DIRECTORY));
+        budget.push(format!(
+            "… 根目录还有 {} 个文件",
+            root_files.len() - MAP_FILES_PER_DIRECTORY
+        ));
     }
     for directory in directories {
         if !budget.push(format!("dir  {}/", directory.path)) {
@@ -740,14 +766,27 @@ pub fn workspace_build_index(
         && state
             .0
             .lock()
-            .map(|guard| guard.as_ref().map(|index| index.root == root).unwrap_or(false))
+            .map(|guard| {
+                guard
+                    .as_ref()
+                    .map(|index| index.root == root)
+                    .unwrap_or(false)
+            })
             .unwrap_or(false);
     let started = std::time::Instant::now();
     let index = cached_index(&state, &root, force)?;
     Ok(WorkspaceIndexSnapshot {
         root_label: root.to_string_lossy().to_string(),
-        file_count: index.entries.iter().filter(|entry| entry.kind == "file").count(),
-        directory_count: index.entries.iter().filter(|entry| entry.kind == "directory").count(),
+        file_count: index
+            .entries
+            .iter()
+            .filter(|entry| entry.kind == "file")
+            .count(),
+        directory_count: index
+            .entries
+            .iter()
+            .filter(|entry| entry.kind == "directory")
+            .count(),
         entry_count: index.entries.len(),
         truncated: index.truncated,
         ignore_rules_active: index.ignore_rules_active,
@@ -772,7 +811,11 @@ pub fn workspace_search_files(
         .clone()
         .ok_or("workspace-root-not-selected")?;
     let index = cached_index(&state, &root, false)?;
-    Ok(search_index(&index, &query, limit.unwrap_or(DEFAULT_SEARCH_LIMIT)))
+    Ok(search_index(
+        &index,
+        &query,
+        limit.unwrap_or(DEFAULT_SEARCH_LIMIT),
+    ))
 }
 
 /// 生成注入上下文用的紧凑项目地图。
@@ -802,7 +845,12 @@ mod tests {
     use super::*;
 
     fn temp_root(tag: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("awo-index-{}-{}-{}", tag, std::process::id(), now_ms()));
+        let root = std::env::temp_dir().join(format!(
+            "awo-index-{}-{}-{}",
+            tag,
+            std::process::id(),
+            now_ms()
+        ));
         let _ = fs::create_dir_all(&root);
         root
     }
@@ -840,21 +888,32 @@ mod tests {
 
     #[test]
     fn rule_matches_any_level_and_anchored_forms() {
-        let rules = IgnoreRules { rules: vec![compile_rule("node_modules").expect("rule")] };
+        let rules = IgnoreRules {
+            rules: vec![compile_rule("node_modules").expect("rule")],
+        };
         assert!(rules.excludes(&["node_modules".to_string()], true));
         assert!(rules.excludes(&["apps".to_string(), "node_modules".to_string()], true));
         assert!(!rules.excludes(&["src".to_string()], true));
 
-        let anchored = IgnoreRules { rules: vec![compile_rule("/dist").expect("rule")] };
+        let anchored = IgnoreRules {
+            rules: vec![compile_rule("/dist").expect("rule")],
+        };
         assert!(anchored.excludes(&["dist".to_string()], true));
         assert!(!anchored.excludes(&["apps".to_string(), "dist".to_string()], true));
 
-        let glob = IgnoreRules { rules: vec![compile_rule("*.log").expect("rule")] };
+        let glob = IgnoreRules {
+            rules: vec![compile_rule("*.log").expect("rule")],
+        };
         assert!(glob.excludes(&["run".to_string(), "debug.log".to_string()], false));
         assert!(!glob.excludes(&["debug.logx".to_string()], false));
 
-        let deep = IgnoreRules { rules: vec![compile_rule("docs/**").expect("rule")] };
-        let segments: Vec<String> = ["docs", "a", "b.md"].iter().map(|value| value.to_string()).collect();
+        let deep = IgnoreRules {
+            rules: vec![compile_rule("docs/**").expect("rule")],
+        };
+        let segments: Vec<String> = ["docs", "a", "b.md"]
+            .iter()
+            .map(|value| value.to_string())
+            .collect();
         assert!(deep.excludes(&segments, false));
     }
 
@@ -879,7 +938,11 @@ mod tests {
         let rules = IgnoreRules::load(&root).expect("rules should load");
         let index = build_index(&root, Some(&rules));
         assert!(index.ignore_rules_active);
-        let paths: Vec<&str> = index.entries.iter().map(|entry| entry.path.as_str()).collect();
+        let paths: Vec<&str> = index
+            .entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect();
         assert!(paths.contains(&"src/main.rs"));
         // 内置黑名单退役了，但 .novaignore 自己把 node_modules 排除了——来源变成用户。
         assert!(!paths.iter().any(|path| path.starts_with("node_modules")));
@@ -895,8 +958,15 @@ mod tests {
         write(&root, "src/app.js", "console.log(2);");
         let rules = IgnoreRules::load(&root).expect("rules should load");
         let index = build_index(&root, Some(&rules));
-        let paths: Vec<&str> = index.entries.iter().map(|entry| entry.path.as_str()).collect();
-        assert!(paths.contains(&"dist/bundle.js"), "rules file wins over the builtin list");
+        let paths: Vec<&str> = index
+            .entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect();
+        assert!(
+            paths.contains(&"dist/bundle.js"),
+            "rules file wins over the builtin list"
+        );
         assert!(paths.contains(&"src/app.js"));
         let _ = fs::remove_dir_all(&root);
     }
@@ -909,7 +979,11 @@ mod tests {
         assert!(IgnoreRules::load(&root).is_none());
         let index = build_index(&root, None);
         assert!(!index.ignore_rules_active);
-        let paths: Vec<&str> = index.entries.iter().map(|entry| entry.path.as_str()).collect();
+        let paths: Vec<&str> = index
+            .entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect();
         assert!(paths.contains(&"src/main.rs"));
         assert!(!paths.iter().any(|path| path.starts_with("node_modules")));
         let _ = fs::remove_dir_all(&root);
@@ -923,12 +997,19 @@ mod tests {
         write(&root, ".env.local", "SECRET=1");
         write(&root, "src/lib.rs", "pub fn a() {}");
         let index = build_index(&root, None);
-        let paths: Vec<&str> = index.entries.iter().map(|entry| entry.path.as_str()).collect();
+        let paths: Vec<&str> = index
+            .entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect();
         // 隐藏目录自身不进索引，但它下面的普通文件必须通过遍历被收进来——
         // 整棵剪掉会让 `.github/workflows/ci.yml` 这类有效文件永远搜不到。
         assert!(!paths.contains(&".github"));
         assert!(!paths.contains(&".github/workflows"));
-        assert!(paths.contains(&".github/workflows/ci.yml"), "files under hidden dirs must stay searchable");
+        assert!(
+            paths.contains(&".github/workflows/ci.yml"),
+            "files under hidden dirs must stay searchable"
+        );
         // 点文件本身是项目配置，要留在索引里；秘密文件一律不行。
         assert!(paths.contains(&".eslintrc"));
         assert!(!paths.iter().any(|path| path.starts_with(".env")));
@@ -946,7 +1027,11 @@ mod tests {
         write(&root, "src/lib.rs", "pub fn a() {}");
         let rules = IgnoreRules::load(&root).expect("rules should load");
         let index = build_index(&root, Some(&rules));
-        let paths: Vec<&str> = index.entries.iter().map(|entry| entry.path.as_str()).collect();
+        let paths: Vec<&str> = index
+            .entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect();
         assert!(!paths.iter().any(|path| path.starts_with(".git/")));
         assert!(paths.contains(&"src/lib.rs"));
         let _ = fs::remove_dir_all(&root);
@@ -958,7 +1043,11 @@ mod tests {
         write(&root, "assets/logo.png", "not really png");
         write(&root, "src/main.rs", "fn main() {}");
         let index = build_index(&root, None);
-        let paths: Vec<&str> = index.entries.iter().map(|entry| entry.path.as_str()).collect();
+        let paths: Vec<&str> = index
+            .entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect();
         assert!(!paths.iter().any(|path| path.ends_with(".png")));
         assert!(paths.contains(&"src/main.rs"));
         let _ = fs::remove_dir_all(&root);
@@ -969,9 +1058,27 @@ mod tests {
         let index = WorkspaceIndex {
             root: PathBuf::from("/tmp/project"),
             entries: vec![
-                IndexEntry { path: "src/deep/agent-tool-loop.ts".into(), name: "agent-tool-loop.ts".into(), kind: "file", byte_size: 100, depth: 3 },
-                IndexEntry { path: "src/agent.ts".into(), name: "agent.ts".into(), kind: "file", byte_size: 50, depth: 1 },
-                IndexEntry { path: "docs/agent-guide.md".into(), name: "agent-guide.md".into(), kind: "file", byte_size: 20, depth: 1 },
+                IndexEntry {
+                    path: "src/deep/agent-tool-loop.ts".into(),
+                    name: "agent-tool-loop.ts".into(),
+                    kind: "file",
+                    byte_size: 100,
+                    depth: 3,
+                },
+                IndexEntry {
+                    path: "src/agent.ts".into(),
+                    name: "agent.ts".into(),
+                    kind: "file",
+                    byte_size: 50,
+                    depth: 1,
+                },
+                IndexEntry {
+                    path: "docs/agent-guide.md".into(),
+                    name: "agent-guide.md".into(),
+                    kind: "file",
+                    byte_size: 20,
+                    depth: 1,
+                },
             ],
             truncated: false,
             ignore_rules_active: false,
@@ -979,13 +1086,19 @@ mod tests {
         };
         let result = search_index(&index, "agent", 10);
         // agent.ts 是前缀命中（800），排在最前；agent.ts 与 agent-guide.md 都优于深层子序列命中。
-        assert_eq!(result.hits.first().map(|hit| hit.path.as_str()), Some("src/agent.ts"));
+        assert_eq!(
+            result.hits.first().map(|hit| hit.path.as_str()),
+            Some("src/agent.ts")
+        );
         assert_eq!(result.scanned, 3);
         let exact = search_index(&index, "agent.ts", 10);
         assert_eq!(exact.hits.first().map(|hit| hit.score), Some(1_000));
         // 子序列兜底：atoolloop 也要能找到 agent-tool-loop.ts。
         let fuzzy = search_index(&index, "atoolloop", 10);
-        assert_eq!(fuzzy.hits.first().map(|hit| hit.path.as_str()), Some("src/deep/agent-tool-loop.ts"));
+        assert_eq!(
+            fuzzy.hits.first().map(|hit| hit.path.as_str()),
+            Some("src/deep/agent-tool-loop.ts")
+        );
     }
 
     #[test]
@@ -999,7 +1112,13 @@ mod tests {
                 depth: 1,
             })
             .collect();
-        let index = WorkspaceIndex { root: PathBuf::from("/tmp"), entries, truncated: false, ignore_rules_active: false, built_at_ms: 0 };
+        let index = WorkspaceIndex {
+            root: PathBuf::from("/tmp"),
+            entries,
+            truncated: false,
+            ignore_rules_active: false,
+            built_at_ms: 0,
+        };
         assert_eq!(search_index(&index, "file", 7).hits.len(), 7);
         assert!(search_index(&index, "   ", 7).hits.is_empty());
         // 上限被夹住，不能因为参数异常就返回整份索引。
@@ -1008,8 +1127,20 @@ mod tests {
 
     #[test]
     fn project_map_stays_within_budget_and_mentions_omissions() {
-        let mut entries: Vec<IndexEntry> = vec![IndexEntry { path: "apps".into(), name: "apps".into(), kind: "directory", byte_size: 0, depth: 0 }];
-        entries.push(IndexEntry { path: "packages".into(), name: "packages".into(), kind: "directory", byte_size: 0, depth: 0 });
+        let mut entries: Vec<IndexEntry> = vec![IndexEntry {
+            path: "apps".into(),
+            name: "apps".into(),
+            kind: "directory",
+            byte_size: 0,
+            depth: 0,
+        }];
+        entries.push(IndexEntry {
+            path: "packages".into(),
+            name: "packages".into(),
+            kind: "directory",
+            byte_size: 0,
+            depth: 0,
+        });
         for branch in ["apps", "packages"] {
             for index in 0..20 {
                 entries.push(IndexEntry {
@@ -1021,7 +1152,13 @@ mod tests {
                 });
             }
         }
-        let index = WorkspaceIndex { root: PathBuf::from("/tmp"), entries, truncated: false, ignore_rules_active: true, built_at_ms: 0 };
+        let index = WorkspaceIndex {
+            root: PathBuf::from("/tmp"),
+            entries,
+            truncated: false,
+            ignore_rules_active: true,
+            built_at_ms: 0,
+        };
         let map = project_map(&index, DEFAULT_MAP_LINES, DEFAULT_MAP_CHARS);
         assert!(map.text.len() <= DEFAULT_MAP_CHARS + 400);
         assert!(map.text.contains("workspace_read_file"));
@@ -1035,11 +1172,29 @@ mod tests {
 
     #[test]
     fn project_map_honours_line_budget() {
-        let mut entries = vec![IndexEntry { path: "src".into(), name: "src".into(), kind: "directory", byte_size: 0, depth: 0 }];
+        let mut entries = vec![IndexEntry {
+            path: "src".into(),
+            name: "src".into(),
+            kind: "directory",
+            byte_size: 0,
+            depth: 0,
+        }];
         for index in 0..100 {
-            entries.push(IndexEntry { path: format!("src/f{}.ts", index), name: format!("f{}.ts", index), kind: "file", byte_size: 10, depth: 1 });
+            entries.push(IndexEntry {
+                path: format!("src/f{}.ts", index),
+                name: format!("f{}.ts", index),
+                kind: "file",
+                byte_size: 10,
+                depth: 1,
+            });
         }
-        let index = WorkspaceIndex { root: PathBuf::from("/tmp"), entries, truncated: false, ignore_rules_active: false, built_at_ms: 0 };
+        let index = WorkspaceIndex {
+            root: PathBuf::from("/tmp"),
+            entries,
+            truncated: false,
+            ignore_rules_active: false,
+            built_at_ms: 0,
+        };
         let map = project_map(&index, 5, DEFAULT_MAP_CHARS);
         assert!(map.truncated);
         assert!(map.text.lines().count() <= 8);

@@ -12,21 +12,28 @@
 //! 原子预留 + 完成事件只发布一次（SEC-005）、写入帧禁止换行（防止 NDJSON 帧注入）。
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin};
-use tokio::sync::Mutex;
+use tokio::process::ChildStdin;
+use tokio::sync::{Mutex, Notify};
 
 use crate::terminal::{resolve_executable, valid_run_id};
 use crate::WorkspaceDirectoryState;
 
-/// 单个 ZCode 协议子进程：child 用于停止，stdin 用于写入协议帧。
+/// 单个 ZCode 协议子进程的共享句柄。
+///
+/// `Child` 的所有权归退出监控任务独占（见 start_zcode_agent 里的 select! 监控），
+/// 共享状态只保留 stdin（写协议帧）、stop 信号（请求停止）与 exited 标志（存活判定）。
+/// 这样任何命令都不需要跨 `wait().await` 持锁——旧实现的 child 锁会被监控长期持有，
+/// 把写入与停止命令一起饿死。
 struct ZCodeProcess {
-    child: Arc<Mutex<Child>>,
     stdin: Arc<Mutex<Option<ChildStdin>>>,
+    stop: Arc<Notify>,
+    exited: Arc<AtomicBool>,
 }
 
 /// 运行状态：reserved/finished 语义与终端一致（SEC-005）。
@@ -190,39 +197,33 @@ pub async fn start_zcode_agent(
         .ok_or_else(|| "zcode-process-pipes-unavailable")?;
     let run_id = request.run_id.clone();
     state.reserved.lock().await.remove(&run_id);
+    let stop = Arc::new(Notify::new());
+    let exited = Arc::new(AtomicBool::new(false));
     state.runs.lock().await.insert(
         run_id.clone(),
         ZCodeProcess {
-            child: Arc::new(Mutex::new(child)),
             stdin: Arc::new(Mutex::new(Some(stdin))),
+            stop: stop.clone(),
+            exited: exited.clone(),
         },
     );
-    tauri::async_runtime::spawn(relay_lines(
-        app.clone(),
-        run_id.clone(),
-        "stdout",
-        stdout,
-    ));
-    tauri::async_runtime::spawn(relay_lines(
-        app.clone(),
-        run_id.clone(),
-        "stderr",
-        stderr,
-    ));
-    let runs = state.runs.clone();
+    tauri::async_runtime::spawn(relay_lines(app.clone(), run_id.clone(), "stdout", stdout));
+    tauri::async_runtime::spawn(relay_lines(app.clone(), run_id.clone(), "stderr", stderr));
     let finished = state.finished.clone();
     let exit_run_id = run_id.clone();
+    // 退出监控独占 Child：select! 在「自然退出」与「stop 信号 → kill」之间裁决，
+    // 全程不碰共享锁。退出后置 exited 标志、按 SEC-005 只发布一次完成事件。
     tauri::async_runtime::spawn(async move {
         let run_id = exit_run_id;
-        let code = if let Some(process) = runs.lock().await.get(&run_id) {
-            let mut child = process.child.lock().await;
-            match child.wait().await {
-                Ok(status) => status.code(),
-                Err(_) => None,
+        let mut child = child;
+        let code = tokio::select! {
+            result = child.wait() => result.ok().and_then(|status| status.code()),
+            _ = stop.notified() => {
+                let _ = child.kill().await;
+                child.wait().await.ok().and_then(|status| status.code())
             }
-        } else {
-            None
         };
+        exited.store(true, Ordering::SeqCst);
         let mut finished = finished.lock().await;
         if finished.insert(run_id.clone()) {
             drop(finished);
@@ -238,12 +239,8 @@ pub async fn start_zcode_agent(
     Ok(ZCodeAgentStartResponse { run_id })
 }
 
-async fn relay_lines<R>(
-    app: AppHandle,
-    run_id: String,
-    stream: &'static str,
-    reader: R,
-) where
+async fn relay_lines<R>(app: AppHandle, run_id: String, stream: &'static str, reader: R)
+where
     R: tokio::io::AsyncRead + Unpin,
 {
     let mut reader = BufReader::new(reader);
@@ -288,15 +285,16 @@ pub async fn zcode_write_stdin(
         .lock()
         .await
         .get(&request.run_id)
-        .map(|process| (process.stdin.clone(), process.child.clone()))
+        .map(|process| (process.stdin.clone(), process.exited.clone()))
         .ok_or("zcode-run-not-active")?;
     // stdin 已被关闭（半关语义）时按进程退出处理。
     let mut guard = process.0.lock().await;
     let Some(stdin) = guard.as_mut() else {
         return Err("zcode-run-not-active");
     };
-    // 写入前确认进程还活着：已退出就不再接受写入。
-    if process.1.lock().await.try_wait().map(|status| status.is_some()).unwrap_or(true) {
+    // 写入前确认进程还活着：退出监控已 reap 就不再接受写入。
+    // 只读原子标志，不与监控任务抢任何锁。
+    if process.1.load(Ordering::SeqCst) {
         let _ = guard.take();
         return Err("zcode-run-not-active");
     }
@@ -313,7 +311,8 @@ pub struct StopZCodeAgentRequest {
     pub run_id: String,
 }
 
-/// 停止协议子进程：先关 stdin（给 agent-server 一个优雅退出机会），再 kill。
+/// 停止协议子进程：先关 stdin（给 agent-server 一个优雅退出机会），再发停止信号。
+/// kill 与 reap 由退出监控任务执行（它独占 Child），这里只负责信号，永不阻塞。
 #[tauri::command]
 pub async fn stop_zcode_agent(
     state: State<'_, ZCodeProcessState>,
@@ -324,17 +323,11 @@ pub async fn stop_zcode_agent(
         .lock()
         .await
         .get(&request.run_id)
-        .map(|process| (process.stdin.clone(), process.child.clone()))
+        .map(|process| (process.stdin.clone(), process.stop.clone()))
         .ok_or("zcode-run-not-active")?;
     process.0.lock().await.take();
-    let mut child = process.1.lock().await;
-    if child.try_wait().map(|status| status.is_some()).unwrap_or(false) {
-        return Ok(());
-    }
-    child
-        .kill()
-        .await
-        .map_err(|_| "zcode-stop-failed")
+    process.1.notify_one();
+    Ok(())
 }
 
 #[cfg(test)]
