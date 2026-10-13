@@ -195,7 +195,7 @@ export class ZCodeAgentAdapter {
     this.applySubscribeResult(result);
   }
 
-  /** 消费 session/subscribe 应答：先补发事件（推进水位），再落到 eventSeq 快照点。 */
+  /** 消费 session/subscribe 应答：先补发事件（按实际分发推进水位），再探测缺口。 */
   private applySubscribeResult(result: unknown): void {
     if (!result || typeof result !== 'object') return;
     const candidate = result as Record<string, unknown>;
@@ -203,7 +203,16 @@ export class ZCodeAgentAdapter {
       for (const event of candidate.events) this.dispatchSessionEvent(typeof event === 'object' && event !== null && typeof (event as Record<string, unknown>).type === 'string' ? String((event as Record<string, unknown>).type) : 'session/event', event);
     }
     if (typeof candidate.eventSeq === 'number') {
-      this.lastSeq = this.lastSeq === undefined ? candidate.eventSeq : Math.max(this.lastSeq, candidate.eventSeq);
+      // R1 审计 R2：服务端最高序号（eventSeq）与客户端连续处理到的序号（lastSeq）
+      // 必须分开——后续补发结果只在真正分发过事件时推进 lastSeq，eventSeq 超前
+      // 即视为仍有缺口并再次重发订阅；绝不把未投影的事件当作已处理。
+      // 仅当水位尚未初始化时才用 eventSeq 设定订阅起点（订阅点之前的事件
+      // 不属于本会话视图，缺口探测从这里开始）。
+      if (this.lastSeq === undefined) {
+        this.lastSeq = candidate.eventSeq;
+      } else if (candidate.eventSeq > this.lastSeq) {
+        this.scheduleResync();
+      }
     }
   }
 

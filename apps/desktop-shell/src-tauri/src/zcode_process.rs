@@ -209,8 +209,20 @@ pub async fn start_zcode_agent(
         .take()
         .ok_or("zcode-process-pipes-unavailable")?;
     let run_id = request.run_id.clone();
+    use rand::RngCore;
     let stop = Arc::new(Notify::new());
     let exited = Arc::new(AtomicBool::new(false));
+    // 每次启动生成唯一实例 id：完成事件去重按实例，不按可复用的 run_id。
+    let mut instance_bytes = [0u8; 8];
+    rand::thread_rng().fill_bytes(&mut instance_bytes);
+    let instance_id = format!(
+        "{}-{}",
+        run_id,
+        instance_bytes
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    );
     {
         // 预留 → 登记：同一把锁内原子迁移。
         let mut registry = state.registry.lock().await;
@@ -239,11 +251,13 @@ pub async fn start_zcode_agent(
         stop.clone(),
     ));
     let registry = state.registry.clone();
-    let exit_run_id = run_id.clone();
+    let exit_instance_id = instance_id.clone();
     // 退出监控独占 Child：select! 在「自然退出」与「stop 信号 → kill」之间裁决，
     // 全程不碰共享锁。退出后置 exited 标志、按 SEC-005 只发布一次完成事件。
+    let exit_run_id = run_id.clone();
     tauri::async_runtime::spawn(async move {
         let run_id = exit_run_id;
+        let instance_id = exit_instance_id;
         let mut child = child;
         let code = tokio::select! {
             result = child.wait() => result.ok().and_then(|status| status.code()),
@@ -257,10 +271,10 @@ pub async fn start_zcode_agent(
         // 不残留；finished 去重集有界（run_id 是一次性 UUID，整集清空退一次幂）。
         let should_emit = {
             let mut registry = registry.lock().await;
-            let first = registry.finished.insert(run_id.clone());
+            let first = registry.finished.insert(instance_id.clone());
             if registry.finished.len() > MAX_FINISHED_ENTRIES {
                 registry.finished.clear();
-                registry.finished.insert(run_id.clone());
+                registry.finished.insert(instance_id.clone());
             }
             registry.runs.remove(&run_id);
             first
@@ -306,6 +320,13 @@ async fn relay_lines<R>(
             }
             match available.iter().position(|&byte| byte == b'\n') {
                 Some(position) => {
+                    // 追加前同样检查容量：换行分支与续段分支共用同一条 1MB 上限
+                    //（R1 审计 R2 指出换行分支漏检，可略超声明上限）。
+                    if line.len() + position > MAX_LINE_BYTES {
+                        eof = false;
+                        exceeded = true;
+                        break;
+                    }
                     line.extend_from_slice(&available[..position]);
                     reader.consume(position + 1);
                     eof = false;

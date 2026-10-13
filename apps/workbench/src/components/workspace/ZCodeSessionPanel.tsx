@@ -140,13 +140,36 @@ export function ZCodeSessionPanel({ session }: { session: ZcodeSessionController
   );
 }
 
-function ZcodePermissionApproval({ request, queued, onResolve }: { request: NonNullable<ZcodeSessionController['pendingRequests']>[number]; queued: number; onResolve(id: string, decision: 'allow' | 'deny', reason?: string): void }) {
+function ZcodePermissionApproval({ request, queued, onResolve }: { request: NonNullable<ZcodeSessionController['pendingRequests']>[number]; queued: number; onResolve(id: string, decision: 'allow' | 'deny', reason?: string, content?: unknown): void }) {
   const risk = request.riskLevel in RISK_COLOR ? request.riskLevel : 'unknown';
+  const isUserInput = request.kind === 'userInput';
+  const [answers, setAnswers] = useState<Record<string, string[]>>({});
+  const [freeText, setFreeText] = useState('');
   const button = { minHeight: 34, padding: '0 14px', border: '1px solid var(--border)', borderRadius: 10, font: '650 12px var(--font-ui)', cursor: 'pointer' } as const;
-  const headline = request.kind === 'userInput' ? 'ZCODE USER INPUT · 需要你回答' : 'ZCODE PERMISSION · 需要你裁决';
+  const headline = isUserInput ? 'ZCODE USER INPUT · 需要你回答' : 'ZCODE PERMISSION · 需要你裁决';
+  // 结构化作答（R1 审计 R2-04）：accept 必须携带界面上实际选择/输入的内容，
+  // 而不是裸 accept——没有有效回答的 accept 可能被 ZCode 计划审批解释为拒绝。
+  const buildContent = (): unknown => {
+    if (!isUserInput) return undefined;
+    if (request.questions?.length) {
+      return {
+        answers: request.questions.map((question) => ({ question: question.question, value: (answers[question.question] ?? []).join(', ') })),
+      };
+    }
+    if (freeText.trim()) return { text: freeText.trim() };
+    return undefined;
+  };
+  const canSubmit = !isUserInput || !request.questions?.length || request.questions.every((question) => (answers[question.question] ?? []).length > 0);
+  const toggle = (question: string, value: string, multiSelect: boolean): void => {
+    setAnswers((current) => {
+      const selected = current[question] ?? [];
+      if (!multiSelect) return { ...current, [question]: selected.includes(value) ? [] : [value] };
+      return { ...current, [question]: selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value] };
+    });
+  };
   return (
     <div role="dialog" aria-modal="true" aria-label={`确认 ${request.toolName} 请求`} style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'grid', placeItems: 'center', padding: 20, background: 'color-mix(in srgb, var(--canvas) 55%, transparent)' }}>
-      <div style={{ display: 'grid', gap: 12, width: 'min(640px, 100%)', padding: 16, border: '1px solid var(--border)', borderRadius: 16, background: 'var(--panel)', boxShadow: 'var(--shadow-float)' }}>
+      <div style={{ display: 'grid', gap: 12, width: 'min(640px, 100%)', maxHeight: 'min(85dvh, 760px)', overflow: 'auto', padding: 16, border: '1px solid var(--border)', borderRadius: 16, background: 'var(--panel)', boxShadow: 'var(--shadow-float)' }}>
         <div>
           <span style={{ color: 'var(--muted)', font: '760 10px var(--font-ui)', letterSpacing: '.08em' }}>{headline}{queued > 0 ? ` · 队列中还有 ${queued} 条` : ''}</span>
           <h2 style={{ margin: '6px 0 0', color: 'var(--text-strong)', font: '650 16px/1.2 var(--font-ui)', wordBreak: 'break-all' }}>{request.toolName}</h2>
@@ -155,10 +178,24 @@ function ZcodePermissionApproval({ request, queued, onResolve }: { request: NonN
           {request.kind === 'permission' && risk !== 'unknown' && <span style={{ color: RISK_COLOR[risk], fontWeight: 700 }}>风险等级：{risk}</span>}
         </div>
         {request.reason && <p style={{ margin: 0, color: 'var(--muted-strong)', fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word' }}>{request.reason}</p>}
-        <div style={{ maxHeight: 200, overflow: 'auto', padding: 10, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--canvas)', font: '11px/1.6 var(--font-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{request.inputPreview}</div>
+        {isUserInput && request.questions?.map((question) => (
+          <div key={question.question} style={{ display: 'grid', gap: 6 }}>
+            <div style={{ color: 'var(--text-strong)', fontSize: 12, fontWeight: 650 }}>{question.header ? `${question.header}：` : ''}{question.question}</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {question.options.map((option) => {
+                const selected = (answers[question.question] ?? []).includes(option.value);
+                return <button key={option.value} onClick={() => toggle(question.question, option.value, question.multiSelect === true)} style={{ ...button, color: selected ? '#fff' : 'var(--text-strong)', borderColor: selected ? 'var(--accent-strong)' : 'var(--border)', background: selected ? 'var(--accent-strong)' : 'var(--panel)' }} type="button">{option.label}</button>;
+              })}
+            </div>
+          </div>
+        ))}
+        {isUserInput && !request.questions?.length && (
+          <textarea onChange={(event) => setFreeText(event.currentTarget.value)} placeholder={request.reason ? '在此输入你的回答…' : '在此输入回答或直接选择拒绝…'} rows={3} style={{ padding: 10, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--canvas)', color: 'var(--text-strong)', font: '12px/1.6 var(--font-ui)', resize: 'vertical' }} value={freeText} />
+        )}
+        {!isUserInput && <div style={{ maxHeight: 200, overflow: 'auto', padding: 10, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--canvas)', font: '11px/1.6 var(--font-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{request.inputPreview}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={() => onResolve(request.id, 'deny')} style={{ ...button, color: 'var(--text-strong)', background: 'var(--panel)' }} type="button">拒绝</button>
-          <button onClick={() => onResolve(request.id, 'allow')} style={{ ...button, color: '#fff', borderColor: 'var(--accent-strong)', background: 'var(--accent-strong)' }} type="button">允许本次</button>
+          <button onClick={() => onResolve(request.id, 'deny', 'user declined')} style={{ ...button, color: 'var(--text-strong)', background: 'var(--panel)' }} type="button">拒绝</button>
+          <button disabled={!canSubmit} onClick={() => onResolve(request.id, 'allow', undefined, buildContent())} style={{ ...button, color: canSubmit ? '#fff' : 'var(--muted)', borderColor: 'var(--accent-strong)', background: 'var(--accent-strong)', opacity: canSubmit ? 1 : .6 }} type="button">允许本次</button>
         </div>
       </div>
     </div>

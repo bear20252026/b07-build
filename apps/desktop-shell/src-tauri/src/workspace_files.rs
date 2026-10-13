@@ -14,8 +14,9 @@
 //!      磁盘内容在批准后被别人动过就拒绝写入
 
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::State;
@@ -195,6 +196,60 @@ pub(crate) fn ensure_regular_file(file: &fs::File) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// 唯一化临时文件名：同目录、同卷，保证 rename 原子性。
+fn temp_file_name(target: &Path) -> Result<String, &'static str> {
+    let file_name = target
+        .file_name()
+        .ok_or("workspace-path-invalid")?
+        .to_string_lossy()
+        .to_string();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    Ok(format!(
+        ".{}.awotmp-{}-{}",
+        file_name,
+        std::process::id(),
+        unique
+    ))
+}
+
+/// 用「临时文件 + 原子换名」替换目标文件内容（R1 审计 R2-03）。
+///
+/// 旧实现先以 truncate(true) 打开目标再检查文件类型——打开动作本身就会毁掉
+/// 原文，写到一半失败就是残缺文件。新流程：在同目录以 create_new 创建临时
+/// 文件（不跟随已有重解析点）→ 写入并落盘 → rename 原子替换目标。
+/// rename 之前目标原文始终完整；任何一步失败都清理临时文件，目标不受影响。
+/// 注意：rename 替换的是目录项本身（POSIX 语义不跟随末段符号链接），
+/// 「检查后路径被换名」的窗口由目录项原子替换封闭。
+pub(crate) fn replace_file_contents(target: &Path, content: &[u8]) -> Result<(), &'static str> {
+    let parent = target.parent().ok_or("workspace-path-not-directory")?;
+    let temp = parent.join(temp_file_name(target)?);
+    let write_result = (|| -> Result<(), &'static str> {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+            .map_err(|_| "workspace-file-unwritable")?;
+        ensure_regular_file(&file)?;
+        file.write_all(content)
+            .map_err(|_| "workspace-file-unwritable")?;
+        file.sync_all().map_err(|_| "workspace-file-unwritable")
+    })();
+    if let Err(code) = write_result {
+        let _ = fs::remove_file(&temp);
+        return Err(code);
+    }
+    match fs::rename(&temp, target) {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            let _ = fs::remove_file(&temp);
+            Err("workspace-file-unwritable")
+        }
+    }
+}
+
 fn collect(
     root: &Path,
     directory: &Path,
@@ -365,13 +420,8 @@ pub fn workspace_write_file(
     if hash_hex(content.as_bytes()) != grant.next_sha256 {
         return Err("workspace-write-approval-content-mismatch");
     }
-    {
-        let mut file = open_no_follow(&target, true)?;
-        ensure_regular_file(&file)?;
-        std::io::Write::write_all(&mut file, content.as_bytes())
-            .map_err(|_| "workspace-file-unwritable")?;
-        file.sync_all().map_err(|_| "workspace-file-unwritable")?;
-    }
+    // R2-03：临时文件 + 原子换名落盘；失败时原文完整保留。
+    replace_file_contents(&target, content.as_bytes())?;
     Ok(WorkspaceFileContent {
         path: canonical_relative,
         byte_size: content.len(),
