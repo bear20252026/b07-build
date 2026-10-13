@@ -2,29 +2,22 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { ZCodeAgentAdapter, type ZCodeAgentEvent, type ZCodePermissionRequestContext, type ZCodeUserInputRequestContext } from './zcode-agent-adapter';
 import { initialZcodeSessionProjection, reduceZcodeSessionEvent, type ZcodeSessionProjectionState } from './zcode-session-projector';
 import { zcodeWorkspaceRoot } from './zcode-process-client';
+import { ApprovalRequestQueue, type ApprovalQueueEntry } from './approval-request-queue';
 import { reconcileAgentToolCallTree, type AgentToolCallTreeNode } from '../agent-tool-tree';
 
 /**
  * ZCode 会话 React 挂载点：adapter（子进程 + 协议）→ 事件投影 → 层级树。
  *
  * 职责边界：这里是唯一持有 adapter 实例与裁决回调的地方。反向请求（权限 /
- * 用户输入）进入**带 id 的审批队列**——两条并发请求各占一位、各答一次，
+ * 用户输入）进入 ApprovalRequestQueue——requestId 索引、消耗即移除的独立
+ * 状态机保证恰好一次应答（R1 审计 R2：React 状态更新函数不承担事务语义）；
  * 关闭会话时对全部未决请求明确拒绝（fail-closed）。响应契约按 ZCode 协议
- * 分流：requestPermission → { decision }，requestUserInput → { action }。
+ * 分流：requestPermission → { decision }，requestUserInput → { action, content? }。
  */
 
 export type ZcodeSessionStatus = 'idle' | 'connecting' | 'connected' | 'closed' | 'error';
 
-export interface ZcodePendingRequest {
-  /** 队列内唯一标识：来自请求参数的 requestId，缺失时由本地计数生成。 */
-  readonly id: string;
-  readonly kind: 'permission' | 'userInput';
-  readonly toolName: string;
-  readonly reason: string;
-  readonly riskLevel: string;
-  readonly inputPreview: string;
-  resolve(decision: 'allow' | 'deny', reason?: string): void;
-}
+export type ZcodePendingRequest = ApprovalQueueEntry;
 
 export interface ZcodeSessionController {
   readonly status: ZcodeSessionStatus;
@@ -37,7 +30,8 @@ export interface ZcodeSessionController {
   readonly streamIncomplete: boolean;
   connect(options: { executable: string; workspacePath?: string }): Promise<void>;
   send(content: string): Promise<void>;
-  respondRequest(id: string, decision: 'allow' | 'deny', reason?: string): void;
+  /** 应答队列中的一条请求；decision='allow' 时 content 作为用户输入的结构化回答。 */
+  respondRequest(id: string, decision: 'allow' | 'deny', reason?: string, content?: unknown): void;
   close(): Promise<void>;
 }
 
@@ -50,6 +44,37 @@ function inputPreview(input: unknown): string {
   }
 }
 
+/** 校验 zcodeUserInputQuestionSchema 形状；不合法整体忽略（宁可不渲染也不误答）。 */
+function parseQuestions(value: unknown): ApprovalQueueEntry['questions'] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 8) return undefined;
+  const questions: {
+    question: string;
+    header?: string;
+    options: { value: string; label: string }[];
+    multiSelect?: boolean;
+  }[] = [];
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) return undefined;
+    const candidate = item as Record<string, unknown>;
+    if (typeof candidate.question !== 'string' || !candidate.question) return undefined;
+    if (!Array.isArray(candidate.options) || candidate.options.length === 0) return undefined;
+    const options: { value: string; label: string }[] = [];
+    for (const option of candidate.options) {
+      if (typeof option !== 'object' || option === null) return undefined;
+      const entry = option as Record<string, unknown>;
+      if (typeof entry.value !== 'string' || !entry.value || typeof entry.label !== 'string') return undefined;
+      options.push({ value: entry.value, label: entry.label });
+    }
+    questions.push({
+      question: candidate.question,
+      ...(typeof candidate.header === 'string' ? { header: candidate.header } : {}),
+      options,
+      ...(candidate.multiSelect === true ? { multiSelect: true } : {}),
+    });
+  }
+  return questions;
+}
+
 export function useZcodeSession(): ZcodeSessionController {
   const [status, setStatus] = useState<ZcodeSessionStatus>('idle');
   const [sessionId, setSessionId] = useState<string>();
@@ -60,6 +85,8 @@ export function useZcodeSession(): ZcodeSessionController {
   const adapterRef = useRef<ZCodeAgentAdapter | undefined>(undefined);
   const treeRef = useRef<readonly AgentToolCallTreeNode[]>([]);
   const requestCounter = useRef(0);
+  // 事务语义（入队/消耗/恰好一次应答）在队列状态机里；React state 只做展示镜像。
+  const queueRef = useRef(new ApprovalRequestQueue());
   const [, setTreeTick] = useState(0);
 
   const applyEvent = useCallback((event: ZCodeAgentEvent): void => {
@@ -80,6 +107,7 @@ export function useZcodeSession(): ZcodeSessionController {
     setStatus('connecting');
     setError(undefined);
     setProjection(initialZcodeSessionProjection);
+    queueRef.current = new ApprovalRequestQueue();
     setPendingRequests([]);
     setStreamIncomplete(false);
     treeRef.current = [];
@@ -98,38 +126,39 @@ export function useZcodeSession(): ZcodeSessionController {
       onPermissionRequest: (context: ZCodePermissionRequestContext) => {
         const params = (context.params ?? {}) as Record<string, unknown>;
         const id = typeof params.requestId === 'string' && params.requestId ? params.requestId : `perm-${++requestCounter.current}`;
-        setPendingRequests((current) => [
-          ...current,
-          {
-            id,
-            kind: 'permission',
-            toolName: typeof params.toolName === 'string' ? params.toolName : context.method,
-            reason: typeof params.reason === 'string' ? params.reason : '',
-            riskLevel: typeof params.riskLevel === 'string' ? params.riskLevel : 'unknown',
-            inputPreview: inputPreview(params.input),
-            resolve: (decision, reason) => context.respond(decision, reason),
-          },
-        ]);
+        queueRef.current.add({
+          id,
+          kind: 'permission',
+          toolName: typeof params.toolName === 'string' ? params.toolName : context.method,
+          reason: typeof params.reason === 'string' ? params.reason : '',
+          riskLevel: typeof params.riskLevel === 'string' ? params.riskLevel : 'unknown',
+          inputPreview: inputPreview(params.input),
+          resolve: (decision, reason) => context.respond(decision, reason),
+        });
+        setPendingRequests(queueRef.current.list());
       },
       onUserInputRequest: (context: ZCodeUserInputRequestContext) => {
         const params = (context.params ?? {}) as Record<string, unknown>;
         const id = typeof params.requestId === 'string' && params.requestId ? params.requestId : `input-${++requestCounter.current}`;
-        setPendingRequests((current) => [
-          ...current,
-          {
-            id,
-            kind: 'userInput',
-            toolName: typeof params.toolName === 'string' ? params.toolName : '用户输入',
-            reason: typeof params.prompt === 'string' ? params.prompt : '',
-            riskLevel: 'unknown',
-            inputPreview: Array.isArray(params.questions) ? inputPreview(params.questions) : inputPreview(params.input),
-            // 契约映射：界面上的「允许/拒绝」→ 协议的 accept/decline（R1 审计 04）。
-            resolve: (decision, reason) => context.respond(decision === 'allow' ? 'accept' : 'decline', undefined, reason),
-          },
-        ]);
+        queueRef.current.add({
+          id,
+          kind: 'userInput',
+          toolName: typeof params.toolName === 'string' ? params.toolName : '用户输入',
+          reason: typeof params.prompt === 'string' ? params.prompt : '',
+          riskLevel: 'unknown',
+          inputPreview: inputPreview(params.input),
+          questions: parseQuestions(params.questions),
+          // 契约映射（R1 审计 04）：界面 allow/deny → 协议 accept/decline；
+          // content 携带界面上实际作答的结构化内容，不再裸 accept。
+          resolve: (decision, reason, content) => context.respond(decision === 'allow' ? 'accept' : 'decline', content, reason),
+        });
+        setPendingRequests(queueRef.current.list());
       },
       onExit: (code) => {
         adapterRef.current = undefined;
+        // 进程退出 = 未决请求不会再有裁决时机：全部明确拒绝（fail-closed）。
+        queueRef.current.denyAll('zcode process exited');
+        setPendingRequests([]);
         setStatus((current) => (current === 'error' ? current : 'closed'));
         if (code !== 0 && code !== null) setError(`ZCode 进程异常退出（code ${code}）。`);
       },
@@ -153,24 +182,18 @@ export function useZcodeSession(): ZcodeSessionController {
     await adapter.send(content);
   }, []);
 
-  const respondRequest = useCallback((id: string, decision: 'allow' | 'deny', reason?: string): void => {
-    setPendingRequests((current) => {
-      // 先移除再应答：同一条请求不可能被应答两次（重复点击是 no-op）。
-      const target = current.find((request) => request.id === id);
-      if (!target) return current;
-      target.resolve(decision, reason);
-      return current.filter((request) => request.id !== id);
-    });
+  const respondRequest = useCallback((id: string, decision: 'allow' | 'deny', reason?: string, content?: unknown): void => {
+    // 恰好一次应答由队列状态机保证：消耗失败（已应答/不存在）是 no-op。
+    queueRef.current.respond(id, decision, reason, content);
+    setPendingRequests(queueRef.current.list());
   }, []);
 
   const close = useCallback(async (): Promise<void> => {
     const adapter = adapterRef.current;
     adapterRef.current = undefined;
-    // 关闭会话 = 对全部未决请求明确拒绝，不允许有请求悬空（R1 审计 05）。
-    setPendingRequests((current) => {
-      for (const request of current) request.resolve('deny', 'session closed');
-      return [];
-    });
+    // 关闭会话 = 对全部未决请求明确拒绝（R1 审计 05），不允许有请求悬空。
+    queueRef.current.denyAll('session closed');
+    setPendingRequests([]);
     setStatus((current) => (current === 'idle' ? current : 'closed'));
     await adapter?.close().catch(() => undefined);
   }, []);

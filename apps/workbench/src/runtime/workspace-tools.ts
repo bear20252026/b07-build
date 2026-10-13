@@ -262,7 +262,7 @@ const PATCH_NATIVE_ERROR_CODES: Readonly<Record<string, string>> = {
   'workspace-patch-state-unavailable': '原生补丁票据状态不可用，请重试。',
 };
 
-/** 原生批量事务错误可能是 "code:kind:path|rolledBack=a,b|rollbackErrors=c"（带回滚明细），拆开翻译并附上路径。 */
+/** 原生批量事务错误："code:kind:path"（提交前校验失败）或 "code:kind:path|rolledBack=a,b|rollbackErrors=c"（落盘阶段失败+回滚明细）。 */
 function patchNativeErrorText(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error ?? '');
   const [head, ...details] = raw.split('|');
@@ -273,7 +273,10 @@ function patchNativeErrorText(error: unknown): string {
     const code = head.slice(0, colon);
     const text = PATCH_NATIVE_ERROR_CODES[code] ?? WORKSPACE_ERRORS[code];
     if (text) {
-      const lines = [`${text}（涉及 ${head.slice(colon + 1).replace(':', ' · ')}）`];
+      // 分阶段表述（R1 审计 R2）：提交前失败=什么都没写；落盘阶段失败=可能已
+      // 部分执行后回滚，恢复结果必须逐文件列清。
+      const phase = details.length > 0 ? '落盘阶段失败（部分操作可能已执行后被回滚）' : '提交前校验阶段失败（尚未写入任何内容）';
+      const lines = [`${text}（${phase}；涉及 ${head.slice(colon + 1).replace(':', ' · ')}）`];
       if (rolledBack) lines.push(`已恢复原样的文件：${rolledBack.split(',').join('、')}。`);
       if (rollbackErrors) lines.push(`⚠ 以下文件回滚失败，内容可能已变化，需要人工检查：${rollbackErrors.split(',').join('、')}。`);
       return lines.join('\n');

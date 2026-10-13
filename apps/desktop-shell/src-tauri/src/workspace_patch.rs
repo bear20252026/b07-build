@@ -29,8 +29,8 @@ use tauri::State;
 
 use crate::workspace_approval::{grantable_path, hash_hex, is_sha256_hex, GRANT_TTL_MS};
 use crate::workspace_files::{
-    ensure_regular_file, open_no_follow, reject_unsafe_relative, resolve_within, to_relative_key,
-    MAX_FILE_BYTES,
+    ensure_regular_file, open_no_follow, reject_unsafe_relative, replace_file_contents,
+    resolve_within, to_relative_key, MAX_FILE_BYTES,
 };
 use crate::WorkspaceDirectoryState;
 
@@ -104,14 +104,15 @@ fn read_current(target: &Path) -> Result<Vec<u8>, &'static str> {
 }
 
 /// 已存在文件的可靠还原：打开句柄后截断写回（不能用 create_new——文件还在）。
-fn restore_existing(target: &Path, bytes: &[u8]) -> Result<(), &'static str> {
-    let mut file = open_no_follow(target, true)?;
-    ensure_regular_file(&file)?;
-    file.set_len(bytes.len() as u64)
-        .map_err(|_| "workspace-file-unwritable")?;
-    file.write_all(bytes)
-        .map_err(|_| "workspace-file-unwritable")?;
-    file.sync_all().map_err(|_| "workspace-file-unwritable")
+/// 事务账本：只记录**本次事务实际取得所有权**的变更。
+/// 回滚时只处理账本内的对象，绝不凭路径无条件删除/改写别的进程创建的文件。
+enum LedgerAction {
+    /// 成功创建的路径（add 的目标、move 的新路径）：回滚 = 删除。
+    Created(PathBuf),
+    /// 成功改写的已存在文件（记录 plan 下标以取快照）：回滚 = 用快照原子替换。
+    Modified(usize, PathBuf),
+    /// 成功删除的文件：回滚 = 重建快照内容（路径已被他人重建时不覆盖，如实上报）。
+    Deleted(usize, PathBuf),
 }
 
 fn remove_file(target: &Path) -> Result<(), &'static str> {
@@ -380,7 +381,7 @@ fn plan_batch(
     })
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchOperationResult {
     pub kind: String,
@@ -388,7 +389,7 @@ pub struct PatchOperationResult {
     pub byte_size: usize,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspacePatchCommitResult {
     pub applied: Vec<PatchOperationResult>,
@@ -398,67 +399,85 @@ pub struct WorkspacePatchCommitResult {
     pub rollback_errors: Vec<String>,
 }
 
-fn apply_single(op: &PatchOperation, resolved: &ResolvedOperation) -> Result<usize, &'static str> {
+fn apply_single(
+    op: &PatchOperation,
+    resolved: &ResolvedOperation,
+    index: usize,
+    ledger: &mut Vec<LedgerAction>,
+) -> Result<usize, &'static str> {
     match op.kind.as_str() {
         "update" => {
             let content = op.next_content.as_deref().unwrap_or_default();
             if let Some(destination) = &resolved.destination {
+                // move：先建目标再删源。账本按实际取得的每一步所有权记录——
+                // 第二步失败时，第一步已创建的目标仍属本事务，回滚会清理它。
                 write_new_file(destination, content.as_bytes())?;
+                ledger.push(LedgerAction::Created(destination.clone()));
                 remove_file(resolved.source.as_path())?;
+                ledger.push(LedgerAction::Deleted(index, resolved.source.clone()));
                 Ok(content.len())
             } else {
-                let mut file = open_no_follow(resolved.source.as_path(), true)?;
-                ensure_regular_file(&file)?;
-                file.write_all(content.as_bytes())
-                    .map_err(|_| "workspace-file-unwritable")?;
-                file.sync_all().map_err(|_| "workspace-file-unwritable")?;
+                // 临时文件 + 原子换名：失败时原文完整保留，不存在「部分写入」。
+                replace_file_contents(resolved.source.as_path(), content.as_bytes())?;
+                ledger.push(LedgerAction::Modified(index, resolved.source.clone()));
                 Ok(content.len())
             }
         }
         "add" => {
             let content = op.next_content.as_deref().unwrap_or_default();
             write_new_file(resolved.source.as_path(), content.as_bytes())?;
+            ledger.push(LedgerAction::Created(resolved.source.clone()));
             Ok(content.len())
         }
         "delete" => {
             remove_file(resolved.source.as_path())?;
+            ledger.push(LedgerAction::Deleted(index, resolved.source.clone()));
             Ok(0)
         }
         _ => Err("workspace-patch-kind-invalid"),
     }
 }
 
-/// 失败回滚：从失败这条开始（它可能已部分写入），按逆序恢复全部快照。
+/// 失败回滚：只处理账本内、本次事务实际取得所有权的对象，按逆序撤销。
 /// 回滚明细同时进入错误串，绝不静默。
-fn rollback_from(plan: &PatchPlan, root: &Path, failed_index: usize, code: &str) -> String {
+fn rollback_from(
+    plan: &PatchPlan,
+    root: &Path,
+    failed_index: usize,
+    code: &str,
+    ledger: &[LedgerAction],
+) -> String {
     let mut rolled_back = Vec::new();
     let mut rollback_errors = Vec::new();
-    for restore_index in (0..=failed_index).rev() {
-        let restore_op = &plan.operations[restore_index];
-        let resolved_restore = &plan.resolved[restore_index];
-        let outcome = match restore_op.kind.as_str() {
-            "update" => {
-                if let Some(destination) = &resolved_restore.destination {
-                    // move：删除已写出的目标（可能尚未创建），还原源文件。
-                    let _ = std::fs::remove_file(destination);
+    for action in ledger.iter().rev() {
+        let outcome = match action {
+            LedgerAction::Created(path) => {
+                // 只删除本事务创建的文件；create_new 成功后才入账，路径内容属于我们。
+                match std::fs::remove_file(path) {
+                    Ok(()) => Ok(()),
+                    Err(_) if path.symlink_metadata().is_err() => Ok(()),
+                    Err(_) => Err("workspace-file-unwritable"),
                 }
-                restore_existing(
-                    resolved_restore.source.as_path(),
-                    plan.snapshots[restore_index].as_deref().unwrap_or_default(),
-                )
             }
-            "add" => match std::fs::remove_file(resolved_restore.source.as_path()) {
-                Ok(()) => Ok(()),
-                Err(_) if resolved_restore.source.symlink_metadata().is_err() => Ok(()),
-                Err(_) => Err("workspace-file-unwritable"),
-            },
-            "delete" => restore_existing(
-                resolved_restore.source.as_path(),
-                plan.snapshots[restore_index].as_deref().unwrap_or_default(),
-            ),
-            _ => Err("workspace-patch-kind-invalid"),
+            LedgerAction::Modified(index, path) => {
+                replace_file_contents(path, plan.snapshots[*index].as_deref().unwrap_or_default())
+            }
+            LedgerAction::Deleted(index, path) => {
+                // 重建被删除的文件；若他人已在此路径重建了新文件，不覆盖，
+                // 如实计入 rollback_errors 由人工核对。
+                if path.symlink_metadata().is_ok() {
+                    Err("workspace-file-unwritable")
+                } else {
+                    write_new_file(path, plan.snapshots[*index].as_deref().unwrap_or_default())
+                }
+            }
         };
-        let relative = to_relative_key(root, resolved_restore.source.as_path());
+        let relative = match action {
+            LedgerAction::Created(path) => to_relative_key(root, path),
+            LedgerAction::Modified(_, path) | LedgerAction::Deleted(_, path) => {
+                to_relative_key(root, path)
+            }
+        };
         match outcome {
             Ok(()) => rolled_back.push(relative),
             Err(_) => rollback_errors.push(relative),
@@ -478,9 +497,10 @@ fn apply_batch_with_root(
     root: &Path,
 ) -> Result<WorkspacePatchCommitResult, String> {
     let mut applied: Vec<PatchOperationResult> = Vec::new();
+    let mut ledger: Vec<LedgerAction> = Vec::new();
     for (index, op) in plan.operations.iter().enumerate() {
         let resolved = &plan.resolved[index];
-        match apply_single(op, resolved) {
+        match apply_single(op, resolved, index, &mut ledger) {
             Ok(byte_size) => applied.push(PatchOperationResult {
                 kind: op.kind.clone(),
                 path: to_relative_key(
@@ -489,7 +509,7 @@ fn apply_batch_with_root(
                 ),
                 byte_size,
             }),
-            Err(code) => return Err(rollback_from(plan, root, index, code)),
+            Err(code) => return Err(rollback_from(plan, root, index, code, &ledger)),
         }
     }
     Ok(WorkspacePatchCommitResult {
@@ -806,10 +826,10 @@ mod tests {
                     error.starts_with("workspace-file-unwritable:update:src/locked.txt|"),
                     "{error}"
                 );
-                // 回滚明细完整可见：已应用的第一条恢复成功；失败这条的还原因只读
-                // 被拒绝进入 rollback_errors（内容本就未被改写，无需恢复）。
+                // R2 语义：失败这条走「临时文件 + 原子换名」，失败时原文完整保留、
+                // 不产生部分写入，因此不进任何回滚清单；已应用的第一条恢复成功。
                 assert!(error.contains("rolledBack=src/a.ts"), "{error}");
-                assert!(error.contains("rollbackErrors=src/locked.txt"), "{error}");
+                assert!(error.contains("rollbackErrors="), "{error}");
                 // 磁盘状态：第一条已还原，第二条从未被改写。
                 assert_eq!(
                     std::fs::read_to_string(root.join("src/a.ts")).unwrap(),
@@ -827,6 +847,122 @@ mod tests {
             }
         }
         set_readonly(false);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 故障注入模式：plan 与 apply 是分离的两个阶段——先让整批计划通过，
+    /// 再在 apply 前移除某个目标父目录，即可在**所有平台**上确定性地让
+    /// 指定操作失败，验证真实回滚路径。
+    #[test]
+    fn delete_rollback_recreates_the_removed_file() {
+        let root = temp_root("delete-rollback");
+        let root_canonical = root.canonicalize().unwrap();
+        std::fs::write(root.join("src/a.ts"), "alpha\n").unwrap();
+        std::fs::write(root.join("src/locked.txt"), "locked\n").unwrap();
+        std::fs::create_dir_all(root.join("src/out")).unwrap();
+        let operations = vec![
+            PatchOperation {
+                previous_sha256: Some(sha(b"alpha\n")),
+                ..op("delete", "src/a.ts")
+            },
+            PatchOperation {
+                move_path: Some("src/out/dest.txt".to_owned()),
+                ..update_op("src/locked.txt", b"locked\n", "moved\n")
+            },
+        ];
+        let plan = plan_batch(&root, &root_canonical, operations).unwrap();
+        // 注入故障：第二条 move 的目标父目录在 apply 前消失。
+        std::fs::remove_dir_all(root.join("src/out")).unwrap();
+        let error = apply_batch_with_root(&plan, &root_canonical).unwrap_err();
+        // 已删除的 a.ts 必须从快照重建（R1 缺陷：旧回滚对已删除文件用「打开已存在」必失败）。
+        assert!(error.contains("rolledBack=src/a.ts"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/a.ts")).unwrap(),
+            "alpha\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/locked.txt")).unwrap(),
+            "locked\n"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn move_rollback_restores_source_and_removes_created_destination() {
+        let root = temp_root("move-rollback");
+        let root_canonical = root.canonicalize().unwrap();
+        std::fs::write(root.join("src/a.ts"), "alpha\n").unwrap();
+        std::fs::write(root.join("src/locked.txt"), "locked\n").unwrap();
+        std::fs::create_dir_all(root.join("src/out")).unwrap();
+        std::fs::create_dir_all(root.join("src/other")).unwrap();
+        let operations = vec![
+            PatchOperation {
+                move_path: Some("src/out/dest.txt".to_owned()),
+                ..update_op("src/locked.txt", b"locked\n", "moved\n")
+            },
+            PatchOperation {
+                next_sha256: Some(sha(b"x\n")),
+                next_content: Some("x\n".to_owned()),
+                ..op("add", "src/other/newfile.txt")
+            },
+        ];
+        let plan = plan_batch(&root, &root_canonical, operations).unwrap();
+        // 只移除第二条 add 的父目录：move 成功入账后才发生故障。
+        std::fs::remove_dir_all(root.join("src/other")).unwrap();
+        let error = apply_batch_with_root(&plan, &root_canonical).unwrap_err();
+        // move 已成功：回滚要删除本事务创建的目标、重建已删除的源（两条都在账本里）。
+        assert!(
+            error.contains("rolledBack=src/locked.txt,src/out/dest.txt"),
+            "{error}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/locked.txt")).unwrap(),
+            "locked\n"
+        );
+        assert!(!root.join("src/out/dest.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/a.ts")).unwrap(),
+            "alpha\n"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn failed_add_never_deletes_a_file_created_by_another_process() {
+        let root = temp_root("add-race");
+        let root_canonical = root.canonicalize().unwrap();
+        std::fs::write(root.join("src/a.ts"), "alpha\n").unwrap();
+        std::fs::create_dir_all(root.join("src/out")).unwrap();
+        let operations = vec![
+            PatchOperation {
+                next_sha256: Some(sha(b"fresh\n")),
+                next_content: Some("fresh\n".to_owned()),
+                ..op("add", "src/new.ts")
+            },
+            PatchOperation {
+                next_sha256: Some(sha(b"x\n")),
+                next_content: Some("x\n".to_owned()),
+                ..op("add", "src/out/newfile.txt")
+            },
+        ];
+        let plan = plan_batch(&root, &root_canonical, operations).unwrap();
+        // 竞态：apply 之前，另一个进程已经在 src/new.ts 创建了自己的文件。
+        std::fs::write(root.join("src/new.ts"), "other-process\n").unwrap();
+        std::fs::remove_dir_all(root.join("src/out")).unwrap();
+        let error = apply_batch_with_root(&plan, &root_canonical).unwrap_err();
+        // 本事务的 create_new 失败 → 该路径从未入账 → 回滚绝不能删除别人的文件。
+        assert!(
+            error.starts_with("workspace-file-unwritable:add:src/new.ts|"),
+            "{error}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/new.ts")).unwrap(),
+            "other-process\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/a.ts")).unwrap(),
+            "alpha\n"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }
