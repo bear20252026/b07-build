@@ -22,9 +22,9 @@ export interface McpAppHostProps {
   /** 应用 HTML（来自其声明服务器对应的 MCP 资源），宿主注入 CSP 后经 srcdoc 渲染。 */
   readonly html: string;
   /** 执行应用请求的工具调用；未提供时调用请求被记录并拒绝。 */
-  readonly onToolCallRequest?(toolName: string, args: unknown): Promise<unknown>;
+  readonly onToolCallRequest?: (toolName: string, args: unknown) => Promise<unknown>;
   /** 准入策略违规（未知消息类型、超限、未准入工具）时回调，供审计记录。 */
-  readonly onGateViolation?(reason: string, detail: unknown): void;
+  readonly onGateViolation?: (reason: string, detail: unknown) => void;
 }
 
 /** 工具调用结果回传给 iframe 的信封（与 gateMcpAppMessage 的类型白名单对应）。 */
