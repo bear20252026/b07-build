@@ -241,6 +241,16 @@ pub(crate) fn replace_file_contents(target: &Path, content: &[u8]) -> Result<(),
         let _ = fs::remove_file(&temp);
         return Err(code);
     }
+    // R4-05：保留目标文件的权限位（可执行位等），换名不改变文件属性。
+    // Windows 的只读属性复制会阻止随后的 rename 替换，故仅在 Unix 上执行。
+    #[cfg(unix)]
+    if let Ok(metadata) = fs::metadata(target) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(
+            &temp,
+            std::fs::Permissions::from_mode(metadata.permissions().mode()),
+        );
+    }
     match fs::rename(&temp, target) {
         Ok(()) => Ok(()),
         Err(_) => {
