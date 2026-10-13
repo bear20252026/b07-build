@@ -14,8 +14,6 @@
 //
 // 这里不渲染任何东西：宿主 iframe 组件（消费 buildMcpAppSandbox 的输出）是后续工作。
 
-import type { McpServerManifest } from './mcp-registry.js';
-
 /** 应用可以请求的工具白名单：只能是声明它的那个 MCP 服务器里已注册的工具。 */
 export interface McpAppResourceManifest {
   schemaVersion: 1;
@@ -52,9 +50,15 @@ export type McpAppMessageType = (typeof MCP_APP_MESSAGE_TYPES)[number];
 /** 单条 postMessage 消息的载荷上限：渲染层不应有理由传大对象。 */
 export const MCP_APP_MAX_MESSAGE_CHARS = 64_000;
 
+/** 声明服务器的最小结构化视图：MCP 注册表里的服务端清单天然满足该形状。 */
+export interface McpAppHostingServer {
+  readonly id: string;
+  readonly declaredTools: readonly { readonly name: string }[];
+}
+
 export function validateMcpAppManifest(
   manifest: unknown,
-  server: Pick<McpServerManifest, 'id' | 'declaredTools'>,
+  server: McpAppHostingServer,
 ): McpAppAdmissionResult {
   if (typeof manifest !== 'object' || manifest === null || Array.isArray(manifest)) {
     return { ok: false, reason: 'mcpapp-manifest-invalid' };
@@ -125,15 +129,17 @@ export function buildMcpAppSandbox(manifest: McpAppResourceManifest): McpAppSand
   return {
     // allow-scripts 是运行应用的前提；allow-forms 允许应用内表单；其余一律不给。
     sandboxAttributes: ['allow-scripts', 'allow-forms'],
+    // 注意（R1 审计）：frame-ancestors 只在 HTTP 响应头里生效，放在 <meta> 中会被
+    // 浏览器忽略——这里刻意不生成它。iframe 嵌套隔离由 sandbox 属性承担；
+    // 若未来改为通过网络服务应用 HTML，必须在响应头层另行设置 frame-ancestors。
     contentSecurityPolicy: [
       "default-src 'none'",
       "script-src 'unsafe-inline'",
       "style-src 'unsafe-inline'",
       'img-src data: blob:',
       'font-src data:',
-      `frame-ancestors 'none'`,
-      'base-uri \'none\'',
-      `form-action 'none'`,
+      "base-uri 'none'",
+      "form-action 'none'",
       connectSrc.trimEnd(),
     ]
       .filter((part) => part.length > 0)
@@ -141,6 +147,26 @@ export function buildMcpAppSandbox(manifest: McpAppResourceManifest): McpAppSand
       .trim(),
     postMessageProtocol: 'structured-allowlist',
   };
+}
+
+/**
+ * 把宿主 CSP 以 <meta http-equiv> 注入应用 HTML（srcdoc 宿主路径）。
+ * 多条 CSP 并存时取交集（最严格者生效），应用自带的 CSP 不会被本条放宽；
+ * 注入点尽量前移（<head> 之后），保证对后续资源的约束尽早生效。
+ */
+export function injectContentSecurityPolicy(html: string, contentSecurityPolicy: string): string {
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy.replace(/"/g, '&quot;')}">`;
+  const headMatch = /<head[^>]*>/i.exec(html);
+  if (headMatch) {
+    const position = headMatch.index + headMatch[0].length;
+    return `${html.slice(0, position)}${meta}${html.slice(position)}`;
+  }
+  const htmlMatch = /<html[^>]*>/i.exec(html);
+  if (htmlMatch) {
+    const position = htmlMatch.index + htmlMatch[0].length;
+    return `${html.slice(0, position)}<head>${meta}</head>${html.slice(position)}`;
+  }
+  return `${meta}${html}`;
 }
 
 export type McpAppGateResult =

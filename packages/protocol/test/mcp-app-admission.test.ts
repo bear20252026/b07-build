@@ -5,18 +5,16 @@ import test from 'node:test';
 import {
   buildMcpAppSandbox,
   gateMcpAppMessage,
+  injectContentSecurityPolicy,
   validateMcpAppManifest,
   type McpAppResourceManifest,
 } from '../src/mcp-app-admission';
-import type { McpServerManifest } from '../src/mcp-registry';
+import type { McpAppHostingServer } from '../src/mcp-app-admission';
 
 const server = {
   id: 'demo-mcp',
-  declaredTools: [
-    { name: 'read_note', description: '读笔记', capability: 'knowledge.read' as const, risk: 'low' as const },
-    { name: 'write_note', description: '写笔记', capability: 'knowledge.write' as const, risk: 'medium' as const },
-  ],
-} as unknown as Pick<McpServerManifest, 'id' | 'declaredTools'>;
+  declaredTools: [{ name: 'read_note' }, { name: 'write_note' }],
+} satisfies McpAppHostingServer;
 
 function manifest(overrides: Partial<McpAppResourceManifest> = {}): McpAppResourceManifest {
   return {
@@ -53,12 +51,29 @@ test('沙箱：不给 allow-same-origin / top-navigation / popups，网络默认
   assert.equal(policy.sandboxAttributes.includes('allow-popups'), false);
   assert.match(policy.contentSecurityPolicy, /default-src 'none'/);
   assert.doesNotMatch(policy.contentSecurityPolicy, /connect-src/);
-  assert.match(policy.contentSecurityPolicy, /frame-ancestors 'none'/);
+  // frame-ancestors 在 meta CSP 中被浏览器忽略，生成器刻意不产出（由 sandbox 属性承担隔离）。
+  assert.equal(policy.contentSecurityPolicy.includes('frame-ancestors'), false);
 });
 
 test('沙箱：声明了 apiOrigins 才进 connect-src，且只接受 https 源', () => {
   const policy = buildMcpAppSandbox(manifest({ apiOrigins: ['https://api.example.com'] }));
   assert.match(policy.contentSecurityPolicy, /connect-src https:\/\/api\.example\.com/);
+});
+
+test('CSP 注入：head 前移注入、无 head 时补建、引号转义、不含 frame-ancestors', () => {
+  const policy = buildMcpAppSandbox(manifest());
+  // frame-ancestors 只在 HTTP 响应头生效，meta 中会被忽略——生成器必须不产出它。
+  assert.equal(policy.contentSecurityPolicy.includes('frame-ancestors'), false);
+
+  const withHead = injectContentSecurityPolicy('<html><head><title>t</title></head><body></body></html>', policy.contentSecurityPolicy);
+  assert.match(withHead, /<head><meta http-equiv="Content-Security-Policy"/);
+  assert.match(withHead, /<title>t<\/title><\/head>/);
+
+  const withoutHead = injectContentSecurityPolicy('<html><body>x</body></html>', policy.contentSecurityPolicy);
+  assert.match(withoutHead, /<html><head><meta http-equiv="Content-Security-Policy"/);
+
+  const plain = injectContentSecurityPolicy('<div>x</div>', policy.contentSecurityPolicy);
+  assert.match(plain, /^<meta http-equiv="Content-Security-Policy"/);
 });
 
 test('消息门：白名单类型 + 大小限制 + 工具调用二次校验', () => {
