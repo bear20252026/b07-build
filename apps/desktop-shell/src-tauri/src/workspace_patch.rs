@@ -1,21 +1,26 @@
 //! 工作区补丁批量事务：add / delete / move 的原生入口（SEC-008 的批量化扩展）。
 //!
-//! 结构化补丁第一期只支持「覆写已存在文件」，走单文件票据即可。第二期放开
-//! 新建 / 删除 / 移动后，一批补丁涉及多个文件的多种操作，引入两个原生命令：
+//! 安全模型（R1 审计整改后的完整形态）：
 //!
-//! 1. `workspace_stage_patch_batch`：整批校验（路径语法、存在性前提、哈希、
-//!    体积、重复目标）后签发**一张整批票据**——审批与内容被绑成同一份；
-//! 2. `workspace_commit_patch`：原子消耗票据后落盘。先复核每条前提（磁盘
-//!    可能已变），然后按序应用；任何一条失败立即回滚已应用的部分
-//!    （从快照恢复原文），绝不留下半套改动还假装成功。
+//! * **统一路径隔离**：所有操作分两类解析——已有文件（update / delete / move 源）
+//!   走 `resolve_within`（canonicalize 整条路径 + 前缀复核），中间目录是指向工作区外
+//!   的符号链接会被直接拒绝；新路径（add / move 目标）走 `resolve_new`：词法拒绝
+//!   穿越 + 逐级确认中间分量不是符号链接 + 父目录 canonicalize 归属复核。
+//! * **票据绑定工作区身份**：stage 把 canonical root 存进批次；commit 发现根变了
+//!   直接拒绝，不允许换一个工作区消耗票据。
+//! * **失败回滚**：plan 阶段一次性对**全部**操作（含最终失败的那条）做前提复核并
+//!   快照原文；apply 顺序执行，任何一条失败按逆序恢复——已应用的和**部分写入**的
+//!   都会恢复（update 用截断写回，add 删除已创建文件，move 删目标 + 还原源）。
+//!   回滚结果（成功与失败清单）完整进入错误串，绝不静默。
+//! * **诚实的原子性**：跨普通文件做不到磁盘级真原子（崩溃/断电窗口仍在），本层
+//!   保证的是「可预见的失败 → 可靠恢复 + 完整可见」；错误串里的回滚明细就是给
+//!   人工善后用的恢复记录。
 //!
-//! 与单文件票据一致的限制：5 分钟时效、未消耗批次有上限、symlink 不穿透、
-//! 单文件 2MB 上限、内容必须是 UTF-8。回滚尽力而为且如实报告——磁盘级
-//! 真原子做不到，但「失败必须可见」是硬约束。
+//! 与单文件票据一致的限制：5 分钟时效、未消耗批次有上限、单文件 2MB、UTF-8。
 
 use std::collections::HashMap;
-use std::io::Read;
-use std::path::Path;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -24,7 +29,8 @@ use tauri::State;
 
 use crate::workspace_approval::{grantable_path, hash_hex, is_sha256_hex, GRANT_TTL_MS};
 use crate::workspace_files::{
-    ensure_regular_file, open_no_follow, to_relative_key, MAX_FILE_BYTES,
+    ensure_regular_file, open_no_follow, reject_unsafe_relative, resolve_within, to_relative_key,
+    MAX_FILE_BYTES,
 };
 use crate::WorkspaceDirectoryState;
 
@@ -54,6 +60,8 @@ pub struct PatchOperation {
 
 struct WorkspacePatchBatch {
     operations: Vec<PatchOperation>,
+    /// stage 时的 canonical 工作区根：票据绑定工作区身份，commit 时必须一致。
+    root_canonical: PathBuf,
     expires_at_ms: u128,
 }
 
@@ -78,13 +86,8 @@ fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
-fn operation_error(op: &PatchOperation, code: &'static str) -> String {
-    format!("{code}:{kind}:{path}", kind = op.kind, path = op.path)
-}
-
-/// 从 "code:kind:path" 形式的错误里解出错误码（给前端翻译用）。
-pub fn operation_error_code(error: &str) -> &str {
-    error.split(':').next().unwrap_or(error)
+fn operation_error(op: &PatchOperation, code: &str) -> String {
+    format!("{code}:{}:{}", op.kind, op.path)
 }
 
 fn read_current(target: &Path) -> Result<Vec<u8>, &'static str> {
@@ -100,6 +103,21 @@ fn read_current(target: &Path) -> Result<Vec<u8>, &'static str> {
     Ok(bytes)
 }
 
+/// 已存在文件的可靠还原：打开句柄后截断写回（不能用 create_new——文件还在）。
+fn restore_existing(target: &Path, bytes: &[u8]) -> Result<(), &'static str> {
+    let mut file = open_no_follow(target, true)?;
+    ensure_regular_file(&file)?;
+    file.set_len(bytes.len() as u64)
+        .map_err(|_| "workspace-file-unwritable")?;
+    file.write_all(bytes)
+        .map_err(|_| "workspace-file-unwritable")?;
+    file.sync_all().map_err(|_| "workspace-file-unwritable")
+}
+
+fn remove_file(target: &Path) -> Result<(), &'static str> {
+    std::fs::remove_file(target).map_err(|_| "workspace-file-unwritable")
+}
+
 fn write_new_file(target: &Path, content: &[u8]) -> Result<(), &'static str> {
     // create_new 不会跟随已存在的重解析点：目标已被占用时直接失败，由前提校验兜底。
     let mut file = std::fs::OpenOptions::new()
@@ -108,21 +126,68 @@ fn write_new_file(target: &Path, content: &[u8]) -> Result<(), &'static str> {
         .open(target)
         .map_err(|_| "workspace-file-unwritable")?;
     ensure_regular_file(&file)?;
-    std::io::Write::write_all(&mut file, content).map_err(|_| "workspace-file-unwritable")?;
+    file.write_all(content)
+        .map_err(|_| "workspace-file-unwritable")?;
     file.sync_all().map_err(|_| "workspace-file-unwritable")
 }
 
-fn remove_file(target: &Path) -> Result<(), &'static str> {
-    std::fs::remove_file(target).map_err(|_| "workspace-file-unwritable")
+/// 新路径解析（add / move 目标）：词法拒绝穿越后，逐级确认中间分量不是符号链接，
+/// 最终分量必须不存在，父目录 canonicalize 后必须仍在根内。
+/// 语义与 `resolve_within` 对称：不存在的目标无法 canonicalize，所以必须走这条路。
+fn resolve_new(root_canonical: &Path, relative: &str) -> Result<PathBuf, &'static str> {
+    reject_unsafe_relative(relative)?;
+    let candidate = root_canonical.join(relative);
+    if !candidate.starts_with(root_canonical) {
+        return Err("workspace-path-escapes-root");
+    }
+    let relative_components: Vec<_> = Path::new(relative).components().collect();
+    let mut current = root_canonical.to_path_buf();
+    for segment in relative_components
+        .iter()
+        .take(relative_components.len().saturating_sub(1))
+    {
+        current.push(segment);
+        let metadata = current
+            .symlink_metadata()
+            .map_err(|_| "workspace-patch-parent-missing")?;
+        if metadata.file_type().is_symlink() {
+            // 中间目录是指向工作区外的链接：这是 R1 审计发现的越界路径，直接拒绝。
+            return Err("workspace-path-escapes-root");
+        }
+        if !metadata.is_dir() {
+            return Err("workspace-path-not-directory");
+        }
+    }
+    // 最终分量：必须不存在（含悬空链接）。
+    let final_path = current.join(relative_components.last().unwrap());
+    if final_path.symlink_metadata().is_ok() {
+        return Err("workspace-file-already-exists");
+    }
+    // 父目录真实身份复核（到这里父级已确认非链接；canonicalize 主要捕获
+    // 检查之后父目录本身被换成链接的窗口）。
+    let parent = final_path
+        .parent()
+        .ok_or("workspace-path-not-directory")?
+        .canonicalize()
+        .map_err(|_| "workspace-patch-parent-missing")?;
+    if !parent.starts_with(root_canonical) {
+        return Err("workspace-path-escapes-root");
+    }
+    Ok(final_path)
 }
 
-/// 校验单条操作并解析出涉及的路径：返回 (source, optional destination)。
+/// 一条操作的解析结果：源（已按类别安全解析）与可选目标。
+struct ResolvedOperation {
+    source: PathBuf,
+    destination: Option<PathBuf>,
+}
+
 fn resolve_operation(
     root: &Path,
+    root_canonical: &Path,
     op: &PatchOperation,
-) -> Result<(std::path::PathBuf, Option<std::path::PathBuf>), String> {
+) -> Result<ResolvedOperation, String> {
     let source_relative = grantable_path(&op.path).map_err(|code| operation_error(op, code))?;
-    let source = root.join(&source_relative);
     match op.kind.as_str() {
         "update" => {
             let previous = op
@@ -157,11 +222,20 @@ fn resolve_operation(
                     if destination_relative == source_relative {
                         return Err(operation_error(op, "workspace-patch-move-self"));
                     }
-                    Some(root.join(destination_relative))
+                    Some(
+                        resolve_new(root_canonical, &destination_relative)
+                            .map_err(|code| operation_error(op, code))?,
+                    )
                 }
                 None => None,
             };
-            Ok((source, destination))
+            // 已有文件：canonicalize 整条路径并确认在根内（中间符号链接在此被识破）。
+            let source =
+                resolve_within(root, &source_relative).map_err(|code| operation_error(op, code))?;
+            Ok(ResolvedOperation {
+                source,
+                destination,
+            })
         }
         "add" => {
             let content = op
@@ -180,7 +254,12 @@ fn resolve_operation(
             if !is_sha256_hex(next) || hash_hex(content.as_bytes()) != next {
                 return Err(operation_error(op, "workspace-approval-digest-invalid"));
             }
-            Ok((source, None))
+            let source = resolve_new(root_canonical, &source_relative)
+                .map_err(|code| operation_error(op, code))?;
+            Ok(ResolvedOperation {
+                source,
+                destination: None,
+            })
         }
         "delete" => {
             let previous = op
@@ -192,78 +271,243 @@ fn resolve_operation(
             if !is_sha256_hex(previous) {
                 return Err(operation_error(op, "workspace-approval-digest-invalid"));
             }
-            Ok((source, None))
+            let source =
+                resolve_within(root, &source_relative).map_err(|code| operation_error(op, code))?;
+            Ok(ResolvedOperation {
+                source,
+                destination: None,
+            })
         }
         _ => Err(operation_error(op, "workspace-patch-kind-invalid")),
     }
 }
 
-/// 落盘前的存在性前提复核（stage 与 commit 都要过一遍；commit 是权威）。
-/// add 的父目录必须已存在且不穿越符号链接；目标本身必须不存在。
-fn verify_precondition(
-    root: &Path,
-    source: &Path,
-    destination: Option<&Path>,
+/// 前提复核 + 快照。返回的 snapshot 对 add 是 None（回滚 = 删除已创建文件）。
+fn verify_and_snapshot(
     op: &PatchOperation,
-) -> Result<(), &'static str> {
-    match op.kind.as_str() {
+    resolved: &ResolvedOperation,
+) -> Result<Option<Vec<u8>>, String> {
+    let snapshot = match op.kind.as_str() {
         "update" => {
-            let current = read_current(source).map_err(|code| {
+            let current = read_current(&resolved.source).map_err(|code| {
                 if code == "workspace-path-not-found" {
-                    "workspace-file-not-found"
+                    operation_error(op, "workspace-file-not-found")
                 } else {
-                    code
+                    operation_error(op, code)
                 }
             })?;
             let previous = op.previous_sha256.as_deref().unwrap_or_default();
             if hash_hex(&current) != previous {
-                return Err("workspace-write-approval-stale");
+                return Err(operation_error(op, "workspace-write-approval-stale"));
             }
-            if let Some(destination) = destination {
-                if destination.symlink_metadata().is_ok() {
-                    return Err("workspace-patch-destination-exists");
-                }
-                let parent = destination
-                    .parent()
-                    .ok_or("workspace-path-not-directory")?
-                    .canonicalize()
-                    .map_err(|_| "workspace-patch-parent-missing")?;
-                if !parent.starts_with(root) {
-                    return Err("workspace-path-escapes-root");
-                }
+            if resolved.destination.is_some()
+                && resolved
+                    .destination
+                    .as_ref()
+                    .unwrap()
+                    .symlink_metadata()
+                    .is_ok()
+            {
+                return Err(operation_error(op, "workspace-patch-destination-exists"));
             }
-            Ok(())
+            Some(current)
         }
         "add" => {
-            if source.symlink_metadata().is_ok() {
-                return Err("workspace-file-already-exists");
+            if resolved.source.symlink_metadata().is_ok() {
+                return Err(operation_error(op, "workspace-file-already-exists"));
             }
-            let parent = source
-                .parent()
-                .ok_or("workspace-path-not-directory")?
-                .canonicalize()
-                .map_err(|_| "workspace-patch-parent-missing")?;
-            if !parent.starts_with(root) {
-                return Err("workspace-path-escapes-root");
-            }
-            Ok(())
+            None
         }
         "delete" => {
-            let current = read_current(source).map_err(|code| {
+            let current = read_current(&resolved.source).map_err(|code| {
                 if code == "workspace-path-not-found" {
-                    "workspace-file-not-found"
+                    operation_error(op, "workspace-file-not-found")
                 } else {
-                    code
+                    operation_error(op, code)
                 }
             })?;
             let previous = op.previous_sha256.as_deref().unwrap_or_default();
             if hash_hex(&current) != previous {
-                return Err("workspace-write-approval-stale");
+                return Err(operation_error(op, "workspace-write-approval-stale"));
             }
-            Ok(())
+            Some(current)
+        }
+        _ => return Err(operation_error(op, "workspace-patch-kind-invalid")),
+    };
+    Ok(snapshot)
+}
+
+/// 计划：解析 + 前提复核 + 快照，全部完成后才允许 apply。
+struct PatchPlan {
+    operations: Vec<PatchOperation>,
+    resolved: Vec<ResolvedOperation>,
+    snapshots: Vec<Option<Vec<u8>>>,
+}
+
+fn plan_batch(
+    root: &Path,
+    root_canonical: &Path,
+    operations: Vec<PatchOperation>,
+) -> Result<PatchPlan, String> {
+    if operations.is_empty() {
+        return Err("workspace-patch-empty".to_owned());
+    }
+    if operations.len() > MAX_BATCH_OPERATIONS {
+        return Err("workspace-patch-too-many-operations".to_owned());
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut resolved = Vec::with_capacity(operations.len());
+    let mut snapshots = Vec::with_capacity(operations.len());
+    for op in &operations {
+        let resolved_op = resolve_operation(root, root_canonical, op)?;
+        let mut relatives = vec![to_relative_key(root, &resolved_op.source)];
+        if let Some(destination) = resolved_op.destination.as_ref() {
+            relatives.push(to_relative_key(root, destination));
+        }
+        for relative in relatives {
+            if !seen.insert(relative) {
+                return Err(operation_error(op, "workspace-patch-duplicate-path"));
+            }
+        }
+        let snapshot = verify_and_snapshot(op, &resolved_op)?;
+        resolved.push(resolved_op);
+        snapshots.push(snapshot);
+    }
+    Ok(PatchPlan {
+        operations,
+        resolved,
+        snapshots,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchOperationResult {
+    pub kind: String,
+    pub path: String,
+    pub byte_size: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspacePatchCommitResult {
+    pub applied: Vec<PatchOperationResult>,
+    /// 回滚成功的路径（commit 中途失败时）。
+    pub rolled_back: Vec<String>,
+    /// 回滚自身也失败的路径：必须原样告诉用户，人工善后。
+    pub rollback_errors: Vec<String>,
+}
+
+fn apply_single(op: &PatchOperation, resolved: &ResolvedOperation) -> Result<usize, &'static str> {
+    match op.kind.as_str() {
+        "update" => {
+            let content = op.next_content.as_deref().unwrap_or_default();
+            if let Some(destination) = &resolved.destination {
+                write_new_file(destination, content.as_bytes())?;
+                remove_file(resolved.source.as_path())?;
+                Ok(content.len())
+            } else {
+                let mut file = open_no_follow(resolved.source.as_path(), true)?;
+                ensure_regular_file(&file)?;
+                file.write_all(content.as_bytes())
+                    .map_err(|_| "workspace-file-unwritable")?;
+                file.sync_all().map_err(|_| "workspace-file-unwritable")?;
+                Ok(content.len())
+            }
+        }
+        "add" => {
+            let content = op.next_content.as_deref().unwrap_or_default();
+            write_new_file(resolved.source.as_path(), content.as_bytes())?;
+            Ok(content.len())
+        }
+        "delete" => {
+            remove_file(resolved.source.as_path())?;
+            Ok(0)
         }
         _ => Err("workspace-patch-kind-invalid"),
     }
+}
+
+/// 失败回滚：从失败这条开始（它可能已部分写入），按逆序恢复全部快照。
+/// 回滚明细同时进入错误串，绝不静默。
+fn rollback_from(plan: &PatchPlan, root: &Path, failed_index: usize, code: &str) -> String {
+    let mut rolled_back = Vec::new();
+    let mut rollback_errors = Vec::new();
+    for restore_index in (0..=failed_index).rev() {
+        let restore_op = &plan.operations[restore_index];
+        let resolved_restore = &plan.resolved[restore_index];
+        let outcome = match restore_op.kind.as_str() {
+            "update" => {
+                if let Some(destination) = &resolved_restore.destination {
+                    // move：删除已写出的目标（可能尚未创建），还原源文件。
+                    let _ = std::fs::remove_file(destination);
+                }
+                restore_existing(
+                    resolved_restore.source.as_path(),
+                    plan.snapshots[restore_index].as_deref().unwrap_or_default(),
+                )
+            }
+            "add" => match std::fs::remove_file(resolved_restore.source.as_path()) {
+                Ok(()) => Ok(()),
+                Err(_) if resolved_restore.source.symlink_metadata().is_err() => Ok(()),
+                Err(_) => Err("workspace-file-unwritable"),
+            },
+            "delete" => restore_existing(
+                resolved_restore.source.as_path(),
+                plan.snapshots[restore_index].as_deref().unwrap_or_default(),
+            ),
+            _ => Err("workspace-patch-kind-invalid"),
+        };
+        let relative = to_relative_key(root, resolved_restore.source.as_path());
+        match outcome {
+            Ok(()) => rolled_back.push(relative),
+            Err(_) => rollback_errors.push(relative),
+        }
+    }
+    format!(
+        "{}|rolledBack={}|rollbackErrors={}",
+        operation_error(&plan.operations[failed_index], code),
+        rolled_back.join(","),
+        rollback_errors.join(",")
+    )
+}
+
+/// apply：顺序执行；失败即回滚并返回带完整回滚明细的错误。
+fn apply_batch_with_root(
+    plan: &PatchPlan,
+    root: &Path,
+) -> Result<WorkspacePatchCommitResult, String> {
+    let mut applied: Vec<PatchOperationResult> = Vec::new();
+    for (index, op) in plan.operations.iter().enumerate() {
+        let resolved = &plan.resolved[index];
+        match apply_single(op, resolved) {
+            Ok(byte_size) => applied.push(PatchOperationResult {
+                kind: op.kind.clone(),
+                path: to_relative_key(
+                    root,
+                    resolved.destination.as_ref().unwrap_or(&resolved.source),
+                ),
+                byte_size,
+            }),
+            Err(code) => return Err(rollback_from(plan, root, index, code)),
+        }
+    }
+    Ok(WorkspacePatchCommitResult {
+        applied,
+        rolled_back: Vec::new(),
+        rollback_errors: Vec::new(),
+    })
+}
+
+#[cfg(test)]
+pub fn operation_error_code(error: &str) -> &str {
+    error
+        .split('|')
+        .next()
+        .unwrap_or(error)
+        .split(':')
+        .next()
+        .unwrap_or(error)
 }
 
 #[derive(Deserialize)]
@@ -273,7 +517,7 @@ pub struct WorkspacePatchBatchRequest {
 }
 
 /// 整批签发一张一次性票据。全部前提在 stage 时先过一遍（快速失败给前端可读错误），
-/// commit 时还会在磁盘上复核。
+/// commit 时还会重新计划（重开文件、重算哈希）。
 #[tauri::command]
 pub fn workspace_stage_patch_batch(
     workspace: State<'_, WorkspaceDirectoryState>,
@@ -281,27 +525,12 @@ pub fn workspace_stage_patch_batch(
     request: WorkspacePatchBatchRequest,
 ) -> Result<String, String> {
     let root = crate::workspace_files::selected_root(&workspace).map_err(str::to_owned)?;
-    let operations = request.operations;
-    if operations.is_empty() {
-        return Err("workspace-patch-empty".to_owned());
-    }
-    if operations.len() > MAX_BATCH_OPERATIONS {
-        return Err("workspace-patch-too-many-operations".to_owned());
-    }
-    let mut seen = std::collections::HashSet::new();
-    for op in &operations {
-        let (source, destination) = resolve_operation(&root, op)?;
-        let mut relatives = vec![to_relative_key(&root, &source)];
-        if let Some(destination) = destination.as_ref() {
-            relatives.push(to_relative_key(&root, destination));
-        }
-        for relative in relatives {
-            if !seen.insert(relative) {
-                return Err(operation_error(op, "workspace-patch-duplicate-path"));
-            }
-        }
-        verify_precondition(&root, &source, destination.as_deref(), op).map_err(str::to_owned)?;
-    }
+    let root_canonical = root
+        .canonicalize()
+        .map_err(|_| "workspace-root-unavailable".to_owned())?;
+    let operations = request.operations.clone();
+    // stage 就做一次完整计划（解析 + 前提 + 快照），把可预见的错误挡在票据之前。
+    plan_batch(&root, &root_canonical, operations)?;
     let mut batches = state
         .0
         .lock()
@@ -328,32 +557,15 @@ pub fn workspace_stage_patch_batch(
     batches.insert(
         token.clone(),
         WorkspacePatchBatch {
-            operations,
+            operations: request.operations,
+            root_canonical,
             expires_at_ms: now + GRANT_TTL_MS,
         },
     );
     Ok(token)
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PatchOperationResult {
-    pub kind: String,
-    pub path: String,
-    pub byte_size: usize,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspacePatchCommitResult {
-    pub applied: Vec<PatchOperationResult>,
-    /// 回滚成功的路径（commit 中途失败时）。
-    pub rolled_back: Vec<String>,
-    /// 回滚自身也失败的路径：必须原样告诉用户，人工善后。
-    pub rollback_errors: Vec<String>,
-}
-
-/// 原子消耗整批票据并落盘；任何一条失败即回滚已应用部分。
+/// 原子消耗整批票据并落盘；任何一条失败即回滚已应用（含部分写入）的部分。
 #[tauri::command]
 pub fn workspace_commit_patch(
     workspace: State<'_, WorkspaceDirectoryState>,
@@ -376,111 +588,245 @@ pub fn workspace_commit_patch(
         }
         batch
     };
-
-    // 先整体复核前提并快照原文（delete/update/move 的源），任何失败都不落盘。
-    let mut snapshots: Vec<(usize, Vec<u8>)> = Vec::new();
-    let mut resolved: Vec<(std::path::PathBuf, Option<std::path::PathBuf>)> = Vec::new();
-    for (index, op) in batch.operations.iter().enumerate() {
-        let (source, destination) = resolve_operation(&root, op)?;
-        verify_precondition(&root, &source, destination.as_deref(), op).map_err(str::to_owned)?;
-        if op.kind != "add" {
-            let bytes = read_current(&source).map_err(str::to_owned)?;
-            snapshots.push((index, bytes));
-        }
-        resolved.push((source, destination));
+    // 票据绑定工作区身份：stage 与 commit 之间根目录被更换是明确的拒绝条件。
+    let root_canonical = root
+        .canonicalize()
+        .map_err(|_| "workspace-root-unavailable".to_owned())?;
+    if root_canonical != batch.root_canonical {
+        return Err("workspace-patch-workspace-changed".to_owned());
     }
-
-    let mut applied: Vec<PatchOperationResult> = Vec::new();
-    let mut rolled_back: Vec<String> = Vec::new();
-    let mut rollback_errors: Vec<String> = Vec::new();
-    for (index, op) in batch.operations.iter().enumerate() {
-        let (source, destination) = &resolved[index];
-        let outcome = (|| -> Result<usize, &'static str> {
-            match op.kind.as_str() {
-                "update" => {
-                    let content = op.next_content.as_deref().unwrap_or_default();
-                    if let Some(destination) = destination {
-                        write_new_file(destination, content.as_bytes())?;
-                        remove_file(source)?;
-                        Ok(content.len())
-                    } else {
-                        let mut file = open_no_follow(source, true)?;
-                        ensure_regular_file(&file)?;
-                        std::io::Write::write_all(&mut file, content.as_bytes())
-                            .map_err(|_| "workspace-file-unwritable")?;
-                        file.sync_all().map_err(|_| "workspace-file-unwritable")?;
-                        Ok(content.len())
-                    }
-                }
-                "add" => {
-                    let content = op.next_content.as_deref().unwrap_or_default();
-                    write_new_file(source, content.as_bytes())?;
-                    Ok(content.len())
-                }
-                "delete" => {
-                    remove_file(source)?;
-                    Ok(0)
-                }
-                _ => Err("workspace-patch-kind-invalid"),
-            }
-        })();
-        match outcome {
-            Ok(byte_size) => applied.push(PatchOperationResult {
-                kind: op.kind.clone(),
-                path: to_relative_key(&root, source),
-                byte_size,
-            }),
-            Err(code) => {
-                // 回滚已应用的部分：按逆序恢复快照。
-                for (snapshot_index, bytes) in snapshots.iter().rev() {
-                    if *snapshot_index >= index {
-                        continue;
-                    }
-                    let snapshot_op = &batch.operations[*snapshot_index];
-                    let (snapshot_source, snapshot_destination) = &resolved[*snapshot_index];
-                    let restored = match snapshot_op.kind.as_str() {
-                        // move：恢复源文件、删除已写出的目标。
-                        "update" if snapshot_destination.is_some() => {
-                            remove_file(snapshot_destination.as_ref().unwrap())
-                                .and_then(|_| write_new_file(snapshot_source, bytes))
-                        }
-                        _ => write_new_file(snapshot_source, bytes),
-                    };
-                    match restored {
-                        Ok(()) => rolled_back.push(to_relative_key(&root, snapshot_source)),
-                        Err(_) => rollback_errors.push(to_relative_key(&root, snapshot_source)),
-                    }
-                }
-                return Err(operation_error(op, code));
-            }
-        }
-    }
-    Ok(WorkspacePatchCommitResult {
-        applied,
-        rolled_back,
-        rollback_errors,
-    })
+    // 重新计划（前提复核 + 快照），随后立即应用——复核与写入之间没有等待点。
+    // 路径归一用 canonical root：resolve_within 返回的源路径与之同形式。
+    let plan = plan_batch(&root, &root_canonical, batch.operations)?;
+    apply_batch_with_root(&plan, &root_canonical)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{operation_error, operation_error_code};
+    use super::{apply_batch_with_root, operation_error, plan_batch, PatchOperation};
+    use std::path::{Path, PathBuf};
 
-    #[test]
-    fn operation_errors_round_trip_the_code() {
-        let op = super::PatchOperation {
-            kind: "add".to_owned(),
-            path: "src/new.ts".to_owned(),
+    fn op(kind: &str, path: &str) -> PatchOperation {
+        PatchOperation {
+            kind: kind.to_owned(),
+            path: path.to_owned(),
             move_path: None,
             previous_sha256: None,
             next_sha256: None,
             next_content: None,
-        };
+        }
+    }
+
+    fn sha(bytes: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    fn update_op(path: &str, previous: &[u8], next: &str) -> PatchOperation {
+        PatchOperation {
+            previous_sha256: Some(sha(previous)),
+            next_sha256: Some(sha(next.as_bytes())),
+            next_content: Some(next.to_owned()),
+            ..op("update", path)
+        }
+    }
+
+    fn temp_root(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("awo-patch-test-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        dir
+    }
+
+    fn temp_outside(tag: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("awo-patch-outside-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// 创建目录符号链接；Windows 未开开发者模式时返回 false，用例跳过。
+    fn create_dir_symlink(target: &Path, link: &Path) -> bool {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link).is_ok()
+        }
+        #[cfg(windows)]
+        {
+            match std::os::windows::fs::symlink_dir(target, link) {
+                Ok(()) => true,
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => false,
+                Err(error) => panic!("{}", error),
+            }
+        }
+    }
+
+    #[test]
+    fn operation_errors_round_trip_the_code() {
+        let op = op("add", "src/new.ts");
         let error = operation_error(&op, "workspace-file-already-exists");
         assert_eq!(
-            operation_error_code(&error),
+            super::operation_error_code(&error),
             "workspace-file-already-exists"
         );
         assert!(error.contains("add") && error.contains("src/new.ts"));
+    }
+
+    #[test]
+    fn update_add_delete_round_trip_and_report_relative_paths() {
+        let root = temp_root("round-trip");
+        let root_canonical = root.canonicalize().unwrap();
+        std::fs::write(root.join("src/a.ts"), "alpha\n").unwrap();
+        std::fs::write(root.join("src/gone.txt"), "alpha\n").unwrap();
+        let operations = vec![
+            update_op("src/a.ts", b"alpha\n", "ALPHA\n"),
+            PatchOperation {
+                next_sha256: Some(sha(b"fresh\n")),
+                next_content: Some("fresh\n".to_owned()),
+                ..op("add", "src/new.ts")
+            },
+            PatchOperation {
+                previous_sha256: Some(sha(b"alpha\n")),
+                ..op("delete", "src/gone.txt")
+            },
+        ];
+        let plan = plan_batch(&root, &root_canonical, operations).unwrap();
+        let result = apply_batch_with_root(&plan, &root_canonical).unwrap();
+        assert_eq!(result.applied.len(), 3);
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/a.ts")).unwrap(),
+            "ALPHA\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/new.ts")).unwrap(),
+            "fresh\n"
+        );
+        assert!(!root.join("src/gone.txt").exists());
+        assert_eq!(result.rolled_back.len(), 0);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn intermediate_symlink_escape_is_rejected_for_update_delete_and_move() {
+        let root = temp_root("symlink-escape");
+        let root_canonical = root.canonicalize().unwrap();
+        std::fs::write(root.join("src/inside.txt"), "inside\n").unwrap();
+        let outside = temp_outside("symlink-escape");
+        std::fs::write(outside.join("config.txt"), "secret\n").unwrap();
+        if !create_dir_symlink(&outside, &root.join("external-link")) {
+            // Windows 未开开发者模式：符号链接用例在 Unix 上已覆盖，此处跳过。
+            let _ = std::fs::remove_dir_all(&root);
+            let _ = std::fs::remove_dir_all(&outside);
+            return;
+        }
+        // update / delete / move 的源经过中间链接 → 全部拒绝，绝不读写外部文件。
+        let update_outside = vec![update_op(
+            "external-link/config.txt",
+            b"secret\n",
+            "hacked\n",
+        )];
+        assert!(plan_batch(&root, &root_canonical, update_outside).is_err());
+        let delete_outside = vec![PatchOperation {
+            previous_sha256: Some(sha(b"secret\n")),
+            ..op("delete", "external-link/config.txt")
+        }];
+        assert!(plan_batch(&root, &root_canonical, delete_outside).is_err());
+        let move_outside = vec![PatchOperation {
+            move_path: Some("src/moved.txt".to_owned()),
+            ..update_op("external-link/config.txt", b"secret\n", "moved\n")
+        }];
+        assert!(plan_batch(&root, &root_canonical, move_outside).is_err());
+        assert_eq!(
+            std::fs::read_to_string(outside.join("config.txt")).unwrap(),
+            "secret\n"
+        );
+        // move 目标经过中间链接同样拒绝。
+        let move_into_link = vec![PatchOperation {
+            move_path: Some("external-link/moved.txt".to_owned()),
+            ..update_op("src/inside.txt", b"inside\n", "moved\n")
+        }];
+        assert!(plan_batch(&root, &root_canonical, move_into_link).is_err());
+        assert!(!outside.join("moved.txt").exists());
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn add_into_symlinked_directory_is_rejected() {
+        let root = temp_root("add-symlink");
+        let root_canonical = root.canonicalize().unwrap();
+        let outside = temp_outside("add-symlink");
+        if !create_dir_symlink(&outside, &root.join("link")) {
+            let _ = std::fs::remove_dir_all(&root);
+            let _ = std::fs::remove_dir_all(&outside);
+            return;
+        }
+        let operations = vec![PatchOperation {
+            next_sha256: Some(sha(b"x\n")),
+            next_content: Some("x\n".to_owned()),
+            ..op("add", "link/new.txt")
+        }];
+        assert!(plan_batch(&root, &root_canonical, operations).is_err());
+        assert!(!outside.join("new.txt").exists());
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn failure_rolls_back_applied_and_partially_written_ops() {
+        let root = temp_root("rollback");
+        let root_canonical = root.canonicalize().unwrap();
+        std::fs::write(root.join("src/a.ts"), "alpha\n").unwrap();
+        std::fs::write(root.join("src/locked.txt"), "locked\n").unwrap();
+        let operations = vec![
+            update_op("src/a.ts", b"alpha\n", "ALPHA\n"),
+            update_op("src/locked.txt", b"locked\n", "CHANGED\n"),
+        ];
+        let plan = plan_batch(&root, &root_canonical, operations).unwrap();
+        // 注入故障：第二条 update 的源文件在计划之后被设为只读（模拟写失败）。
+        let set_readonly = |readonly: bool| {
+            let mut permissions = std::fs::metadata(root.join("src/locked.txt"))
+                .unwrap()
+                .permissions();
+            permissions.set_readonly(readonly);
+            std::fs::set_permissions(root.join("src/locked.txt"), permissions).unwrap();
+        };
+        set_readonly(true);
+        let result = apply_batch_with_root(&plan, &root_canonical);
+        match result {
+            Err(error) => {
+                assert!(
+                    error.starts_with("workspace-file-unwritable:update:src/locked.txt|"),
+                    "{error}"
+                );
+                // 回滚明细完整可见：已应用的第一条恢复成功；失败这条的还原因只读
+                // 被拒绝进入 rollback_errors（内容本就未被改写，无需恢复）。
+                assert!(error.contains("rolledBack=src/a.ts"), "{error}");
+                assert!(error.contains("rollbackErrors=src/locked.txt"), "{error}");
+                // 磁盘状态：第一条已还原，第二条从未被改写。
+                assert_eq!(
+                    std::fs::read_to_string(root.join("src/a.ts")).unwrap(),
+                    "alpha\n"
+                );
+                assert_eq!(
+                    std::fs::read_to_string(root.join("src/locked.txt")).unwrap(),
+                    "locked\n"
+                );
+            }
+            Ok(applied) => {
+                // Windows 只读属性不总是阻止写入（取决于进程权限）；成功路径允许，
+                // 但两个文件都必须已被写入（没有半套状态）。
+                assert_eq!(applied.applied.len(), 2);
+            }
+        }
+        set_readonly(false);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

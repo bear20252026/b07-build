@@ -168,7 +168,15 @@ async function readFile(args: Record<string, unknown>): Promise<string> {
 }
 
 /** 一次待确认的写入。`previous` 是文件当前内容，`next` 是模型想写进去的完整内容。 */
-export interface WorkspaceWriteApprovalRequest { readonly path: string; readonly previous: string; readonly next: string; }
+export interface WorkspaceWriteApprovalRequest {
+  readonly path: string;
+  readonly previous: string;
+  readonly next: string;
+  /** 操作类型（R1 审计 03）：审批文案必须与实际授权的操作一致。 */
+  readonly kind?: 'update' | 'add' | 'delete' | 'move';
+  /** kind='move' 时的目标路径。 */
+  readonly movePath?: string;
+}
 /** 向用户展示差异并等待决定。返回 false 表示拒绝。 */
 export interface WorkspaceWriteApprover { (request: WorkspaceWriteApprovalRequest): Promise<boolean>; }
 
@@ -254,14 +262,22 @@ const PATCH_NATIVE_ERROR_CODES: Readonly<Record<string, string>> = {
   'workspace-patch-state-unavailable': '原生补丁票据状态不可用，请重试。',
 };
 
-/** 原生批量事务错误可能是 "code:kind:path"（带操作定位），拆开翻译并附上路径。 */
+/** 原生批量事务错误可能是 "code:kind:path|rolledBack=a,b|rollbackErrors=c"（带回滚明细），拆开翻译并附上路径。 */
 function patchNativeErrorText(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error ?? '');
-  const colon = raw.indexOf(':');
+  const [head, ...details] = raw.split('|');
+  const rolledBack = details.find((part) => part.startsWith('rolledBack='))?.slice('rolledBack='.length) ?? '';
+  const rollbackErrors = details.find((part) => part.startsWith('rollbackErrors='))?.slice('rollbackErrors='.length) ?? '';
+  const colon = head.indexOf(':');
   if (colon > 0) {
-    const code = raw.slice(0, colon);
+    const code = head.slice(0, colon);
     const text = PATCH_NATIVE_ERROR_CODES[code] ?? WORKSPACE_ERRORS[code];
-    if (text) return `${text}（涉及 ${raw.slice(colon + 1).replace(':', ' · ')}）`;
+    if (text) {
+      const lines = [`${text}（涉及 ${head.slice(colon + 1).replace(':', ' · ')}）`];
+      if (rolledBack) lines.push(`已恢复原样的文件：${rolledBack.split(',').join('、')}。`);
+      if (rollbackErrors) lines.push(`⚠ 以下文件回滚失败，内容可能已变化，需要人工检查：${rollbackErrors.split(',').join('、')}。`);
+      return lines.join('\n');
+    }
   }
   const direct = PATCH_NATIVE_ERROR_CODES[raw] ?? WORKSPACE_ERRORS[raw];
   return direct ?? `工具执行失败：${raw || '未知错误'}。请如实告诉用户，不要假装成功。`;
@@ -313,6 +329,11 @@ async function patchFile(args: Record<string, unknown>, approve: WorkspaceWriteA
 
   const plan = planPatchSections(sections, { existingFiles: new Set(previousByPath.keys()), allowStructureChanges: true });
   const rejectionLines = plan.rejections.map((item) => `- ${item.path}：${PATCH_REJECTION_REASONS[item.reason] ?? item.reason}`);
+  // 整批校验、整批拒绝（R1 审计 03）：只要任何一段被策略拒绝，整批都不进入审批，
+  // 不让用户在不知情中批准并提交一个被裁剪过的补丁。
+  if (plan.rejections.length > 0) {
+    return ['补丁被整体拒绝（整批校验不通过，未做任何修改）：', ...rejectionLines, '请移除或修正这些段落后重新提交完整补丁。'].join('\n');
+  }
 
   interface PreparedOperation { readonly operation: WorkspacePatchOperation; readonly displayPath: string; readonly previous: string; readonly next: string; readonly lenient: boolean }
   const prepared: PreparedOperation[] = [];
@@ -359,13 +380,14 @@ async function patchFile(args: Record<string, unknown>, approve: WorkspaceWriteA
   }
 
   if (prepared.length === 0) {
-    return ['补丁没有任何可执行的更新：', ...rejectionLines, '请修正后重新提交。'].join('\n');
+    return ['补丁没有任何可执行的更新（所有段都与现状一致）。', ...rejectionLines].join('\n');
   }
 
   const lenientPaths: string[] = [];
   for (const item of prepared) {
     if (item.lenient) lenientPaths.push(item.displayPath);
-    if (!await approve({ path: item.displayPath, previous: item.previous, next: item.next })) {
+    // 审批请求带真实操作类型：文案与实际授权的操作必须一致（R1 审计 03）。
+    if (!await approve({ path: item.displayPath, previous: item.previous, next: item.next, kind: item.operation.kind === 'update' ? (item.operation.movePath ? 'move' : 'update') : item.operation.kind, ...(item.operation.movePath ? { movePath: item.operation.movePath } : {}) })) {
       return [
         `用户拒绝对 ${item.displayPath} 的修改；整批补丁不会写入（审批在前、写入在后），包括之前已确认的文件。`,
         '请如实转告用户，并且不要再换别的方式尝试写入被拒绝的文件。',

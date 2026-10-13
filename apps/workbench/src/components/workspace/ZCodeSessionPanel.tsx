@@ -125,29 +125,40 @@ export function ZCodeSessionPanel({ session }: { session: ZcodeSessionController
         <div style={{ color: 'var(--muted)', fontSize: 11 }}>已连接。发送指令后，回合文本、工具调用层级与权限请求会实时出现在这里。</div>
       )}
 
-      {session.pendingPermission && <ZcodePermissionApproval permission={session.pendingPermission} onResolve={session.respondPermission} />}
+      {session.streamIncomplete && (
+        <div style={{ color: 'var(--danger)', fontSize: 11 }}>⚠ 事件流存在未补齐的缺口，当前视图可能不完整；建议关闭并重新连接会话。</div>
+      )}
+
+      {session.pendingRequests.length > 0 && (
+        <ZcodePermissionApproval
+          request={session.pendingRequests[0]!}
+          queued={session.pendingRequests.length - 1}
+          onResolve={session.respondRequest}
+        />
+      )}
     </div>
   );
 }
 
-function ZcodePermissionApproval({ permission, onResolve }: { permission: NonNullable<ZcodeSessionController['pendingPermission']>; onResolve(decision: 'allow' | 'deny', reason?: string): void }) {
-  const risk = permission.riskLevel in RISK_COLOR ? permission.riskLevel : 'unknown';
+function ZcodePermissionApproval({ request, queued, onResolve }: { request: NonNullable<ZcodeSessionController['pendingRequests']>[number]; queued: number; onResolve(id: string, decision: 'allow' | 'deny', reason?: string): void }) {
+  const risk = request.riskLevel in RISK_COLOR ? request.riskLevel : 'unknown';
   const button = { minHeight: 34, padding: '0 14px', border: '1px solid var(--border)', borderRadius: 10, font: '650 12px var(--font-ui)', cursor: 'pointer' } as const;
+  const headline = request.kind === 'userInput' ? 'ZCODE USER INPUT · 需要你回答' : 'ZCODE PERMISSION · 需要你裁决';
   return (
-    <div role="dialog" aria-modal="true" aria-label="确认 ZCode 工具权限" style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'grid', placeItems: 'center', padding: 20, background: 'color-mix(in srgb, var(--canvas) 55%, transparent)' }}>
+    <div role="dialog" aria-modal="true" aria-label={`确认 ${request.toolName} 请求`} style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'grid', placeItems: 'center', padding: 20, background: 'color-mix(in srgb, var(--canvas) 55%, transparent)' }}>
       <div style={{ display: 'grid', gap: 12, width: 'min(640px, 100%)', padding: 16, border: '1px solid var(--border)', borderRadius: 16, background: 'var(--panel)', boxShadow: 'var(--shadow-float)' }}>
         <div>
-          <span style={{ color: 'var(--muted)', font: '760 10px var(--font-ui)', letterSpacing: '.08em' }}>ZCODE PERMISSION · 需要你裁决</span>
-          <h2 style={{ margin: '6px 0 0', color: 'var(--text-strong)', font: '650 16px/1.2 var(--font-ui)', wordBreak: 'break-all' }}>{permission.toolName}</h2>
+          <span style={{ color: 'var(--muted)', font: '760 10px var(--font-ui)', letterSpacing: '.08em' }}>{headline}{queued > 0 ? ` · 队列中还有 ${queued} 条` : ''}</span>
+          <h2 style={{ margin: '6px 0 0', color: 'var(--text-strong)', font: '650 16px/1.2 var(--font-ui)', wordBreak: 'break-all' }}>{request.toolName}</h2>
         </div>
         <div style={{ display: 'flex', gap: 10, color: 'var(--muted-strong)', fontSize: 11 }}>
-          {risk !== 'unknown' && <span style={{ color: RISK_COLOR[risk], fontWeight: 700 }}>风险等级：{risk}</span>}
+          {request.kind === 'permission' && risk !== 'unknown' && <span style={{ color: RISK_COLOR[risk], fontWeight: 700 }}>风险等级：{risk}</span>}
         </div>
-        {permission.reason && <p style={{ margin: 0, color: 'var(--muted-strong)', fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word' }}>{permission.reason}</p>}
-        <div style={{ maxHeight: 200, overflow: 'auto', padding: 10, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--canvas)', font: '11px/1.6 var(--font-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{permission.inputPreview}</div>
+        {request.reason && <p style={{ margin: 0, color: 'var(--muted-strong)', fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word' }}>{request.reason}</p>}
+        <div style={{ maxHeight: 200, overflow: 'auto', padding: 10, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--canvas)', font: '11px/1.6 var(--font-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{request.inputPreview}</div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={() => onResolve('deny', 'user denied')} style={{ ...button, color: 'var(--text-strong)', background: 'var(--panel)' }} type="button">拒绝</button>
-          <button onClick={() => onResolve('allow')} style={{ ...button, color: '#fff', borderColor: 'var(--accent-strong)', background: 'var(--accent-strong)' }} type="button">允许本次</button>
+          <button onClick={() => onResolve(request.id, 'deny')} style={{ ...button, color: 'var(--text-strong)', background: 'var(--panel)' }} type="button">拒绝</button>
+          <button onClick={() => onResolve(request.id, 'allow')} style={{ ...button, color: '#fff', borderColor: 'var(--accent-strong)', background: 'var(--accent-strong)' }} type="button">允许本次</button>
         </div>
       </div>
     </div>

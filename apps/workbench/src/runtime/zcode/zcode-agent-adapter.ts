@@ -42,6 +42,18 @@ export interface ZCodePermissionRequestContext {
   respond(decision: 'allow' | 'deny' | 'escalate' | 'modify', reason?: string, modifiedInput?: unknown): void;
 }
 
+/**
+ * 用户输入反向请求（interaction/requestUserInput）的上下文。
+ * 响应契约与权限请求**不同**（ZCode zcodeUserInputResponseSchema）：
+ * `{ action: 'accept' | 'decline' | 'cancel', content?, reason? }`——
+ * R1 审计 04 曾把两种请求共用一套 decision 应答，导致用户输入请求收到错误格式。
+ */
+export interface ZCodeUserInputRequestContext {
+  readonly method: string;
+  readonly params: unknown;
+  respond(action: 'accept' | 'decline' | 'cancel', content?: unknown, reason?: string): void;
+}
+
 export interface ZCodeAgentAdapterOptions {
   readonly executable: string;
   readonly workspace: ZCodeWorkspaceRef;
@@ -49,12 +61,19 @@ export interface ZCodeAgentAdapterOptions {
   readonly runId?: string;
   /** 权限反向请求裁决；缺省以完整协议应答执行 deny（fail-closed）。 */
   onPermissionRequest?(context: ZCodePermissionRequestContext): void;
+  /** 用户输入反向请求裁决；缺省以完整协议应答执行 decline（fail-closed）。 */
+  onUserInputRequest?(context: ZCodeUserInputRequestContext): void;
   onEvent?(event: ZCodeAgentEvent): void;
   onExit?(code: number | null): void;
 }
 
 /** 本地桌面适配层固定使用连续投递。 */
 const DELIVERY_KIND = 'desktop-continuous';
+
+/** seq 缺口缓冲上限：超过即判定补齐无望，标记会话不完整。 */
+const PENDING_EVENTS_CAP = 256;
+/** 补发重试间隔（毫秒）。 */
+const RESYNC_RETRY_MS = 1_500;
 
 function workspaceKeyFor(workspacePath: string): string {
   // workspaceKey 只要求稳定非空：用路径本身（协议未约束格式）。
@@ -89,6 +108,7 @@ export class ZCodeAgentAdapter {
   /** seq 缺口期间的缓存事件（等重同步补齐后按序冲刷）。 */
   private pendingEvents = new Map<number, { method: string; event: ZCodeEventEnvelope & Record<string, unknown> }>();
   private resyncInFlight = false;
+  private streamIncomplete = false;
   private readonly options: ZCodeAgentAdapterOptions;
 
   constructor(options: ZCodeAgentAdapterOptions) {
@@ -109,6 +129,7 @@ export class ZCodeAgentAdapter {
     this.lastSeq = undefined;
     this.pendingEvents = new Map();
     this.resyncInFlight = false;
+    this.streamIncomplete = false;
     const client = new ZCodeProtocolClient({
       executable: this.options.executable,
       workingDirectory: this.options.workspace.workspacePath,
@@ -117,6 +138,8 @@ export class ZCodeAgentAdapter {
     });
     client.onNotification((method, params) => this.onNotification(method, params));
     client.onServerRequest((id, method, params) => this.onServerRequest(id, method, params));
+    // 退出状态必须传到上层：否则进程异常退出后 UI 仍显示「已连接」（R1 审计 06）。
+    client.onExit((code) => this.options.onExit?.(code));
     await client.start();
     this.client = client;
     try {
@@ -212,6 +235,7 @@ export class ZCodeAgentAdapter {
 
   /** 按信封分发事件；seq 水位去重，缺口事件先缓存、补齐后按序冲刷。 */
   private dispatchSessionEvent(method: string, event: ZCodeEventEnvelope & Record<string, unknown>): void {
+    if (this.streamIncomplete) return; // 已标记不完整的流：不再放行，等下次 connect 重置。
     const seq = event.seq;
     if (this.lastSeq !== undefined) {
       if (seq <= this.lastSeq) return; // 重复/乱序：丢弃
@@ -235,9 +259,9 @@ export class ZCodeAgentAdapter {
     }
   }
 
-  /** seq 缺口时以 afterSeq 重发订阅补齐；并发重同步合并为一次。 */
+  /** seq 缺口时以 afterSeq 重发订阅补齐；并发重同步合并为一次，失败延迟重试。 */
   private scheduleResync(): void {
-    if (this.resyncInFlight) return;
+    if (this.resyncInFlight || this.streamIncomplete) return;
     this.resyncInFlight = true;
     void (async () => {
       try {
@@ -251,42 +275,66 @@ export class ZCodeAgentAdapter {
         });
         this.applySubscribeResult(result);
       } catch {
-        // 补发失败：下面尽力冲刷缓存，不把传输故障放大成适配层异常。
+        // 补发失败：保留缺口并延迟重试（R1 审计 06——不再按序放行不连续事件，
+        // 那会悄悄跳过丢失的序号，让投影层误以为看到了完整事件流）。
       } finally {
         this.resyncInFlight = false;
-        // 尽力冲刷仍未补齐的缓存事件：按 seq 序放行（数据不丢优先于严格连续）。
-        const remaining = [...this.pendingEvents.entries()].sort((a, b) => a[0] - b[0]);
-        this.pendingEvents.clear();
-        for (const [, buffered] of remaining) {
-          if (this.lastSeq !== undefined && buffered.event.seq <= this.lastSeq) continue;
-          this.lastSeq = this.lastSeq === undefined ? buffered.event.seq : Math.max(this.lastSeq, buffered.event.seq);
-          this.forward(buffered.method, buffered.event);
+        if (this.pendingEvents.size > PENDING_EVENTS_CAP) {
+          // 补齐遥遥无期：明确标记会话不完整并放弃缓冲，绝不静默丢事件。
+          this.streamIncomplete = true;
+          this.pendingEvents.clear();
+          this.options.onEvent?.({ kind: 'notification', method: 'session/streamIncomplete', payload: { reason: 'zcode-event-gap-unresolved' } });
+          return;
+        }
+        if (this.pendingEvents.size > 0) {
+          setTimeout(() => this.scheduleResync(), RESYNC_RETRY_MS);
         }
       }
     })();
   }
 
+  /** 事件流是否因未补齐的缺口而不再完整（UI 可据此提示用户）。 */
+  get isStreamIncomplete(): boolean {
+    return this.streamIncomplete;
+  }
+
   private onServerRequest(id: ZCodeServerRequestId, method: string, params: unknown): void {
     const client = this.client;
     if (!client) return;
-    if (method !== 'interaction/requestPermission' && method !== 'interaction/requestUserInput') {
-      // 未支持的反向请求：立即以错误帧拒绝，不让 server 挂起等待。
-      void client.respondError(id, -32601, `unsupported server request: ${method}`).catch(() => undefined);
+    if (method === 'interaction/requestPermission') {
+      const respond = (decision: 'allow' | 'deny' | 'escalate' | 'modify', reason?: string, modifiedInput?: unknown): void => {
+        // 应答形状 = zcodePermissionResponseSchema。
+        void client.respond(id, {
+          decision,
+          ...(reason === undefined ? {} : { reason }),
+          ...(modifiedInput === undefined ? {} : { modifiedInput }),
+        }).catch(() => undefined);
+      };
+      if (this.options.onPermissionRequest) {
+        this.options.onPermissionRequest({ method, params, respond });
+        return;
+      }
+      // 无裁决回调：缺省拒绝必须以完整协议应答执行，而不是静默忽略。
+      respond('deny', 'no permission handler attached');
       return;
     }
-    const respond = (decision: 'allow' | 'deny' | 'escalate' | 'modify', reason?: string, modifiedInput?: unknown): void => {
-      // 应答形状 = zcodePermissionResponseSchema（两种反向请求共用）。
-      void client.respond(id, {
-        decision,
-        ...(reason === undefined ? {} : { reason }),
-        ...(modifiedInput === undefined ? {} : { modifiedInput }),
-      }).catch(() => undefined);
-    };
-    if (this.options.onPermissionRequest) {
-      this.options.onPermissionRequest({ method, params, respond });
+    if (method === 'interaction/requestUserInput') {
+      // 用户输入的响应契约是 { action, content?, reason? }，不是权限的 { decision }。
+      const respond = (action: 'accept' | 'decline' | 'cancel', content?: unknown, reason?: string): void => {
+        void client.respond(id, {
+          action,
+          ...(content === undefined ? {} : { content }),
+          ...(reason === undefined ? {} : { reason }),
+        }).catch(() => undefined);
+      };
+      if (this.options.onUserInputRequest) {
+        this.options.onUserInputRequest({ method, params, respond });
+        return;
+      }
+      respond('decline', undefined, 'no user-input handler attached');
       return;
     }
-    // 无裁决回调：缺省拒绝必须以完整协议应答执行，而不是静默忽略。
-    respond('deny', 'no permission handler attached');
+    // 未支持的反向请求：立即以错误帧拒绝，不让 server 挂起等待。
+    void client.respondError(id, -32601, `unsupported server request: ${method}`).catch(() => undefined);
   }
 }

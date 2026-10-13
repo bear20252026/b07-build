@@ -5,7 +5,7 @@
 ## ZCode（Apache License 2.0）
 
 - 来源仓库：https://github.com/bear20252026/ZCode （`main` 分支）
-- 许可证：Apache License 2.0（全文见上游仓库 `LICENSE`；本仓库未随附副本，使用时请遵循上游许可条款）
+- 许可证：Apache License 2.0，**全文副本见 [`LICENSES/ZCode-Apache-2.0.txt`](LICENSES/ZCode-Apache-2.0.txt)**（再分发移植源码时必须连同本文件与许可副本一起提供）
 - 移植文件与上游出处：
 
 | 本仓库文件 | 上游出处 | 相对上游的差异 |
