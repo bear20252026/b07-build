@@ -392,6 +392,13 @@ pub fn workspace_write_file(
         .filter(|value| !value.is_empty())
         .ok_or("workspace-write-approval-required")?;
     let grant = consume_grant(&approval, token)?;
+    // R4-05：票据绑定工作区身份——签发后工作区被更换，旧票据必须失效。
+    let root_canonical = root
+        .canonicalize()
+        .map_err(|_| "workspace-root-unavailable")?;
+    if root_canonical != grant.root_canonical {
+        return Err("workspace-write-approval-stale");
+    }
     let target = resolve_within(&root, &path)?;
     // 票据绑定的路径必须与实际写入目标完全一致（canonicalize 之后的规范化路径）。
     let canonical_relative = to_relative_key(&root, &target);
@@ -492,6 +499,29 @@ mod tests {
                 open_no_follow(&root.join("link.txt"), false).err(),
                 Some("workspace-file-is-symlink")
             );
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn replace_file_contents_preserves_permissions() {
+        let root = std::env::temp_dir().join(format!("awo-replace-perm-{}", std::process::id()));
+        let _ = fs::create_dir_all(&root);
+        let target = root.join("script.sh");
+        fs::write(&target, b"echo one").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+            replace_file_contents(&target, b"echo two").unwrap();
+            assert_eq!(fs::read_to_string(&target).unwrap(), "echo two");
+            let mode = fs::metadata(&target).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o755, "换名后必须保留可执行权限位");
+        }
+        #[cfg(not(unix))]
+        {
+            replace_file_contents(&target, b"echo two").unwrap();
+            assert_eq!(fs::read_to_string(&target).unwrap(), "echo two");
         }
         let _ = fs::remove_dir_all(&root);
     }

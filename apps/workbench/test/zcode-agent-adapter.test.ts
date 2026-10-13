@@ -138,6 +138,33 @@ test('裁决回调的 respond 以完整协议应答回发 decision/reason', asyn
   await adapter.close();
 });
 
+test('双会话隔离：其它会话的事件不推进当前水位也不进入投影', async () => {
+  const transport = fakeTransport();
+  const events: unknown[] = [];
+  const adapter = new ZCodeAgentAdapter({
+    executable: 'zcode',
+    workspace: { workspacePath: 'D:/repo', workspaceKey: 'D:/repo' },
+    deps: transport.deps,
+    runId: 'zcode-test',
+    onEvent: (event) => events.push(event),
+  });
+  const connectPromise = adapter.connect();
+  await transport.pump((frame) => frame.method === 'session/create' ? { result: { sessionId: 'sess_abc' } } : undefined);
+  await transport.pump((frame) => frame.method === 'session/subscribe' ? { result: { sessionId: 'sess_abc', eventSeq: 0, events: [] } } : undefined);
+  await connectPromise;
+
+  // 另一个会话的「合法形状」事件：sessionId 不匹配 → 必须整体忽略。
+  transport.feedLine(JSON.stringify({ method: 'session/state.updated', params: { eventId: 'other-1', sessionId: 'sess_OTHER', seq: 1, timestamp: 2, type: 'turn.started', payload: { turnNumber: 1 } } }));
+  await transport.settle();
+  assert.equal(events.length, 0, '外来会话事件不得进入投影');
+  // 伪造信封想抢占水位：seq 5 的外来事件之后，本会话 seq 1 的事件仍按缺口语义正常处理。
+  transport.feedLine(JSON.stringify({ method: 'session/state.updated', params: { eventId: 'own-1', sessionId: 'sess_abc', seq: 1, timestamp: 3, type: 'turn.started', payload: { turnNumber: 1 } } }));
+  await transport.settle();
+  const kinds = events.map((event) => (event as { kind: string }).kind);
+  assert.deepEqual(kinds, ['event']);
+  await adapter.close();
+});
+
 test('未支持的反向请求立即以 -32601 错误帧拒绝', async () => {
   const transport = fakeTransport();
   const adapter = new ZCodeAgentAdapter({

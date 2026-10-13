@@ -152,9 +152,13 @@ function ZcodePermissionApproval({ request, queued, onResolve }: { request: NonN
   const buildContent = (): unknown => {
     if (!isUserInput) return undefined;
     if (request.questions?.length) {
-      return {
-        answers: request.questions.map((question) => ({ question: question.question, value: (answers[question.question] ?? []).join(', ') })),
-      };
+      // 上游 interaction-broker 期望 content.answers = Record<问题文本, 答案字符串>
+      // （isRecord 校验；数组形状会被静默丢弃，等价于「批准但未提供答案」）。
+      const structured: Record<string, string> = {};
+      for (const question of request.questions) {
+        structured[question.question] = (answers[question.question] ?? []).join(', ');
+      }
+      return { answers: structured };
     }
     if (freeText.trim()) return { text: freeText.trim() };
     return undefined;

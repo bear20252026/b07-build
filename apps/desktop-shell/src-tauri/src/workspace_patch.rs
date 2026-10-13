@@ -127,9 +127,17 @@ fn write_new_file(target: &Path, content: &[u8]) -> Result<(), &'static str> {
         .open(target)
         .map_err(|_| "workspace-file-unwritable")?;
     ensure_regular_file(&file)?;
-    file.write_all(content)
-        .map_err(|_| "workspace-file-unwritable")?;
-    file.sync_all().map_err(|_| "workspace-file-unwritable")
+    // R4-05：创建成功后写失败会留下残留文件——自清理，回滚账本才无需为「创建
+    // 了但没写完」的对象买单。
+    if let Err(error) = (|| {
+        file.write_all(content)
+            .map_err(|_| "workspace-file-unwritable")?;
+        file.sync_all().map_err(|_| "workspace-file-unwritable")
+    })() {
+        let _ = std::fs::remove_file(target);
+        return Err(error);
+    }
+    Ok(())
 }
 
 /// 新路径解析（add / move 目标）：词法拒绝穿越后，逐级确认中间分量不是符号链接，
