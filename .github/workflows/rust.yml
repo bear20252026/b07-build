@@ -20,7 +20,8 @@ concurrency:
 
 # One job per crate so a formatting nit in the native host helper cannot hide a
 # test failure in the desktop shell. The desktop shell is the only entry that needs
-# system libraries, because it is the only one that links Tauri and WebKitGTK.
+# system libraries on Linux, because it is the only one that links Tauri and
+# WebKitGTK; Windows entries need no system deps.
 
 jobs:
   check:
@@ -42,6 +43,13 @@ jobs:
           - crate: apps/desktop-shell/src-tauri
             os: ubuntu-latest
             system-deps: true
+          # Windows 是桌面端的主要交付平台：fmt/clippy/test 必须与 Linux 一样
+          # 在 Windows 上真实跑一遍（R2 审计 05 的跨平台验收要求）。
+          # Tauri 的 Windows 构建不需要 Linux 系统库；符号链接用例在未开
+          # 开发者模式时按设计自动跳过。
+          - crate: apps/desktop-shell/src-tauri
+            os: windows-latest
+            system-deps: false
 
     defaults:
       run:
