@@ -142,10 +142,19 @@ pub(crate) fn open_no_follow(path: &Path, write: bool) -> Result<fs::File, &'sta
         use std::os::windows::fs::OpenOptionsExt;
         options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(0o200000); // O_NOFOLLOW
+        // Linux O_NOFOLLOW = 0o400000。R1 整改前误写 0o200000（实为 O_DIRECTORY），
+        // 导致 Linux/macOS 上打开任何普通文件都以 ENOTDIR 失败——由补丁批量事务
+        // 的 Linux CI 测试首次暴露。
+        options.custom_flags(0o400000); // O_NOFOLLOW
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // macOS O_NOFOLLOW = 0o200。
+        options.custom_flags(0o200); // O_NOFOLLOW
     }
     options
         .open(path)
@@ -409,6 +418,32 @@ mod tests {
             Err("workspace-path-escapes-root")
         );
         assert_eq!(reject_unsafe_relative(""), Err("workspace-path-empty"));
+    }
+
+    #[test]
+    fn open_no_follow_rejects_file_symlinks_and_opens_regular_files() {
+        let root = std::env::temp_dir().join(format!(
+            "awo-open-nofollow-test-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let _ = fs::create_dir_all(&root);
+        fs::write(
+            root.join("real.txt"),
+            "content
+",
+        )
+        .unwrap();
+        // 回归钉子：O_NOFOLLOW 常量写错时（曾误用 O_DIRECTORY），这里会以
+        // ENOTDIR 拒绝普通文件，用例立刻失败。
+        assert!(open_no_follow(&root.join("real.txt"), false).is_ok());
+        if create_file_symlink(&root.join("real.txt"), &root.join("link.txt")).is_ok() {
+            assert_eq!(
+                open_no_follow(&root.join("link.txt"), false).err(),
+                Some("workspace-file-is-symlink")
+            );
+        }
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
