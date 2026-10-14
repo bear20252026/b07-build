@@ -15,6 +15,7 @@
 //! 以及同一条审批被重复使用。
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -34,6 +35,9 @@ pub(crate) struct Grant {
     pub(crate) previous_sha256: String,
     pub(crate) next_sha256: String,
     pub(crate) expires_at_ms: u128,
+    /// 签发时的 canonical 工作区根：票据绑定工作区身份（R4-05）。
+    /// 切换工作区后，旧票据即便路径与摘要都匹配也必须失效。
+    pub(crate) root_canonical: PathBuf,
 }
 
 pub struct WorkspaceApprovalState(Mutex<HashMap<String, Grant>>);
@@ -134,6 +138,13 @@ pub fn workspace_stage_write_approval(
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect();
+    let root_canonical = directory
+        .0
+        .lock()
+        .map_err(|_| "workspace-root-unavailable")?
+        .as_ref()
+        .and_then(|root| root.canonicalize().ok())
+        .ok_or("workspace-root-unavailable")?;
     grants.insert(
         token.clone(),
         Grant {
@@ -141,6 +152,7 @@ pub fn workspace_stage_write_approval(
             previous_sha256: previous,
             next_sha256: next,
             expires_at_ms: now + GRANT_TTL_MS,
+            root_canonical,
         },
     );
     Ok(token)

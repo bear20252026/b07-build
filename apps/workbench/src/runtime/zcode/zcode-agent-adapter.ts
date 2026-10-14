@@ -245,6 +245,9 @@ export class ZCodeAgentAdapter {
   /** 按信封分发事件；seq 水位去重，缺口事件先缓存、补齐后按序冲刷。 */
   private dispatchSessionEvent(method: string, event: ZCodeEventEnvelope & Record<string, unknown>): void {
     if (this.streamIncomplete) return; // 已标记不完整的流：不再放行，等下次 connect 重置。
+    // R1 审计 R4：事件必须属于当前 Adapter 的会话——别的会话（或伪造信封）
+    // 的事件不得推进本会话的水位或进入投影。
+    if (this.session !== undefined && event.sessionId !== this.session) return;
     const seq = event.seq;
     if (this.lastSeq !== undefined) {
       if (seq <= this.lastSeq) return; // 重复/乱序：丢弃

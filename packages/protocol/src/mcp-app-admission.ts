@@ -188,7 +188,14 @@ export function gateMcpAppMessage(
   if (typeof message.type !== 'string' || !(MCP_APP_MESSAGE_TYPES as readonly string[]).includes(message.type)) {
     return { ok: false, reason: 'mcpapp-message-type-forbidden' };
   }
-  const serialized = JSON.stringify(message.payload ?? null);
+  // R1 审计 R4：postMessage 使用结构化克隆，允许循环引用对象；JSON.stringify 对
+  // 同样对象会抛 TypeError，让宿主消息处理器反复崩——序列化必须处于受控边界内。
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(message.payload ?? null);
+  } catch {
+    return { ok: false, reason: 'mcpapp-message-unserializable' };
+  }
   if (serialized.length > MCP_APP_MAX_MESSAGE_CHARS) {
     return { ok: false, reason: 'mcpapp-message-too-large' };
   }
