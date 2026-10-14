@@ -17,6 +17,7 @@ export * from './infrastructure/sqlite/memory-ledger-store.js';
 export * from './task-command-receipts.js';
 export * from './read-only-subtasks.js';
 export * from './mcp-registry.js';
+export * from './mcp-app-registry.js';
 export * from './extension-registry.js';
 export * from './extension-activation.js';
 export * from './agent-adapter.js';
