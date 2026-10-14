@@ -153,18 +153,42 @@ export function buildMcpAppSandbox(manifest: McpAppResourceManifest): McpAppSand
  * 把宿主 CSP 以 <meta http-equiv> 注入应用 HTML（srcdoc 宿主路径）。
  * 多条 CSP 并存时取交集（最严格者生效），应用自带的 CSP 不会被本条放宽；
  * 注入点尽量前移（<head> 之后），保证对后续资源的约束尽早生效。
+ *
+ * head 定位是**注释感知**的：第三方 HTML 的注释里可能出现 "<head>" 文本，
+// 盲目正则会把 CSP 插进注释里，使策略完全不生效（R1 审计 R4 指出的注入干扰）。
  */
 export function injectContentSecurityPolicy(html: string, contentSecurityPolicy: string): string {
   const meta = `<meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy.replace(/"/g, '&quot;')}">`;
-  const headMatch = /<head[^>]*>/i.exec(html);
-  if (headMatch) {
-    const position = headMatch.index + headMatch[0].length;
-    return `${html.slice(0, position)}${meta}${html.slice(position)}`;
+  const insert = (position: number): string => `${html.slice(0, position)}${meta}${html.slice(position)}`;
+  // 手工扫描：跳过 <!-- ... --> 注释段，找到注释外最早的 <head ...> / <html ...>。
+  let cursor = 0;
+  let headPosition = -1;
+  let htmlPosition = -1;
+  while (cursor <= html.length) {
+    const commentStart = html.indexOf('<!--', cursor);
+    const nextHead = /<head[^>]*>/i.exec(html.slice(cursor, commentStart === -1 ? undefined : commentStart));
+    if (nextHead) {
+      headPosition = cursor + nextHead.index + nextHead[0].length;
+      break;
+    }
+    if (commentStart === -1) break;
+    const commentEnd = html.indexOf('-->', commentStart + 4);
+    cursor = commentEnd === -1 ? html.length + 1 : commentEnd + 3;
+    if (htmlPosition === -1) {
+      // 顺带记录注释前是否有 <html>（无 head 时的兜底注入点）。
+      const htmlTag = /<html[^>]*>/i.exec(html.slice(0, commentStart === -1 ? html.length : commentStart));
+      if (htmlTag) htmlPosition = htmlTag.index + htmlTag[0].length;
+    }
   }
+  if (headPosition !== -1) return insert(headPosition);
+  // 无 head：在 <html> 后补建 head 容器注入；连 <html> 都没有则前置。
   const htmlMatch = /<html[^>]*>/i.exec(html);
-  if (htmlMatch) {
-    const position = htmlMatch.index + htmlMatch[0].length;
-    return `${html.slice(0, position)}<head>${meta}</head>${html.slice(position)}`;
+  const htmlOpen = htmlMatch ? htmlMatch.index + htmlMatch[0].length : -1;
+  if (htmlOpen !== -1) {
+    return `${html.slice(0, htmlOpen)}<head>${meta}</head>${html.slice(htmlOpen)}`;
+  }
+  if (htmlPosition !== -1) {
+    return `${html.slice(0, htmlPosition)}<head>${meta}</head>${html.slice(htmlPosition)}`;
   }
   return `${meta}${html}`;
 }
