@@ -9,10 +9,12 @@
 // 2. 沙箱属性（buildMcpAppSandbox）：iframe sandbox 白名单 + CSP——刻意**不给**
 //    allow-same-origin（保持不透明源，无法读宿主 DOM/存储）、不给 allow-top-navigation
 //    与 allow-popups；网络默认全禁，声明了 apiOrigins 才进 connect-src；
-// 3. postMessage 门（gateMcpAppMessage）：应用 → 宿主只接受白名单类型、大小受限的
-//    消息；工具调用请求必须再次对上注册表，防止渲染层伪造未注册调用。
+// 3. postMessage 门（已迁出）：应用 → 宿主的消息校验见 mcp-app-bridge.ts
+//    （官方 ext-apps JSON-RPC 线格式，R4-02），本文件不再定义信封类型。
 //
 // 这里不渲染任何东西：宿主 iframe 组件（消费 buildMcpAppSandbox 的输出）是后续工作。
+// 应用 → 宿主的消息门曾在本文件（gateMcpAppMessage / 自研信封），R4-02 起迁往
+// mcp-app-bridge.ts（官方 ext-apps JSON-RPC 线格式），此处仅保留共用的载荷上限。
 
 /** 应用可以请求的工具白名单：只能是声明它的那个 MCP 服务器里已注册的工具。 */
 export interface McpAppResourceManifest {
@@ -44,9 +46,6 @@ const APP_ID_PATTERN = /^mcpapp-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SERVER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const RESOURCE_URI_PATTERN = /^(ui:\/\/|mcp:\/\/)[^\s]{1,512}$/;
 const HTTPS_ORIGIN_PATTERN = /^https:\/\/[A-Za-z0-9][A-Za-z0-9.-]*(:\d{1,5})?$/;
-/** 应用 → 宿主允许的消息类型白名单。 */
-export const MCP_APP_MESSAGE_TYPES = ['toolCallRequest', 'ready', 'resize'] as const;
-export type McpAppMessageType = (typeof MCP_APP_MESSAGE_TYPES)[number];
 /** 单条 postMessage 消息的载荷上限：渲染层不应有理由传大对象。 */
 export const MCP_APP_MAX_MESSAGE_CHARS = 64_000;
 
@@ -191,48 +190,4 @@ export function injectContentSecurityPolicy(html: string, contentSecurityPolicy:
     return `${html.slice(0, htmlPosition)}<head>${meta}</head>${html.slice(htmlPosition)}`;
   }
   return `${meta}${html}`;
-}
-
-export type McpAppGateResult =
-  | { ok: true; type: McpAppMessageType; payload: unknown }
-  | { ok: false; reason: string };
-
-/**
- * 应用 → 宿主消息门。工具调用请求在此做二次校验：消息里声明的工具必须
- * 在准入白名单内（渲染层伪造未注册调用会在这里被拦下）。
- */
-export function gateMcpAppMessage(
-  raw: unknown,
-  admission: Pick<McpAppAdmission, 'admittedToolNames'>,
-): McpAppGateResult {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    return { ok: false, reason: 'mcpapp-message-invalid' };
-  }
-  const message = raw as Record<string, unknown>;
-  if (typeof message.type !== 'string' || !(MCP_APP_MESSAGE_TYPES as readonly string[]).includes(message.type)) {
-    return { ok: false, reason: 'mcpapp-message-type-forbidden' };
-  }
-  // R1 审计 R4：postMessage 使用结构化克隆，允许循环引用对象；JSON.stringify 对
-  // 同样对象会抛 TypeError，让宿主消息处理器反复崩——序列化必须处于受控边界内。
-  let serialized: string;
-  try {
-    serialized = JSON.stringify(message.payload ?? null);
-  } catch {
-    return { ok: false, reason: 'mcpapp-message-unserializable' };
-  }
-  if (serialized.length > MCP_APP_MAX_MESSAGE_CHARS) {
-    return { ok: false, reason: 'mcpapp-message-too-large' };
-  }
-  if (message.type === 'toolCallRequest') {
-    const payload = typeof message.payload === 'object' && message.payload !== null ? (message.payload as Record<string, unknown>) : undefined;
-    const toolName = payload?.toolName;
-    if (typeof toolName !== 'string' || !admission.admittedToolNames.includes(toolName)) {
-      return { ok: false, reason: 'mcpapp-tool-not-admitted' };
-    }
-    const args = 'arguments' in (payload ?? {}) ? payload?.arguments : undefined;
-    if (args !== undefined && serialized.length > MCP_APP_MAX_MESSAGE_CHARS) {
-      return { ok: false, reason: 'mcpapp-message-too-large' };
-    }
-  }
-  return { ok: true, type: message.type as McpAppMessageType, payload: message.payload ?? null };
 }
