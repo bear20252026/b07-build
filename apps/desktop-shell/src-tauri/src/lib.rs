@@ -20,6 +20,7 @@ mod github_collaboration;
 mod hybrid_search;
 #[cfg(not(mobile))]
 mod last30days;
+mod mcp_app_host;
 #[cfg(not(mobile))]
 mod project_memory;
 #[cfg(not(mobile))]
@@ -287,8 +288,29 @@ pub fn run() {
         .manage(WorkspaceDirectoryState(Mutex::new(None)))
         .manage(workspace_approval::WorkspaceApprovalState::new())
         .manage(workspace_patch::WorkspacePatchState::new())
+        .manage(mcp_app_host::McpAppDocumentState::new())
         .manage(workspace_index::WorkspaceIndexState::new())
         .manage(zcode_process::ZCodeProcessState::new())
+        .register_uri_scheme_protocol("mcpapp", |context, request| {
+            let state = context
+                .app_handle()
+                .state::<mcp_app_host::McpAppDocumentState>();
+            let served = mcp_app_host::serve_mcpapp_document(&state, request.uri().path());
+            let mut builder = tauri::http::Response::builder()
+                .status(
+                    tauri::http::StatusCode::from_u16(served.status)
+                        .unwrap_or(tauri::http::StatusCode::NOT_FOUND),
+                )
+                .header("Content-Type", "text/html; charset=utf-8")
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Cache-Control", "no-store");
+            if let Some(csp) = &served.content_security_policy {
+                builder = builder.header("Content-Security-Policy", csp);
+            }
+            builder
+                .body(served.body)
+                .expect("mcpapp response build cannot fail with owned body")
+        })
         .invoke_handler(tauri::generate_handler![
             direct_provider::configure_direct_provider,
             direct_provider::discover_direct_provider,
@@ -324,6 +346,8 @@ pub fn run() {
             zcode_process::zcode_write_stdin,
             zcode_process::stop_zcode_agent,
             zcode_process::zcode_workspace_root,
+            mcp_app_host::mcpapp_stage_document,
+            mcp_app_host::mcpapp_release_document,
             workspace_patch::workspace_stage_patch_batch,
             workspace_patch::workspace_commit_patch,
             assistant_artifacts::save_assistant_markdown_artifact,
@@ -383,6 +407,26 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(direct_provider::DirectProviderState::new())
+        .register_uri_scheme_protocol("mcpapp", |context, request| {
+            let state = context
+                .app_handle()
+                .state::<mcp_app_host::McpAppDocumentState>();
+            let served = mcp_app_host::serve_mcpapp_document(&state, request.uri().path());
+            let mut builder = tauri::http::Response::builder()
+                .status(
+                    tauri::http::StatusCode::from_u16(served.status)
+                        .unwrap_or(tauri::http::StatusCode::NOT_FOUND),
+                )
+                .header("Content-Type", "text/html; charset=utf-8")
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Cache-Control", "no-store");
+            if let Some(csp) = &served.content_security_policy {
+                builder = builder.header("Content-Security-Policy", csp);
+            }
+            builder
+                .body(served.body)
+                .expect("mcpapp response build cannot fail with owned body")
+        })
         .invoke_handler(tauri::generate_handler![
             direct_provider::configure_direct_provider,
             direct_provider::discover_direct_provider,
