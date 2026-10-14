@@ -65,12 +65,23 @@ export interface ToolRef {
 /**
  * 一条规则只表达一种能力的决策。缺失规则时由策略实现默认拒绝。
  * risk 未指定表示该能力的全部风险等级均匹配。
+ * toolPattern/patternInput（均未指定 = 匹配一切）参照 ZCode 的 per-tool
+ * patternSources：Edit 用 path、WebFetch 用 domain，使 allowlist 可以按
+ * 「工具 + 作用对象」收窄，而不是按能力一刀切。
  */
 export interface CapabilityPolicyRule {
   capability: Capability;
   decision: CapabilityDecision;
   risk?: RiskLevel;
   reason: string;
+  /** 规则标识：决策可解释性的最小单位（审计与 UI 展示 ruleId，不重述原因）。 */
+  ruleId?: string;
+  /** 工具名通配符（`*` 不跨分隔符、`**` 跨分隔符）；未指定 = 匹配全部工具。 */
+  toolPattern?: string;
+  /** 规则匹配的作用对象类型；与请求的 patternInput 对应（path/domain）。 */
+  patternInputKind?: 'path' | 'domain';
+  /** 作用对象通配符（语义同 toolPattern）；未指定 = 匹配全部对象。 */
+  patternInput?: string;
 }
 
 export interface CapabilityRequest {
@@ -79,11 +90,17 @@ export interface CapabilityRequest {
   taskId: string;
   runId: string;
   actionId: string;
+  /** 调用点工具名（未注册的裸调用允许缺失；规则匹配在缺失时按通配处理）。 */
+  toolName?: string;
+  /** 供 toolPattern/patternInput 匹配的作用对象（文件路径或域名）。 */
+  patternInput?: string;
 }
 
 export interface CapabilityEvaluation {
   decision: CapabilityDecision;
   reason: string;
+  /** 命中规则的标识（默认拒绝等无规则决策为 undefined）。 */
+  ruleId?: string;
 }
 
 export interface TaskCreatedEvent extends EventEnvelope {
