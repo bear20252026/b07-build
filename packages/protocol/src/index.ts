@@ -6,5 +6,7 @@ export * from './http-contracts.js';
 export * from './code-editing/patch-parser.js';
 export * from './code-editing/patch-apply.js';
 export * from './code-editing/patch-policy.js';
-// MCP Apps 准入与隔离策略（宿主 iframe 沙箱 + postMessage 门）。
+// MCP Apps 准入与隔离策略（宿主 iframe 沙箱）。
 export * from './mcp-app-admission.js';
+// MCP Apps 官方 postMessage 桥（ext-apps JSON-RPC，R4-02）。
+export * from './mcp-app-bridge.js';

@@ -1,26 +1,80 @@
-// 一个文件=一种作用：MCP Apps 宿主侧纯函数的验收测试（信封形状 + 消息门集成）。
+// 一个文件=一种作用：MCP Apps 宿主侧纯函数的验收测试（官方 ext-apps 信封 + 握手链路）。
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { gateMcpAppMessage } from '@awo/protocol';
-import { toolCallResultMessage } from '../src/components/workspace/McpAppHost';
+import {
+  buildMcpAppBridgeError,
+  buildMcpAppBridgeResponse,
+  buildMcpAppInitializeResult,
+  mapToolResultToCallToolResult,
+  negotiateMcpAppProtocolVersion,
+  parseMcpAppBridgeMessage,
+  MCP_APP_BRIDGE_PROTOCOL_VERSION,
+} from '@awo/protocol';
 
-test('工具结果信封：固定类型与载荷形状，供 iframe 应用按白名单回读', () => {
-  const message = toolCallResultMessage('call-1', true, { content: 'ok' });
-  assert.deepEqual(message, { type: 'toolCallResult', payload: { toolCallId: 'call-1', ok: true, result: { content: 'ok' } } });
+const admission = { admittedToolNames: ['read_note'] };
+
+test('握手链路：ui/initialize → 版本协商 → 应答信封（缺省宿主身份补齐）', () => {
+  const incoming = parseMcpAppBridgeMessage(
+    {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'ui/initialize',
+      params: { appInfo: { name: 'notes-app', version: '1.0.0' }, appCapabilities: {}, protocolVersion: '1999-01-01' },
+    },
+    admission,
+  );
+  assert.equal(incoming.ok, true);
+  if (!incoming.ok || incoming.kind !== 'initialize') return;
+  const protocolVersion = negotiateMcpAppProtocolVersion(incoming.protocolVersion);
+  assert.equal(protocolVersion, MCP_APP_BRIDGE_PROTOCOL_VERSION, '未知版本回落到 LATEST');
+  const response = buildMcpAppBridgeResponse(
+    incoming.id,
+    buildMcpAppInitializeResult({ hostInfo: { name: 'AI Work OS', version: '0.19.0' } }, protocolVersion),
+  );
+  assert.deepEqual(response, {
+    jsonrpc: '2.0',
+    id: 1,
+    result: {
+      protocolVersion: MCP_APP_BRIDGE_PROTOCOL_VERSION,
+      hostInfo: { name: 'AI Work OS', version: '0.19.0' },
+      hostCapabilities: { serverTools: {} },
+      hostContext: { platform: 'desktop' },
+    },
+  });
 });
 
-test('宿主消息流集成：应用请求 → 门校验 → 结果信封可被应用侧识别', () => {
-  const admission = { admittedToolNames: ['read_note'] };
-  // 应用发出的请求先过消息门（二次准入校验）。
-  const request = { type: 'toolCallRequest', payload: { toolCallId: 'call-1', toolName: 'read_note', arguments: { id: 7 } } };
-  const gated = gateMcpAppMessage(request, admission);
-  assert.equal(gated.ok, true);
-  // 执行结果打包成信封发回；应用侧再次过门时该类型不在白名单（结果只走宿主→应用方向）。
-  const result = toolCallResultMessage('call-1', true, { content: '笔记内容' });
-  assert.equal(result.type, 'toolCallResult');
-  assert.equal(result.payload.ok, true);
-  // 未准入工具的请求在门上被拦下，宿主不会执行。
-  const forged = { type: 'toolCallRequest', payload: { toolCallId: 'call-2', toolName: 'write_note' } };
-  assert.equal(gateMcpAppMessage(forged, admission).ok, false);
+test('工具链路：tools/call 白名单内 → 执行 → CallToolResult 应答', () => {
+  const incoming = parseMcpAppBridgeMessage(
+    { jsonrpc: '2.0', id: 'call-1', method: 'tools/call', params: { name: 'read_note', arguments: { id: 7 } } },
+    admission,
+  );
+  assert.equal(incoming.ok, true);
+  if (!incoming.ok || incoming.kind !== 'toolCall') return;
+  // 宿主执行器的结果（此处覆盖 MCP 原生 CallToolResult 与裸值两条路径）。
+  assert.deepEqual(buildMcpAppBridgeResponse(incoming.id, mapToolResultToCallToolResult({ content: [{ type: 'text', text: '笔记' }] })), {
+    jsonrpc: '2.0',
+    id: 'call-1',
+    result: { content: [{ type: 'text', text: '笔记' }] },
+  });
+  assert.deepEqual(mapToolResultToCallToolResult('raw'), { content: [{ type: 'text', text: 'raw' }] });
+});
+
+test('伪造调用在桥上被拦下，宿主回 invalidParams 而不执行', () => {
+  const forged = parseMcpAppBridgeMessage(
+    { jsonrpc: '2.0', id: 'call-2', method: 'tools/call', params: { name: 'write_note' } },
+    admission,
+  );
+  assert.equal(forged.ok, false);
+  if (forged.ok) return;
+  const error = buildMcpAppBridgeError(forged.id ?? 'call-2', forged.code ?? -32602, forged.reason);
+  assert.deepEqual(error, { jsonrpc: '2.0', id: 'call-2', error: { code: -32602, message: 'mcpapp-tool-not-admitted' } });
+});
+
+test('未知方法回 method-not-found（真实 SDK 应用依靠 error 应答感知失败）', () => {
+  const incoming = parseMcpAppBridgeMessage({ jsonrpc: '2.0', id: 5, method: 'ui/teleport' }, admission);
+  assert.equal(incoming.ok, false);
+  if (incoming.ok) return;
+  assert.equal(incoming.code, -32601);
+  assert.equal(incoming.id, 5);
 });

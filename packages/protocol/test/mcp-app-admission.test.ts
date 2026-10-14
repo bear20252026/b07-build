@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildMcpAppSandbox,
-  gateMcpAppMessage,
   injectContentSecurityPolicy,
   validateMcpAppManifest,
   type McpAppResourceManifest,
@@ -83,14 +82,4 @@ test('CSP 注入：注释里的假 <head> 不会骗过定位', () => {
   // CSP 必须落在**真实** head 里（注释内的匹配被跳过）。
   assert.match(injected, /<head><meta http-equiv="Content-Security-Policy"/);
   assert.equal(injected.indexOf('Content-Security-Policy') < injected.indexOf('<!--'), false);
-});
-
-test('消息门：白名单类型 + 大小限制 + 工具调用二次校验', () => {
-  const admission = { admittedToolNames: ['read_note'] };
-  assert.deepEqual(gateMcpAppMessage({ type: 'ready', payload: null }, admission), { ok: true, type: 'ready', payload: null });
-  assert.equal(gateMcpAppMessage({ type: 'eval', payload: '2+2' }, admission).ok, false, '白名单外的类型直接拒绝');
-  assert.equal(gateMcpAppMessage({ type: 'toolCallRequest', payload: { toolName: 'write_note' } }, admission).ok, false, '未准入的工具调用被拦下');
-  assert.equal(gateMcpAppMessage({ type: 'toolCallRequest', payload: { toolName: 'read_note', arguments: { id: 1 } } }, admission).ok, true);
-  const huge = { type: 'ready', payload: 'x'.repeat(70_000) };
-  assert.equal(gateMcpAppMessage(huge, admission).ok, false, '超过载荷上限的消息被拒绝');
 });
