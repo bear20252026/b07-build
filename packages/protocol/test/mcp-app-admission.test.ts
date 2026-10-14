@@ -76,6 +76,15 @@ test('CSP 注入：head 前移注入、无 head 时补建、引号转义、不�
   assert.match(plain, /^<meta http-equiv="Content-Security-Policy"/);
 });
 
+test('CSP 注入：注释里的假 <head> 不会骗过定位', () => {
+  const policy = buildMcpAppSandbox(manifest());
+  const tricky = '<html><!-- <head> 假头 </head> --><head><title>real</title></head><body></body></html>';
+  const injected = injectContentSecurityPolicy(tricky, policy.contentSecurityPolicy);
+  // CSP 必须落在**真实** head 里（注释内的匹配被跳过）。
+  assert.match(injected, /<head><meta http-equiv="Content-Security-Policy"/);
+  assert.equal(injected.indexOf('Content-Security-Policy') < injected.indexOf('<!--'), false);
+});
+
 test('消息门：白名单类型 + 大小限制 + 工具调用二次校验', () => {
   const admission = { admittedToolNames: ['read_note'] };
   assert.deepEqual(gateMcpAppMessage({ type: 'ready', payload: null }, admission), { ok: true, type: 'ready', payload: null });
