@@ -21,6 +21,7 @@ mod hybrid_search;
 #[cfg(not(mobile))]
 mod last30days;
 mod mcp_app_host;
+mod mcp_process;
 #[cfg(not(mobile))]
 mod project_memory;
 #[cfg(not(mobile))]
@@ -291,6 +292,7 @@ pub fn run() {
         .manage(mcp_app_host::McpAppDocumentState::new())
         .manage(workspace_index::WorkspaceIndexState::new())
         .manage(zcode_process::ZCodeProcessState::new())
+        .manage(mcp_process::McpStdioState::new())
         .register_uri_scheme_protocol("mcpapp", |context, request| {
             let state = context
                 .app_handle()
@@ -346,6 +348,9 @@ pub fn run() {
             zcode_process::zcode_write_stdin,
             zcode_process::stop_zcode_agent,
             zcode_process::zcode_workspace_root,
+            mcp_process::mcp_start_process,
+            mcp_process::mcp_write_stdin,
+            mcp_process::mcp_stop_process,
             mcp_app_host::mcpapp_stage_document,
             mcp_app_host::mcpapp_release_document,
             workspace_patch::workspace_stage_patch_batch,
