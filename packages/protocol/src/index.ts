@@ -10,3 +10,5 @@ export * from './code-editing/patch-policy.js';
 export * from './mcp-app-admission.js';
 // MCP Apps 官方 postMessage 桥（ext-apps JSON-RPC，R4-02）。
 export * from './mcp-app-bridge.js';
+// 工具声明契约与注册表（ToolDescriptor / ToolRegistry）。
+export * from './tool-contract.js';

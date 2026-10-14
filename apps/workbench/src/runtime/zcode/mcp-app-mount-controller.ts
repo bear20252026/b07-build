@@ -13,6 +13,7 @@ import {
   type McpAppAdmission,
   type McpAppAdmissionResult,
   type McpAppHostingServer,
+  type ToolRegistry,
 } from '@awo/protocol';
 import {
   McpAppToolGateway,
@@ -44,6 +45,20 @@ export function defaultMcpAppRisk(
   return riskTable[toolName] ?? 'high';
 }
 
+/**
+ * 契约优先的风险解析：工具注册表（ToolDescriptor.defaultRisk）→ 调用方
+ * riskTable → fail-closed 的 high。网关侧再无 ad hoc riskFor 拼接。
+ */
+export function resolveMcpAppToolRisk(
+  toolName: string,
+  registry?: ToolRegistry,
+  riskTable?: Readonly<Record<string, McpAppToolRisk>>,
+): McpAppToolRisk {
+  const descriptor = registry?.resolve(toolName);
+  if (descriptor) return descriptor.defaultRisk;
+  return defaultMcpAppRisk(toolName, riskTable);
+}
+
 export interface McpAppMountRequest {
   /** 声明该应用的 MCP 服务器（id + 已注册工具）；manifest 的工具必须是它的子集。 */
   readonly server: McpAppHostingServer;
@@ -52,6 +67,8 @@ export interface McpAppMountRequest {
   readonly executor?: McpAppToolExecutor;
   /** 工具风险分级表；缺省全部 high（必须人工裁决）。 */
   readonly riskTable?: Readonly<Record<string, McpAppToolRisk>>;
+  /** 工具声明契约注册表；提供时风险从 ToolDescriptor.defaultRisk 读取。 */
+  readonly tools?: ToolRegistry;
   /** medium/high 的人工裁决入口；未提供 = 这些风险一律拒绝（网关语义）。 */
   readonly approve?: (request: McpAppToolApprovalRequest) => Promise<boolean>;
   /** 应用实例标识；缺省由控制器按挂载次序生成。 */
@@ -78,7 +95,7 @@ export class McpAppMountController {
     this.gateway = new McpAppToolGateway({
       admittedToolNames: validated.admission.admittedToolNames,
       appInstanceId,
-      riskFor: (toolName) => defaultMcpAppRisk(toolName, request.riskTable),
+      riskFor: (toolName) => resolveMcpAppToolRisk(toolName, request.tools, request.riskTable),
       approve: request.approve,
       execute: (toolName, args) => executor.execute(toolName, args),
     });

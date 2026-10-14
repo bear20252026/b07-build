@@ -2,7 +2,8 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { McpAppMountController, createUnavailableMcpAppToolExecutor, defaultMcpAppRisk } from '../src/runtime/zcode/mcp-app-mount-controller';
+import { ToolRegistry, type ToolDescriptor } from '@awo/protocol';
+import { McpAppMountController, createUnavailableMcpAppToolExecutor, defaultMcpAppRisk, resolveMcpAppToolRisk } from '../src/runtime/zcode/mcp-app-mount-controller';
 
 const server = { id: 'demo', declaredTools: [{ name: 'read_note' }, { name: 'write_note' }] };
 
@@ -129,6 +130,43 @@ test('缺省执行器 fail-closed：未注入真实连接时调用以 unavailabl
 test('缺省风险分级：未登记工具一律 high', () => {
   assert.equal(defaultMcpAppRisk('anything'), 'high');
   assert.equal(defaultMcpAppRisk('read_note', { read_note: 'low' }), 'low');
+});
+
+test('契约风险：注册表 descriptor 优先于 riskTable，未登记回落 fail-closed', () => {
+  const registry = new ToolRegistry();
+  registry.register({
+    name: 'read_note',
+    capability: 'filesystem.read',
+    defaultRisk: 'low',
+    readOnly: true,
+    destructive: false,
+    sideEffectScope: 'workspace',
+    resultBudgetChars: 32_000,
+    timeoutMs: 10_000,
+    concurrentSafe: true,
+  } satisfies ToolDescriptor);
+  assert.equal(resolveMcpAppToolRisk('read_note', registry, { read_note: 'high' }), 'low', '契约优先');
+  assert.equal(resolveMcpAppToolRisk('ghost', registry, { ghost: 'medium' }), 'medium', '未注册回落 riskTable');
+  assert.equal(resolveMcpAppToolRisk('ghost', registry), 'high', '两者全无则 fail-closed');
+  assert.equal(resolveMcpAppToolRisk('ghost'), 'high');
+});
+
+test('契约接入挂载：descriptor 声明 low 的工具免人工裁决直接执行', async () => {
+  const registry = new ToolRegistry();
+  registry.register({
+    name: 'read_note',
+    capability: 'filesystem.read',
+    defaultRisk: 'low',
+    readOnly: true,
+    destructive: false,
+    sideEffectScope: 'workspace',
+    resultBudgetChars: 32_000,
+    timeoutMs: 10_000,
+    concurrentSafe: true,
+  } satisfies ToolDescriptor);
+  const controller = new McpAppMountController();
+  controller.mount({ server, manifest: manifest(), tools: registry, executor: { execute: async () => 'note-body' } });
+  assert.deepEqual(await controller.callTool('read_note', {}), { ok: true, result: 'note-body' });
 });
 
 test('缺省执行器工厂：自身以传入原因拒绝', async () => {
