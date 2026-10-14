@@ -1,4 +1,21 @@
-import { ZCodeProtocolClient, type ZCodeProtocolDeps, type ZCodeServerRequestId } from './zcode-protocol-client';
+import {
+  SESSION_COMMAND_REASON_CODES,
+  SessionCommandLedger,
+  acceptSessionCommand,
+  createSessionCommand,
+  createSessionLogSync,
+  isStaleSessionCommand,
+  rejectSessionCommand,
+  sessionCommandId,
+  withCommandBase,
+  type SessionCommand,
+  type SessionCommandAck,
+  type SessionLogBase,
+  type SessionLogEntry,
+  type SessionLogReplay,
+  type SessionLogSync,
+} from '@awo/protocol';
+import { ZCodeProtocolClient, ZCodeProtocolError, type ZCodeProtocolDeps, type ZCodeServerRequestId } from './zcode-protocol-client';
 
 /**
  * ZCode Agent 适配器：把 NOVA 的会话语义映射到 ZCode Protocol。
@@ -6,8 +23,11 @@ import { ZCodeProtocolClient, type ZCodeProtocolDeps, type ZCodeServerRequestId 
  * 覆盖的闭环（对应 ZCode `session/send` / `session/subscribe` 协议文档）：
  * - connect：spawn agent-server + `session/create` + `session/subscribe`（事件流水位）；
  * - send：`session/send { sessionId, inputId, content }`（协议立即 ACK，turn 进度走通知）；
- * - 事件：按事件信封（eventId/sessionId/turnId/seq）分发；跟踪 seq 水位，
- *   发现缺口时以 `afterSeq` 重发 `session/subscribe` 补齐（重同步）；
+ *   inputId 取命令的 commandId——重试复用同一 id 才是幂等键，换 id 等于第二次副作用；
+ *   基准取会话权威水位（state.updated.revision）作为 expectedRevision，被 -32009 判
+ *   stale 时采纳对端回的实际水位，不带着过期基准原地重放；
+ * - 事件：seq 连续性、缺口补齐、快照权威替换全部由 `@awo/protocol` 的会话收敛机
+ *   承担（借 ZCode V4 的同步语义），适配层只做信封归属判断与载荷转发；
  * - 反向请求：`interaction/requestPermission` / `interaction/requestUserInput`
  *   经 respond 以完整协议应答帧（`{id, result: {decision, ...}}`）回发；
  *   无裁决回调时缺省 deny（fail-closed）；其余反向请求一律 -32601 拒绝；
@@ -70,10 +90,20 @@ export interface ZCodeAgentAdapterOptions {
 /** 本地桌面适配层固定使用连续投递。 */
 const DELIVERY_KIND = 'desktop-continuous';
 
-/** seq 缺口缓冲上限：超过即判定补齐无望，标记会话不完整。 */
-const PENDING_EVENTS_CAP = 256;
-/** 补发重试间隔（毫秒）。 */
-const RESYNC_RETRY_MS = 1_500;
+/**
+ * ZCode 服务端 CAS 拒绝（`assertExpectedRevision`）的 JSON-RPC 错误码：
+ * 会话结构水位与 `expectedRevision` 不一致。按码识别，不按错误文本猜。
+ */
+const ZCODE_STALE_REVISION_CODE = -32009;
+
+/** 收敛机承载的日志条目载荷：事件方法名 + 原始信封（投影层要的形态）。 */
+type SessionEventEntry = { readonly method: string; readonly event: ZCodeEventEnvelope & Record<string, unknown> };
+
+/** 一次提交的结果：`sent` 才是真发出；`settled`/`in-flight` 表示零重复副作用。 */
+export type ZCodeSendOutcome =
+  | { readonly kind: 'sent'; readonly command: SessionCommand; readonly ack: SessionCommandAck }
+  | { readonly kind: 'settled'; readonly ack: SessionCommandAck }
+  | { readonly kind: 'in-flight'; readonly command: SessionCommand };
 
 function workspaceKeyFor(workspacePath: string): string {
   // workspaceKey 只要求稳定非空：用路径本身（协议未约束格式）。
@@ -100,19 +130,50 @@ function isEventEnvelope(params: unknown): params is ZCodeEventEnvelope & Record
     && typeof candidate.timestamp === 'number';
 }
 
+/**
+ * CAS 失败应答里的服务端实际水位（`data.actualRevision`）。
+ * 采纳它当下一次基准——带着过期基准原地重放只会次次被拒。
+ */
+function actualRevisionFromErrorData(data: unknown): number | undefined {
+  if (!data || typeof data !== 'object') return undefined;
+  const actual = (data as Record<string, unknown>).actualRevision;
+  return typeof actual === 'number' && Number.isInteger(actual) && actual >= 0 ? actual : undefined;
+}
+
+/** 补发批里的事件名：v1 把类型放在 `type`，通知路径则用 JSON-RPC method。 */
+function eventNameOf(event: ZCodeEventEnvelope & Record<string, unknown>): string {
+  return typeof event.type === 'string' ? event.type : 'session/event';
+}
+
+/** ACK 里服务端宣告的最高序号（订阅点水位）；非法形状按「未宣告」处理。 */
+function subscribeEventSeq(result: unknown): number | undefined {
+  if (!result || typeof result !== 'object') return undefined;
+  const seq = (result as Record<string, unknown>).eventSeq;
+  return typeof seq === 'number' && Number.isInteger(seq) && seq >= 0 ? seq : undefined;
+}
+
 export class ZCodeAgentAdapter {
   private client: ZCodeProtocolClient | undefined;
   private session: string | undefined;
-  /** 会话事件水位：已分发的最大 seq（含订阅补发）。 */
-  private lastSeq: number | undefined;
-  /** seq 缺口期间的缓存事件（等重同步补齐后按序冲刷）。 */
-  private pendingEvents = new Map<number, { method: string; event: ZCodeEventEnvelope & Record<string, unknown> }>();
-  private resyncInFlight = false;
-  private streamIncomplete = false;
+  /** 会话结构水位的最近权威读数（state.updated.revision）：命令 CAS 基准只认这个来源。 */
+  private lastRevision: number | undefined;
+  private readonly clientId = sessionCommandId();
+  private readonly commands = new SessionCommandLedger();
+  /** seq 连续 / 缺口补齐 / 快照权威替换全在这里（协议包），适配层不再自己数序号。 */
+  private readonly sync: SessionLogSync<SessionEventEntry, unknown>;
   private readonly options: ZCodeAgentAdapterOptions;
 
   constructor(options: ZCodeAgentAdapterOptions) {
     this.options = options;
+    this.sync = createSessionLogSync<SessionEventEntry, unknown>({
+      requestReplay: (base, forceSnapshot) => this.requestReplay(base, forceSnapshot),
+      // v1 对端的快照载荷是 ZCode 会话状态原样；行级重建属于统一聊天后端批次，
+      // 这里先把权威快照如实投递给下游（收敛机的基准同时已复位），绝不静默吞掉。
+      applySnapshot: (snapshot) => this.options.onEvent?.({ kind: 'notification', method: 'session/snapshot', payload: snapshot.snapshot }),
+      applyEntry: (entry) => this.forward(entry.payload.method, entry.payload.event),
+      onIncomplete: (reason) => this.options.onEvent?.({ kind: 'notification', method: 'session/streamIncomplete', payload: { reason } }),
+      onRecovered: () => this.options.onEvent?.({ kind: 'notification', method: 'session/streamRecovered', payload: { reason: 'authoritative-snapshot' } }),
+    });
   }
 
   get sessionId(): string | undefined {
@@ -126,10 +187,9 @@ export class ZCodeAgentAdapter {
   /** 启动协议子进程并创建 ZCode 会话。 */
   async connect(): Promise<string> {
     if (this.client) throw new Error('zcode-adapter-already-connected');
-    this.lastSeq = undefined;
-    this.pendingEvents = new Map();
-    this.resyncInFlight = false;
-    this.streamIncomplete = false;
+    this.sync.reset();
+    this.commands.clear();
+    this.lastRevision = undefined;
     const client = new ZCodeProtocolClient({
       executable: this.options.executable,
       workingDirectory: this.options.workspace.workspacePath,
@@ -161,13 +221,97 @@ export class ZCodeAgentAdapter {
     }
   }
 
-  /** 提交用户输入；协议立即 ACK，生成进度经 onEvent 推送。 */
-  async send(content: string, inputId?: string): Promise<void> {
-    if (!this.client || !this.session) throw new Error('zcode-adapter-not-connected');
-    await this.client.request('session/send', {
+  /**
+   * 提交用户输入；协议立即 ACK，生成进度经 onEvent 推送。
+   *
+   * 幂等：命令以 {sessionId, commandId} 为键登记在客户端表里——同 id 在途时不重复
+   * 提交（一次抖动变成两次执行就是这个环节失控），已裁决时直接复用原裁决。
+   * CAS：基准只取会话权威水位 `lastRevision`；被 -32009 判 stale 说明准入阶段就拒了、
+   * 没有副作用，于是带对端回的实际水位重发一次（commandId 不变），再失败就交回裁决。
+   */
+  async send(content: string, commandId?: string): Promise<ZCodeSendOutcome> {
+    const client = this.client;
+    if (!client || !this.session) throw new Error('zcode-adapter-not-connected');
+    const command = createSessionCommand({
+      clientId: this.clientId,
       sessionId: this.session,
-      ...(inputId ? { inputId } : {}),
+      type: 'session/send',
+      payload: { content },
+      ...(commandId === undefined ? {} : { commandId }),
+      ...(this.lastRevision === undefined ? {} : { baseRevision: this.lastRevision }),
+    });
+    const begin = this.commands.begin(command);
+    if (begin.kind === 'settled') return { kind: 'settled', ack: begin.ack };
+    if (begin.kind === 'in-flight') return { kind: 'in-flight', command: begin.command };
+    // 同 id 换内容 = 串号提交，幂等键就此失效；必须显式失败，不能猜该返回哪个结果。
+    if (begin.kind === 'conflict') throw new Error(begin.reason);
+    const pending = begin.command;
+    try {
+      await client.request('session/send', this.wireParams(pending));
+      const ack = acceptSessionCommand(pending.commandId);
+      this.commands.settle(pending, ack);
+      return { kind: 'sent', command: pending, ack };
+    } catch (error) {
+      const ack = this.ackFromFailure(pending, error);
+      if (isStaleSessionCommand(ack) && ack.revisionAtDecision !== undefined) {
+        const retry = withCommandBase(pending, { revision: ack.revisionAtDecision });
+        try {
+          await client.request('session/send', this.wireParams(retry));
+          const settled = acceptSessionCommand(retry.commandId);
+          this.commands.settle(pending, settled);
+          return { kind: 'sent', command: retry, ack: settled };
+        } catch (retryError) {
+          this.commands.settle(pending, this.ackFromFailure(pending, retryError));
+          throw retryError;
+        }
+      }
+      this.commands.settle(pending, ack);
+      throw error;
+    }
+  }
+
+  /** 命令 → `session/send` 线参数；inputId 即幂等键，expectedRevision 即 CAS 基准。 */
+  private wireParams(command: SessionCommand): Record<string, unknown> {
+    const content = (command.payload as { readonly content?: unknown }).content;
+    return {
+      sessionId: command.sessionId,
+      inputId: command.commandId,
       content,
+      ...(command.baseRevision === undefined ? {} : { expectedRevision: command.baseRevision }),
+    };
+  }
+
+  /** 把对端/传输失败归一为命令裁决（带稳定原因码）；stale 时采纳对端实际水位。 */
+  private ackFromFailure(command: SessionCommand, error: unknown): SessionCommandAck {
+    if (error instanceof ZCodeProtocolError) {
+      if (error.protocolCode === ZCODE_STALE_REVISION_CODE) {
+        const actual = actualRevisionFromErrorData(error.data);
+        if (actual !== undefined) this.lastRevision = actual;
+        return rejectSessionCommand(command.commandId, {
+          status: 'stale',
+          reasonCode: SESSION_COMMAND_REASON_CODES.staleRevision,
+          ...(actual === undefined ? {} : { revisionAtDecision: actual }),
+          message: error.message,
+        });
+      }
+      if (error.code === 'zcode-transport-closed' || error.code === 'zcode-stdin-write-failed' || error.code === 'zcode-request-timeout') {
+        // 结果未知（可能已执行）：只登记 failed，调用方复用 commandId 让对端去重。
+        return rejectSessionCommand(command.commandId, {
+          status: 'failed',
+          reasonCode: SESSION_COMMAND_REASON_CODES.transportClosed,
+          message: error.message,
+        });
+      }
+      return rejectSessionCommand(command.commandId, {
+        status: 'rejected',
+        reasonCode: SESSION_COMMAND_REASON_CODES.invalidEnvelope,
+        message: error.message,
+      });
+    }
+    return rejectSessionCommand(command.commandId, {
+      status: 'failed',
+      reasonCode: SESSION_COMMAND_REASON_CODES.invalidEnvelope,
+      message: error instanceof Error ? error.message : String(error),
     });
   }
 
@@ -180,52 +324,110 @@ export class ZCodeAgentAdapter {
     }
     this.session = undefined;
     this.client = undefined;
+    this.lastRevision = undefined;
+    // 会话关闭即作废水位、缓冲与在途命令：重连后不能拿旧水位判连续性，
+    // 也不能让已关闭连接上的命令被误判为「已有裁决」。
+    this.sync.reset();
+    this.commands.clear();
     await client.close();
   }
 
   /** 订阅会话事件流。订阅失败视为连接失败——事件流不可靠时适配层不假装正常。 */
   private async subscribeSession(): Promise<void> {
-    const client = this.client;
-    if (!client || !this.session) return;
-    const result = await client.request('session/subscribe', {
-      sessionId: this.session,
-      deliveryKind: DELIVERY_KIND,
-      includeSnapshot: false,
-    });
-    this.applySubscribeResult(result);
+    const result = await this.subscribe({ includeSnapshot: false });
+    const snapshot = this.snapshotFrom(result);
+    if (snapshot !== undefined) {
+      this.sync.acceptSnapshot(snapshot);
+      return;
+    }
+    // ACK 里的 events 是「订阅点之后」的补发批：先按批首序号锚定基准，再逐条
+    // 交给收敛机——顺序放行、缺口判定、去重全由机器负责，适配层不自己数序号。
+    const entries = this.entriesFrom(result);
+    if (entries.length > 0) this.sync.bootstrap({ seq: entries[0].seq - 1 });
+    for (const entry of entries) this.sync.acceptEntry(entry);
+    const eventSeq = subscribeEventSeq(result);
+    if (eventSeq !== undefined) this.sync.noteServerSeq(eventSeq);
   }
 
-  /** 消费 session/subscribe 应答：先补发事件（按实际分发推进水位），再探测缺口。 */
-  private applySubscribeResult(result: unknown): void {
-    if (!result || typeof result !== 'object') return;
+  /** `session/subscribe` 线参数：afterSeq 续播，includeSnapshot 升级要权威快照。 */
+  private async subscribe(request: { readonly afterSeq?: number; readonly includeSnapshot: boolean }): Promise<unknown> {
+    const client = this.client;
+    if (!client || !this.session) throw new Error('zcode-adapter-not-connected');
+    return client.request('session/subscribe', {
+      sessionId: this.session,
+      deliveryKind: DELIVERY_KIND,
+      ...(request.afterSeq === undefined ? {} : { afterSeq: request.afterSeq }),
+      includeSnapshot: request.includeSnapshot,
+    });
+  }
+
+  /**
+   * 收敛机的补齐入口。v1 对端没有独立的 replay 方法：
+   * `session/subscribe(afterSeq)` 就是续播，升级收敛靠 `includeSnapshot`。
+   */
+  private async requestReplay(base: SessionLogBase, forceSnapshot: boolean): Promise<SessionLogReplay<SessionEventEntry, unknown>> {
+    const result = await this.subscribe({ afterSeq: base.seq, includeSnapshot: forceSnapshot });
+    const snapshot = this.snapshotFrom(result);
+    if (snapshot !== undefined) return { kind: 'snapshot', snapshot };
+    return { kind: 'entries', entries: this.entriesFrom(result) };
+  }
+
+  /** 补发批 → 条目：只收信封合法且属于当前会话的事件，其余整体忽略。 */
+  private entriesFrom(result: unknown): SessionLogEntry<SessionEventEntry>[] {
+    if (!result || typeof result !== 'object') return [];
+    const events = (result as Record<string, unknown>).events;
+    if (!Array.isArray(events)) return [];
+    const entries: SessionLogEntry<SessionEventEntry>[] = [];
+    for (const event of events) {
+      if (!isEventEnvelope(event) || !this.owns(event)) continue;
+      entries.push({ seq: event.seq, payload: { method: eventNameOf(event), event } });
+    }
+    return entries;
+  }
+
+  /**
+   * 应答里的权威快照。水位优先取快照自带的 `runtime.eventSeq`，缺失才退回
+   * ACK 的 eventSeq——基准必须落在可比的水位上，不能猜。
+   */
+  private snapshotFrom(result: unknown): { readonly seq: number; readonly snapshot: unknown } | undefined {
+    if (!result || typeof result !== 'object') return undefined;
     const candidate = result as Record<string, unknown>;
-    if (Array.isArray(candidate.events)) {
-      for (const event of candidate.events) this.dispatchSessionEvent(typeof event === 'object' && event !== null && typeof (event as Record<string, unknown>).type === 'string' ? String((event as Record<string, unknown>).type) : 'session/event', event);
-    }
-    if (typeof candidate.eventSeq === 'number') {
-      // R1 审计 R2：服务端最高序号（eventSeq）与客户端连续处理到的序号（lastSeq）
-      // 必须分开——后续补发结果只在真正分发过事件时推进 lastSeq，eventSeq 超前
-      // 即视为仍有缺口并再次重发订阅；绝不把未投影的事件当作已处理。
-      // 仅当水位尚未初始化时才用 eventSeq 设定订阅起点（订阅点之前的事件
-      // 不属于本会话视图，缺口探测从这里开始）。
-      if (this.lastSeq === undefined) {
-        this.lastSeq = candidate.eventSeq;
-      } else if (candidate.eventSeq > this.lastSeq) {
-        this.scheduleResync();
-      }
-    }
+    if (!candidate.snapshot || typeof candidate.snapshot !== 'object') return undefined;
+    const runtime = (candidate.snapshot as Record<string, unknown>).runtime;
+    const inner = typeof runtime === 'number' ? undefined : (runtime as Record<string, unknown> | undefined)?.eventSeq;
+    const seq = typeof inner === 'number' ? inner : subscribeEventSeq(candidate);
+    if (seq === undefined) return undefined;
+    return { seq, snapshot: candidate.snapshot };
+  }
+
+  /** 事件归属：其它会话（或伪造信封）的事件不得推进本会话水位，也不得进入投影（R1 审计 R4）。 */
+  private owns(event: { readonly sessionId: string }): boolean {
+    return this.session === undefined || event.sessionId === this.session;
   }
 
   private onNotification(method: string, params: unknown): void {
     if (isEventEnvelope(params)) {
-      this.dispatchSessionEvent(method, params);
+      if (!this.owns(params)) return;
+      this.noteRevision(params);
+      // 连续性判断交给收敛机：它按 seq 放行、缓存缺口并自行补齐。
+      this.sync.acceptEntry({ seq: params.seq, payload: { method, event: params } });
       return;
     }
+    this.noteRevision(params);
     this.options.onEvent?.({ kind: 'notification', method, payload: params });
+  }
+
+  /** 采纳会话结构水位（`state.updated.revision`）：命令 CAS 基准的唯一事件来源。 */
+  private noteRevision(params: unknown): void {
+    if (!params || typeof params !== 'object') return;
+    const revision = (params as Record<string, unknown>).revision;
+    if (typeof revision === 'number' && Number.isInteger(revision) && revision >= 0) this.lastRevision = revision;
   }
 
   private forward(method: string, event: ZCodeEventEnvelope & Record<string, unknown>): void {
     const { eventId, sessionId, turnId, seq, traceId, timestamp, deliveryKind, ...rest } = event;
+    // 补发批走的是这条路（不经过 onNotification），水位同样要采纳。
+    this.noteRevision(rest);
     this.options.onEvent?.({
       kind: 'event',
       method,
@@ -242,72 +444,9 @@ export class ZCodeAgentAdapter {
     });
   }
 
-  /** 按信封分发事件；seq 水位去重，缺口事件先缓存、补齐后按序冲刷。 */
-  private dispatchSessionEvent(method: string, event: ZCodeEventEnvelope & Record<string, unknown>): void {
-    if (this.streamIncomplete) return; // 已标记不完整的流：不再放行，等下次 connect 重置。
-    // R1 审计 R4：事件必须属于当前 Adapter 的会话——别的会话（或伪造信封）
-    // 的事件不得推进本会话的水位或进入投影。
-    if (this.session !== undefined && event.sessionId !== this.session) return;
-    const seq = event.seq;
-    if (this.lastSeq !== undefined) {
-      if (seq <= this.lastSeq) return; // 重复/乱序：丢弃
-      if (seq > this.lastSeq + 1) {
-        // 缺口：不能立即转发（会把水位推过缺口，让补发事件被去重丢掉），先缓存。
-        this.pendingEvents.set(seq, { method, event });
-        this.scheduleResync();
-        return;
-      }
-    }
-    this.lastSeq = this.lastSeq === undefined ? seq : Math.max(this.lastSeq, seq);
-    this.forward(method, event);
-    // 补齐后按序冲刷连续的缓存事件。
-    let next = this.lastSeq + 1;
-    while (this.pendingEvents.has(next)) {
-      const buffered = this.pendingEvents.get(next)!;
-      this.pendingEvents.delete(next);
-      this.lastSeq = next;
-      this.forward(buffered.method, buffered.event);
-      next += 1;
-    }
-  }
-
-  /** seq 缺口时以 afterSeq 重发订阅补齐；并发重同步合并为一次，失败延迟重试。 */
-  private scheduleResync(): void {
-    if (this.resyncInFlight || this.streamIncomplete) return;
-    this.resyncInFlight = true;
-    void (async () => {
-      try {
-        const client = this.client;
-        if (!client || client.isExited || !this.session) return;
-        const result = await client.request('session/subscribe', {
-          sessionId: this.session,
-          deliveryKind: DELIVERY_KIND,
-          afterSeq: this.lastSeq ?? 0,
-          includeSnapshot: false,
-        });
-        this.applySubscribeResult(result);
-      } catch {
-        // 补发失败：保留缺口并延迟重试（R1 审计 06——不再按序放行不连续事件，
-        // 那会悄悄跳过丢失的序号，让投影层误以为看到了完整事件流）。
-      } finally {
-        this.resyncInFlight = false;
-        if (this.pendingEvents.size > PENDING_EVENTS_CAP) {
-          // 补齐遥遥无期：明确标记会话不完整并放弃缓冲，绝不静默丢事件。
-          this.streamIncomplete = true;
-          this.pendingEvents.clear();
-          this.options.onEvent?.({ kind: 'notification', method: 'session/streamIncomplete', payload: { reason: 'zcode-event-gap-unresolved' } });
-          return;
-        }
-        if (this.pendingEvents.size > 0) {
-          setTimeout(() => this.scheduleResync(), RESYNC_RETRY_MS);
-        }
-      }
-    })();
-  }
-
   /** 事件流是否因未补齐的缺口而不再完整（UI 可据此提示用户）。 */
   get isStreamIncomplete(): boolean {
-    return this.streamIncomplete;
+    return this.sync.incomplete;
   }
 
   private onServerRequest(id: ZCodeServerRequestId, method: string, params: unknown): void {
