@@ -35,6 +35,8 @@ rand = "0.8"
 # SEC-006/007：API key 与 GitHub PAT 存入操作系统级凭据管理器（Windows Credential
 # Manager / macOS Keychain / Linux keyutils），不再落到 WebView 的 localStorage 明文。
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
+# MCP stdio 子进程的规格校验与帧纪律（crate 内纯逻辑；进程管理在本壳 tokio 层）。
+process-supervisor = { path = "../../../crates/process-supervisor" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # AtomCode enables SChannel alongside Rustls on Windows because browser/curl-native traffic can
