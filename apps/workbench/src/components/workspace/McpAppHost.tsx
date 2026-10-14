@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildMcpAppSandbox, gateMcpAppMessage, injectContentSecurityPolicy, type McpAppAdmission } from '@awo/protocol';
 import { McpAppInstanceLease } from '../../runtime/zcode/mcp-app-lease';
+import { mcpAppDocumentUrl, releaseMcpAppDocument, stageMcpAppDocument } from '../../runtime/zcode/mcp-app-document-client';
 
 /**
  * MCP Apps 宿主：把已准入的交互式应用 HTML 渲染进沙箱 iframe。
@@ -35,13 +36,41 @@ export function toolCallResultMessage(toolCallId: string, ok: boolean, result: u
 
 export function McpAppHost({ admission, html, onToolCallRequest, onGateViolation }: McpAppHostProps) {
   const sandbox = useMemo(() => buildMcpAppSandbox(admission.manifest), [admission.manifest]);
-  const document = useMemo(() => injectContentSecurityPolicy(html, sandbox.contentSecurityPolicy), [html, sandbox.contentSecurityPolicy]);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   // 实例租约（R1 审计 R4-03）：iframe 每次（重新）加载都换代，迟到的工具结果
   // 只有代际仍匹配才回投——跨插件结果错投在投递边界被封闭。
   const leaseRef = useRef(new McpAppInstanceLease());
   const latest = useRef({ admission, onToolCallRequest, onGateViolation });
   latest.current = { admission, onToolCallRequest, onGateViolation };
+
+  // R4-01：优先走 `mcpapp://` 独立来源（CSP 为响应头、不受主窗口 CSP 继承限制）；
+  // 原生暂存不可用时回退 srcdoc + 注入 CSP（局限：主窗口 script-src 'self' 仍会
+  // 阻止内联脚本——回退路径只保证隔离，不保证应用能运行）。
+  const [servedUrl, setServedUrl] = useState<string>();
+  const [fallbackDocument, setFallbackDocument] = useState<string>();
+  const instanceIdRef = useRef(`app-${crypto.randomUUID()}`);
+  useEffect(() => {
+    let cancelled = false;
+    const csp = sandbox.contentSecurityPolicy;
+    void (async () => {
+      try {
+        await stageMcpAppDocument(instanceIdRef.current, html, csp);
+        if (!cancelled) {
+          setFallbackDocument(undefined);
+          setServedUrl(mcpAppDocumentUrl(instanceIdRef.current));
+        }
+      } catch {
+        if (!cancelled) {
+          setServedUrl(undefined);
+          setFallbackDocument(injectContentSecurityPolicy(html, csp));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      void releaseMcpAppDocument(instanceIdRef.current).catch(() => undefined);
+    };
+  }, [html, sandbox.contentSecurityPolicy]);
 
   useEffect(() => {
     const handler = (event: MessageEvent): void => {
@@ -90,17 +119,30 @@ export function McpAppHost({ admission, html, onToolCallRequest, onGateViolation
       <div style={{ color: 'var(--muted)', fontSize: 11 }}>
         沙箱化 MCP 应用：{admission.manifest.displayName} · 可调用工具 {admission.admittedToolNames.join('、') || '无'}
       </div>
-      <iframe
-        ref={frameRef}
-        sandbox={sandbox.sandboxAttributes.join(' ')}
-        srcDoc={document}
-        onLoad={() => {
-          // 每次文档（重新）加载都是新实例：旧代际的未决结果就此失效。
-          leaseRef.current.rotate();
-        }}
-        style={{ width: '100%', minHeight: 320, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--canvas)' }}
-        title={admission.manifest.displayName}
-      />
+      {servedUrl ? (
+        <iframe
+          ref={frameRef}
+          sandbox={sandbox.sandboxAttributes.join(' ')}
+          src={servedUrl}
+          onLoad={() => {
+            // 每次文档（重新）加载都是新实例：旧代际的未决结果就此失效。
+            leaseRef.current.rotate();
+          }}
+          style={{ width: '100%', minHeight: 320, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--canvas)' }}
+          title={admission.manifest.displayName}
+        />
+      ) : (
+        <iframe
+          ref={frameRef}
+          sandbox={sandbox.sandboxAttributes.join(' ')}
+          srcDoc={fallbackDocument ?? ''}
+          onLoad={() => {
+            leaseRef.current.rotate();
+          }}
+          style={{ width: '100%', minHeight: 320, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--canvas)' }}
+          title={admission.manifest.displayName}
+        />
+      )}
     </div>
   );
 }
