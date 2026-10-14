@@ -133,8 +133,9 @@ export function McpAppPanel() {
             <span style={{ color: 'var(--muted)', fontSize: 11, fontWeight: 750, letterSpacing: '.08em' }}>MCP APPS MOUNT</span>
             <h2 style={{ margin: '4px 0 6px', fontSize: 16 }}>挂载 MCP 应用</h2>
             <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.6 }}>
-              填写声明应用的服务器与其 manifesto，粘贴应用 HTML 后挂载。准入、沙箱与工具裁决全部在宿主侧完成；
-              当前尚未接入真实 MCP 连接——工具调用将以 unavailable 明确失败（界面可见），不会静默放行。
+              填写声明应用的服务器与其 manifest，粘贴应用 HTML 后挂载。准入、沙箱与工具裁决全部在宿主侧完成。
+              真实 MCP 服务器的工具用 <code>mcp__&lt;服务器&gt;__&lt;工具&gt;</code> canonical 名；宿主注入连接池与连接提供器后
+              工具调用直达真实服务器，未注入时以 unavailable 明确失败（界面可见），不会静默放行。
             </p>
           </div>
           <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
@@ -142,7 +143,7 @@ export function McpAppPanel() {
             <input style={inputStyle} value={form.serverId} onChange={(event) => setForm({ ...form, serverId: event.target.value })} placeholder="demo-server" />
           </label>
           <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
-            已注册工具（逗号分隔；manifest 请求的工具必须是其子集）
+            已注册工具（逗号分隔；manifest 请求的工具必须是其子集；真实服务器用 mcp__&lt;服务器&gt;__&lt;工具&gt; canonical 名）
             <input style={inputStyle} value={form.declaredTools} onChange={(event) => setForm({ ...form, declaredTools: event.target.value })} placeholder="read_note, write_note" />
           </label>
           <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>

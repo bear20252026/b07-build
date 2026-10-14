@@ -5,8 +5,9 @@
 //
 // 「真实 MCP 连接」的接入点就是 McpAppToolExecutor：谁真正持握 MCP 服务器
 // 连接（stdio/SSE 客户端、原生侧桥、ZCode agent-server 代理），谁实现这个
-// 接口并在 mount() 时注入。未注入时使用 fail-closed 缺省执行器——工具调用
-// 以明确原因失败，绝不放行、绝不静默成功。
+// 接口并在 mount() 时注入；也可以注入连接池（pool），由本控制器接上池化
+// 客户端执行器。两者都缺省时使用 fail-closed 缺省执行器——工具调用以明确
+// 原因失败，绝不放行、绝不静默成功。
 
 import {
   validateMcpAppManifest,
@@ -22,6 +23,8 @@ import {
   type McpAppToolGatewayResult,
   type McpAppToolRisk,
 } from './mcp-app-tool-gateway';
+import type { McpClientPool } from './mcp-client-pool';
+import { createMcpPoolToolExecutor } from './mcp-pool-executor';
 
 /** 真实 MCP 连接的执行器接缝：真正持握 MCP 服务器连接并执行工具的一端。 */
 export interface McpAppToolExecutor {
@@ -65,6 +68,9 @@ export interface McpAppMountRequest {
   readonly manifest: unknown;
   /** 真实 MCP 连接的执行器；缺省 = fail-closed 执行器（调用以 unavailable 失败）。 */
   readonly executor?: McpAppToolExecutor;
+  /** 真实 MCP 连接池（其工厂已接连接提供器）；提供且未显式给 executor 时，
+   *  缺省执行器走池化客户端——挂载点至此通电。 */
+  readonly pool?: McpClientPool;
   /** 工具风险分级表；缺省全部 high（必须人工裁决）。 */
   readonly riskTable?: Readonly<Record<string, McpAppToolRisk>>;
   /** 工具声明契约注册表；提供时风险从 ToolDescriptor.defaultRisk 读取。 */
@@ -91,7 +97,11 @@ export class McpAppMountController {
     if (!validated.ok) return validated;
     this.mountCounter += 1;
     const appInstanceId = request.appInstanceId ?? `mcpapp-mount-${this.mountCounter}`;
-    const executor = request.executor ?? createUnavailableMcpAppToolExecutor();
+    // 执行器优先级：显式注入 > 连接池（真实 MCP 客户端）> fail-closed 缺省。
+    const executor =
+      request.executor
+      ?? (request.pool === undefined ? undefined : createMcpPoolToolExecutor({ pool: request.pool, descriptors: request.tools }))
+      ?? createUnavailableMcpAppToolExecutor();
     this.gateway = new McpAppToolGateway({
       admittedToolNames: validated.admission.admittedToolNames,
       appInstanceId,
