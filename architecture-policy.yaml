@@ -29,17 +29,21 @@ modules:
     owner: protocol
 
   # —— 未实现能力的 fail-closed 契约占位：谓词恒 false、运行时全拒。——
-  # 零依赖契约层（最底层）：agent-runtime 与 workbench 都引用它，作为
-  # 「不可用」的单一事实源；占位标记见 package.json 的 awoCapabilityPlaceholder。
+  # 契约层（最底层）：agent-runtime 与 workbench 都引用它，作为「不可用」的
+  # 单一事实源；占位标记见 package.json 的 awoCapabilityPlaceholder。
+  # 浏览器 MCP 工具面复用 protocol 的 ToolDescriptor / ToolRegistry，故允许
+  # 依赖 protocol（protocol 自身 requires: []，不构成环）。
   - id: capability-placeholder
     roots: [packages/capability-placeholder/src]
     managed: true
-    requires: []
+    requires: [protocol]
     publicEntrypoints:
       - packages/capability-placeholder/src/index.ts
       - packages/capability-placeholder/src/capability-predicates.ts
       - packages/capability-placeholder/src/computer-use-runtime.ts
       - packages/capability-placeholder/src/permission-port.ts
+      - packages/capability-placeholder/src/browser-tool-surface.ts
+      - packages/capability-placeholder/src/browser-tool-handlers.ts
     owner: protocol
 
   # —— Provider 三层：纯配置 / 远端目录 / 执行适配。——

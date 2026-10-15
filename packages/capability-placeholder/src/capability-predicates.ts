@@ -37,6 +37,11 @@ export function canCaptureScreen(): false {
   return false;
 }
 
+/** 浏览器 MCP 工具面（会话生命周期 / 只读观测 / 导航与交互）是否可用。未实现，恒 false。 */
+export function canUseBrowserToolSurface(): false {
+  return false;
+}
+
 /** 浏览器会话快照所需的四个不可用位（一次取齐，避免调用方逐个 import）。 */
 export interface UnavailableCapabilityFlags {
   readonly canExecute: false;

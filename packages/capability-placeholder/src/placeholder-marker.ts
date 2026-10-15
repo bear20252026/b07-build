@@ -22,6 +22,7 @@ export const PLACEHOLDER_SURFACES = [
   'desktop-control',
   'screen-capture',
   'browser-session-execution',
+  'browser-tool-surface',
 ] as const;
 
 export type PlaceholderSurface = (typeof PLACEHOLDER_SURFACES)[number];
@@ -29,3 +30,10 @@ export type PlaceholderSurface = (typeof PLACEHOLDER_SURFACES)[number];
 /** 所有 fail-closed 结果共用的不可用说明（人类可读，含「未实现」事实）。 */
 export const CAPABILITY_UNAVAILABLE_TEXT =
   'AI Work OS 本构建不含桌面控制 / 计算机使用能力：该能力面未实现，一律报告 unavailable 并失败关闭。';
+
+/** 浏览器工具面「后端不可用」的稳定错误码（外部据此归因，不依赖文案）。 */
+export const BROWSER_TOOL_UNAVAILABLE_CODE = 'browser_tool_backend_unavailable' as const;
+
+/** 浏览器工具面不可用说明（人类可读；含「未实现后端」事实，供拒答文案复用）。 */
+export const BROWSER_TOOL_UNAVAILABLE_TEXT =
+  'AI Work OS 本构建不含浏览器自动化后端：浏览器 MCP 工具面（会话生命周期 / 只读观测 / 导航与交互）已声明但一律报告 unavailable 并失败关闭。';

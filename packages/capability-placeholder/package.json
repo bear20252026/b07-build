@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "awoCapabilityPlaceholder": true,
   "private": true,
-  "description": "fail-closed 契约占位包：本构建不含桌面控制 / 计算机使用能力，每一个运行时面都报告 unavailable 并失败关闭，谓词恒 false",
+  "description": "fail-closed 契约占位包：本构建不含桌面控制 / 计算机使用 / 浏览器自动化能力，每一个运行时面都报告 unavailable 并失败关闭，谓词恒 false",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -11,7 +11,12 @@
     ".": "./src/index.ts",
     "./predicates": "./src/capability-predicates.ts",
     "./computer-use": "./src/computer-use-runtime.ts",
-    "./permission": "./src/permission-port.ts"
+    "./permission": "./src/permission-port.ts",
+    "./browser-tools": "./src/browser-tool-surface.ts",
+    "./browser-handlers": "./src/browser-tool-handlers.ts"
   },
-  "files": ["src"]
+  "files": ["src"],
+  "dependencies": {
+    "@awo/protocol": "^0.6.0"
+  }
 }
