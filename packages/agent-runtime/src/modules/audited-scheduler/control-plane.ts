@@ -1,3 +1,5 @@
+// 一个文件=一种作用：Audited Scheduler 的 manifest/run 账本与审批控制面；只登记意图，不启动后台执行。
+// 递归防护（借 ZCode cron/off-peak handler 语义）：写定义看 automationTurn，派生工作看 offPeakTurn。
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -375,12 +377,77 @@ export class SqliteScheduledRunStore implements ScheduledRunStore {
 }
 
 /**
+ * 本轮事实：由 executor/调用方在进入 handler 前传入，handler 只读不推断。
+ * 自然语言无法靠关键词或正则可靠判定调度轮次，拒绝必须基于这些事实做最终裁决。
+ */
+export interface ScheduleTurnFacts {
+  /** 本轮是否由定时自动化调度发起（automation execution turn）。 */
+  automationTurn?: boolean;
+  /** 本轮是否为闲时/空闲派发轮（off-peak dispatch turn）。 */
+  offPeakTurn?: boolean;
+}
+
+export type ScheduleRecursionGuardCode =
+  | 'AUTOMATION_TURN_SCHEDULE_WRITE_DENIED'
+  | 'OFF_PEAK_TURN_DERIVATION_DENIED';
+
+/**
+ * 调度递归防护的稳定拒绝错误。`recoverable`/`retryable` 恒为 false：
+ * 调度轮内重试同一写/派生只会继续自我增殖，是确定性拒绝而非瞬态失败。
+ */
+export class ScheduleRecursionGuardError extends Error {
+  readonly code: ScheduleRecursionGuardCode;
+  readonly operation: string;
+  readonly turn: 'automation' | 'offPeak';
+  readonly recoverable = false;
+  readonly retryable = false;
+
+  constructor(code: ScheduleRecursionGuardCode, operation: string, turn: 'automation' | 'offPeak', detail: string) {
+    super(detail);
+    this.name = 'ScheduleRecursionGuardError';
+    this.code = code;
+    this.operation = operation;
+    this.turn = turn;
+  }
+}
+
+/**
+ * automation 轮禁写「任务定义」：登记/审查/启用/停用/撤销都会改写 schedule 定义，
+ * 调度轮内再改写会让一个定时任务无限自我增殖。只读入口（get/list/inbox）不受限。
+ */
+function assertDefinitionWriteAllowed(turn: ScheduleTurnFacts | undefined, operation: string): void {
+  if (turn?.automationTurn !== true) return;
+  throw new ScheduleRecursionGuardError(
+    'AUTOMATION_TURN_SCHEDULE_WRITE_DENIED',
+    operation,
+    'automation',
+    `${operation} 不允许在定时自动化执行轮内调用：调度轮内改写任务定义会让定时任务无限自我增殖。`,
+  );
+}
+
+/**
+ * 闲时派发轮禁「派生新工作」：`planDueRun` 会登记新的 run（派生后续调度）。
+ * 刻意不检查 `automationTurn`——cron 自动化轮放行派生（定时任务派发闲时工作是合法用法），
+ * 两条 deny 边界的判据不同，勿合并。
+ */
+function assertDerivationAllowed(turn: ScheduleTurnFacts | undefined, operation: string): void {
+  if (turn?.offPeakTurn !== true) return;
+  throw new ScheduleRecursionGuardError(
+    'OFF_PEAK_TURN_DERIVATION_DENIED',
+    operation,
+    'offPeak',
+    `${operation} 不允许在闲时派发轮内调用：闲时轮不得再派生新的调度工作。`,
+  );
+}
+
+/**
  * 本地审计调度控制面。`planDueRun()` 仅确定 due slot 并创建不可执行 run record；真实执行应由后续 runtime 在实时 policy、审批和预算复核后另行 claim。
  */
 export class AuditedScheduleControlPlane {
   constructor(private readonly manifests: ScheduleManifestStore, private readonly runs: ScheduledRunStore) {}
 
-  registerCandidate(request: RegisterScheduleRequest): ScheduleManifestV1 {
+  registerCandidate(request: RegisterScheduleRequest, turn?: ScheduleTurnFacts): ScheduleManifestV1 {
+    assertDefinitionWriteAllowed(turn, 'registerCandidate');
     assertRegisterRequest(request);
     if (this.manifests.load(request.id)) throw new Error(`Schedule ${request.id} 已存在`);
     const manifest: ScheduleManifestV1 = {
@@ -392,23 +459,28 @@ export class AuditedScheduleControlPlane {
     return copyScheduleManifest(manifest);
   }
 
-  review(id: string, reviewedBy: string, at: number, note?: string): ScheduleManifestV1 {
+  review(id: string, reviewedBy: string, at: number, note?: string, turn?: ScheduleTurnFacts): ScheduleManifestV1 {
+    assertDefinitionWriteAllowed(turn, 'review');
     return this.transition(id, 'reviewed', reviewedBy, at, note);
   }
 
-  enable(id: string, reviewedBy: string, at: number, note?: string): ScheduleManifestV1 {
+  enable(id: string, reviewedBy: string, at: number, note?: string, turn?: ScheduleTurnFacts): ScheduleManifestV1 {
+    assertDefinitionWriteAllowed(turn, 'enable');
     return this.transition(id, 'enabled', reviewedBy, at, note);
   }
 
-  disable(id: string, reviewedBy: string, at: number, note?: string): ScheduleManifestV1 {
+  disable(id: string, reviewedBy: string, at: number, note?: string, turn?: ScheduleTurnFacts): ScheduleManifestV1 {
+    assertDefinitionWriteAllowed(turn, 'disable');
     return this.transition(id, 'disabled', reviewedBy, at, note);
   }
 
-  revoke(id: string, reviewedBy: string, at: number, note?: string): ScheduleManifestV1 {
+  revoke(id: string, reviewedBy: string, at: number, note?: string, turn?: ScheduleTurnFacts): ScheduleManifestV1 {
+    assertDefinitionWriteAllowed(turn, 'revoke');
     return this.transition(id, 'revoked', reviewedBy, at, note);
   }
 
-  planDueRun(request: PlanScheduledRunRequest): ScheduleRunPlan {
+  planDueRun(request: PlanScheduledRunRequest, turn?: ScheduleTurnFacts): ScheduleRunPlan {
+    assertDerivationAllowed(turn, 'planDueRun');
     assertIdentifier(request.scheduleId, 'scheduleId');
     assertIdentifier(request.runId, 'runId');
     assertEpoch(request.at, 'at');
