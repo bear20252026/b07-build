@@ -17,6 +17,7 @@
     "packages/*/src/**/*.ts",
     "packages/*/test/**/*.ts",
     "packages/*/browser/**/*.ts",
-    "apps/*/src/**/*.ts"
+    "apps/*/src/**/*.ts",
+    "tools/**/*.ts"
   ]
 }

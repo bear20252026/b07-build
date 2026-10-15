@@ -10,7 +10,12 @@
   "scripts": {
     "typecheck": "tsc -b tsconfig.base.json",
     "architecture:dependencies": "depcruise apps packages --exclude \"(src-tauri[\\\\/](resources|target)|apps[\\\\/]workbench[\\\\/]dist)\" --config .dependency-cruiser.cjs --output-type err",
-    "architecture:check": "npm run architecture:dependencies && node tools/architecture-check.mjs",
+    "architecture:policy": "node --import tsx tools/architecture/policy.ts",
+    "architecture:policy:report": "node --import tsx tools/architecture/policy.ts report",
+    "architecture:baseline:update": "node --import tsx tools/architecture/policy.ts baseline:update",
+    "architecture:graph": "node --import tsx tools/architecture/graph.ts",
+    "architecture:graph:check": "node --import tsx tools/architecture/graph.ts --check",
+    "architecture:check": "npm run architecture:dependencies && node tools/architecture-check.mjs && npm run architecture:policy && npm run architecture:graph:check",
     "version:check": "node tools/verify-desktop-release-version.mjs",
     "test": "npm run architecture:check && node tools/run-tests.mjs",
     "test:unit": "node tools/run-tests.mjs",

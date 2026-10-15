@@ -1,0 +1,90 @@
+version: 1
+
+# AI Work OS 模块边界策略（spec-first 的“策略”一侧）。
+#
+# 治理流程：先改本文件声明模块边界，再改代码。`npm run architecture:check`
+# 会按本策略检查真实 import 图，并只对**新增**违规失败（存量违规在
+# `.architecture-baseline.json` 里做白名单）。
+#
+# 字段说明：
+#   - id：模块唯一标识。
+#   - roots：模块源码目录（仓库根相对路径），一个文件归属“最长匹配 root”的模块。
+#   - managed：true = 受强校验；false = 存量 legacy，只记录依赖、不阻塞。
+#     存量模块先标记为 legacy；新模块或完成迁移的模块设置 managed: true。
+#   - requires：允许依赖的模块 id 白名单，未声明的跨模块 import 会报
+#     `module-dependency`。
+#   - publicEntrypoints：允许被外部引用的入口文件；跨模块引用未走公开入口
+#     会报 `deep-import`。留空表示该模块不允许被任何模块引用。
+#   - owner：模块归属，用于定位评审人。
+
+modules:
+  # —— 契约层：协议唯一事实源，被 runtime / workbench 共同消费。——
+  - id: protocol
+    roots: [packages/protocol/src]
+    managed: true
+    requires: []
+    publicEntrypoints:
+      - packages/protocol/src/index.ts
+      - packages/protocol/src/task-event-browser-guard.ts
+    owner: protocol
+
+  # —— Provider 三层：纯配置 / 远端目录 / 执行适配。——
+  - id: provider-sdk
+    roots: [packages/provider-sdk/src]
+    managed: true
+    requires: []
+    publicEntrypoints:
+      - packages/provider-sdk/src/index.ts
+      - packages/provider-sdk/src/config/index.ts
+      - packages/provider-sdk/src/catalog/index.ts
+      - packages/provider-sdk/src/execution/index.ts
+    owner: provider
+
+  # 浏览器安全出口与 src 并列，只转发纯层实现，是展示层唯一可消费的出口。
+  - id: provider-sdk-browser
+    roots: [packages/provider-sdk/browser]
+    managed: true
+    requires: [provider-sdk]
+    publicEntrypoints:
+      - packages/provider-sdk/browser/index.ts
+    owner: provider
+
+  # —— 本地知识摄取 / 检索：可独立演进，不反向依赖其它包。——
+  - id: knowledge-workflow
+    roots: [packages/knowledge-workflow/src]
+    managed: true
+    requires: []
+    publicEntrypoints:
+      - packages/knowledge-workflow/src/index.ts
+    owner: knowledge
+
+  # —— 展示层：只通过协议与 provider-sdk 浏览器出口通信。——
+  - id: workbench
+    roots: [apps/workbench/src]
+    managed: true
+    requires: [protocol, provider-sdk-browser]
+    publicEntrypoints: []
+    owner: workbench
+
+  # —— 存量 legacy：体量大、仍在迁移，边界暂由 .dependency-cruiser.cjs 兜底。——
+  - id: agent-runtime
+    roots: [packages/agent-runtime/src]
+    managed: false
+    requires: [protocol]
+    publicEntrypoints:
+      - packages/agent-runtime/src/index.ts
+    owner: runtime
+
+  # 桌面宿主是 Rust/Tauri 控制面，没有 TS 源码面；登记以便依赖图完整。
+  - id: desktop-shell
+    roots: [apps/desktop-shell/src-tauri]
+    managed: false
+    requires: []
+    publicEntrypoints: []
+    owner: desktop
+
+global:
+  forbidCycles: true
+  forbidDeepImports: true
+  # true = 只对 managed 模块做边界校验；legacy 模块仅记录依赖关系。
+  managedOnly: true
