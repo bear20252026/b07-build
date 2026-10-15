@@ -233,8 +233,11 @@ test('明确 /github 命令只在本地打开确认式 GitHub 协作面板，不
 test('首页可明确选择任意已连接厂商与模型，并提供无敏感 Provider 时间线和搜索重试预填', () => {
   for (const expected of ['MODEL CONNECTION · DIRECT', '首页厂商连接', '首页模型标识', 'onSelectTaskModel', '不会修改地址、密钥或自动改用其他厂商']) assert.ok(chatHome.includes(expected), `首页缺少模型切换契约：${expected}`);
   for (const expected of ['homeModelChoices', 'isSelectableHomeModel', 'officialModelsForProvider', 'mimo-v2.5', 'mimo-v2.5-pro']) assert.ok(homeModelSwitching.includes(expected), `首页模型选择缺少：${expected}`);
-  const officialCatalog = readFileSync(resolve(root, 'apps/workbench/src/runtime/official-provider-catalog.ts'), 'utf8');
+  const officialCatalog = readFileSync(resolve(root, 'packages/provider-sdk/src/config/official-provider-presets.ts'), 'utf8');
   for (const expected of ['deepseek-v4-flash', 'deepseek-v4-flash-vision-exp', "id: 'kimi'", 'kimi-k2.7-code', "id: 'baidu-qianfan'", 'ernie-5.1', "id: 'baichuan'", 'Baichuan4-Turbo', "id: 'sensenova'", 'SenseChat-5', "id: 'doubao-ark'", "id: 'minimax'", "id: 'stepfun'", "id: 'iflytek-spark'"]) assert.ok(officialCatalog.includes(expected), `官方 Provider 目录缺少：${expected}`);
+  // 目录数据已迁入 provider-sdk 纯配置层；工作台出口必须继续转发，不得各留一份会漂移的清单。
+  const officialCatalogFacade = readFileSync(resolve(root, 'apps/workbench/src/runtime/official-provider-catalog.ts'), 'utf8');
+  assert.ok(officialCatalogFacade.includes('@awo/provider-sdk/browser'), '工作台 Provider 目录出口必须转发 provider-sdk 浏览器入口');
   for (const expected of ['createProviderTraceId', 'traceId', '不包含 API key、提示词、回复、图片数据或代理地址']) assert.ok(providerDiagnostics.includes(expected), `Provider 时间线缺少：${expected}`);
   for (const expected of ['SearchRunCard', 'onPrepareSearchRetry', '准备以同一后端重试']) assert.ok(chatHome.includes(expected), `搜索运行卡缺少：${expected}`);
   assert.ok(searchRunCard.includes('searchRunMode'));
@@ -300,7 +303,7 @@ test('Halo Search 必须位于最上层且不对标题栏施加模糊遮罩', ()
 
 test('DeepSeek V4 Flash 必须通过可见模型候选选择器呈现，同时继续允许手动模型标识', () => {
   for (const expected of ['首页模型候选', '切换当前会话的模型候选', '模型标识（可手动输入）', 'visibleChoices']) assert.ok(chatHome.includes(expected), `首页模型候选缺少：${expected}`);
-  const officialCatalog = readFileSync(resolve(root, 'apps/workbench/src/runtime/official-provider-catalog.ts'), 'utf8');
+  const officialCatalog = readFileSync(resolve(root, 'packages/provider-sdk/src/config/official-provider-presets.ts'), 'utf8');
   for (const expected of ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp']) assert.ok(officialCatalog.includes(expected), `DeepSeek 官方模型目录缺少：${expected}`);
 });
 
