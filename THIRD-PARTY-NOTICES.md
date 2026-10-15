@@ -55,6 +55,8 @@
 | `apps/workbench/src/runtime/gen-ui/gen-ui-bridge-host.ts` | 无直接上游出处（b07 编排层） | 本仓库新写：把 `@awo/protocol` 的 gen-ui parse/应答编排成可注入处理器的分发器，便于单测覆盖成功/失败/违规三条路径 |
 | `apps/workbench/src/components/workspace/GenUiHost.tsx` | `packages/ui/src/gen-ui/adapters/page.ts`、`packages/desktop/src/main/pluginSandbox/module.ts`（承载与文档供给思路） | 由 Electron 自建协议 + AppBridge 改写为 React 组件，复用 b07 既有 `mcpapp://` 文档暂存通道与沙箱策略；Tweak 控件改为工作台侧栏 React 面板渲染 |
 | `apps/workbench/src/components/observability/CompanionGenUiPanel.tsx` | 无直接上游出处（b07 真实接线） | 本仓库新写：陪伴面承载面板 + 示例「陪伴状态卡」页面，用于证明 Gen UI 双轨（生成 HTML + 桥 + 16KiB 状态 + Tweak）这条缝在工作台真实通电 |
+| `apps/workbench/src/runtime/zcode/mcp-app-gesture-token.ts` | `packages/desktop/src/main/pluginSandbox/registry.ts`（`PLUGIN_SANDBOX_USER_GESTURE_TTL_MS` 与 `markUserGesture` / `consumeUserGesture`） | 由 main 进程沙箱注册表的字段与两个方法裁剪为渲染层独立注册表类：5 秒 TTL 常量与「一次性消费——无论新鲜与否都清空、未打标/超时即 false（fail-closed）」语义逐字保留；去掉 sandbox 记录、TTL 清理、maxEntries 等与手势无关的注册表职责；时间源改为构造参数注入（对齐上游 `options.now`） |
+| `apps/workbench/src/runtime/zcode/mcp-app-gesture-marking.ts` | `packages/desktop/src/main/pluginSandbox/guestPolicy.ts`（`input-event` 的 `mouseDown` / `keyDown` / `rawKeyDown` → `markUserGesture`） | Electron guest 的 `input-event` 改为浏览器宿主文档的 `pointerdown` / `keydown`（捕获阶段）：b07 沙箱是不透明源 iframe，宿主观察不到 guest 内部的指针/键盘事件，故打标信号取顶层文档的用户交互（transient activation 语义） |
 
 ### 语义借用（非源码移植）
 

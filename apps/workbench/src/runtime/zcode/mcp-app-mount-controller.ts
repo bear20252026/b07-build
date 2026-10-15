@@ -77,6 +77,11 @@ export interface McpAppMountRequest {
   readonly tools?: ToolRegistry;
   /** medium/high 的人工裁决入口；未提供 = 这些风险一律拒绝（网关语义）。 */
   readonly approve?: (request: McpAppToolApprovalRequest) => Promise<boolean>;
+  /**
+   * 用户手势门（P2-2）：透传给工具网关。返回 true = 本次调用被新鲜的一次性
+   * 手势 token 背书；未提供 = 不做手势门（保留旧接线语义）。
+   */
+  readonly consumeUserGesture?: () => boolean;
   /** 应用实例标识；缺省由控制器按挂载次序生成。 */
   readonly appInstanceId?: string;
 }
@@ -107,6 +112,7 @@ export class McpAppMountController {
       appInstanceId,
       riskFor: (toolName) => resolveMcpAppToolRisk(toolName, request.tools, request.riskTable),
       approve: request.approve,
+      consumeUserGesture: request.consumeUserGesture,
       execute: (toolName, args) => executor.execute(toolName, args),
     });
     this.currentAdmission = validated.admission;
