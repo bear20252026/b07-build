@@ -63,4 +63,5 @@ export * from './trusted-desktop-issuer.js';
 export * from './plugin-marketplace-types.js';
 export * from './plugin-marketplace-store.js';
 export * from './plugin-marketplace.js';
+export * from './plugin-git-source.js';
 export * from './plugin-marketplace-cli.js';

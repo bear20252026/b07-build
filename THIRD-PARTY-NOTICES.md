@@ -76,4 +76,6 @@
 
 `packages/provider-sdk/src/config/capability/` 下的 provider 能力面分解与「可选能力即缺席」的**设计思想**借鉴自 `CloudCLI`（`@cloudcli-ai/cloudcli`，许可 AGPL-3.0-or-later）：**未复制其任何代码**，仅借鉴「能力按面切分、可选能力以字段缺席表达」的接口切分思路，实现为 b07 自身风格独立重写。此处如实声明设计来源，以免被误认为原创。
 
+`packages/agent-runtime/src/plugin-marketplace.ts` 的市场条目路径越界校验、以及 `packages/agent-runtime/src/plugin-git-source.ts` 的「从克隆目录 `.git/config` 反解仓库来源（provenance）」**设计思想**同样借鉴自 `CloudCLI`（`@cloudcli-ai/cloudcli`，许可 AGPL-3.0-or-later）：该许可与本仓库（MIT）**不兼容**，故**未复制其任何代码**——不复制文件、不逐行翻译、不沿用其命名与注释，只借鉴设计并按 b07 形态独立重写。b07 形态：路径越界收敛为「拒绝 `..`、拒绝绝对路径、解析后必须落在市场根目录内，否则产出 `plugin_marketplace_entry_escaped` 诊断并 fail closed」；git 调用收敛为可注入的 `GitRunner`（生产实现用 `child_process` 参数数组、不经 shell、设超时）。
+
 移植文件头部均带有出处注释。对上游代码的修改遵循 Apache-2.0 的再分发条款（保留许可与版权声明、标注修改）。

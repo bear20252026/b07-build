@@ -101,6 +101,7 @@ function formatListingJson(listing: PluginMarketplaceListing): Record<string, un
       rootPath: record.rootPath,
       installedAt: record.installedAt,
       ...(record.appId ? { appId: record.appId } : {}),
+      ...(record.provenance ? { provenance: record.provenance } : {}),
     })),
     apps: listing.apps.map((app) => ({ id: app.id, displayName: app.displayName, status: app.status, revision: app.revision })),
   };
@@ -119,6 +120,7 @@ function formatInstallJson(result: InstallPluginResult): Record<string, unknown>
             rootPath: result.installed.rootPath,
             installedAt: result.installed.installedAt,
             ...(result.installed.appId ? { appId: result.installed.appId } : {}),
+            ...(result.installed.provenance ? { provenance: result.installed.provenance } : {}),
           },
         }
       : {}),
