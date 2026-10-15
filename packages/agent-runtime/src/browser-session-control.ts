@@ -3,6 +3,12 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
+import {
+  evaluatePublicEgressHost,
+  isEgressIpLiteral,
+  normalizeEgressHostname,
+} from './network/egress-policy.js';
+
 export const BROWSER_SESSION_SCHEMA_VERSION = 1 as const;
 export type BrowserSessionStatus = 'requested' | 'authorized' | 'paused' | 'ended' | 'failed';
 export type BrowserSessionEventType = 'requested' | 'authorized' | 'paused' | 'resumed' | 'ended' | 'failed';
@@ -75,10 +81,17 @@ function normalizedReason(value: string | undefined): string | undefined {
 function targetFromUrl(raw: string): { host: string; scopeDigest: string } {
   let parsed: URL;
   try { parsed = new URL(raw); } catch { throw new Error('targetUrl 必须是有效 HTTPS URL'); }
-  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port || parsed.hostname === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(parsed.hostname) || parsed.hostname.includes(':')) {
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port) {
     throw new Error('浏览目标只允许公网 HTTPS 主机，不允许凭据、本机、IP 或自定义端口');
   }
-  const host = parsed.hostname.toLowerCase();
+  // 先归一化（去方括号、去末尾点、转小写），否则 `https://127.0.0.1./` 与
+  // `https://foo.localhost/` 都能绕过本机判定。
+  const host = normalizeEgressHostname(parsed.hostname);
+  const decision = evaluatePublicEgressHost(host);
+  // 浏览会话比通用出网更严：除公网判定外，任何 IP 字面量也一律拒绝。
+  if (!decision.allowed || isEgressIpLiteral(host)) {
+    throw new Error('浏览目标只允许公网 HTTPS 主机，不允许凭据、本机、IP 或自定义端口');
+  }
   return { host, scopeDigest: createHash('sha256').update(`${parsed.protocol}//${host}`).digest('hex') };
 }
 

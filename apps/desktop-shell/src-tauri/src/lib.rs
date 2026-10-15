@@ -332,6 +332,7 @@ pub fn run() {
             searxng_local::stop_searxng_local,
             searxng_local::searxng_local_status,
             desktop_diagnostics,
+            terminal::classify_terminal_command,
             terminal::start_terminal_command,
             terminal::cancel_terminal_command,
             file_extract::extract_file_content,
