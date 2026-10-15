@@ -67,3 +67,9 @@ export * from './plugin-marketplace-store.js';
 export * from './plugin-marketplace.js';
 export * from './plugin-git-source.js';
 export * from './plugin-marketplace-cli.js';
+// 外部来源会话增量反向索引（B5）：可注入来源适配器（discover/read 两段式）+ 增量索引器
+// （稳定身份幂等 + 先占位后读的竞态守卫 + 游标水位续跑 + 越界/损坏/超大 fail closed）。
+export * from './external-session-index-types.js';
+export * from './external-session-source.js';
+export * from './external-session-index-store.js';
+export * from './external-session-index.js';

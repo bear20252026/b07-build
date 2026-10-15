@@ -80,4 +80,6 @@
 
 `packages/capability-placeholder/src/browser-tool-surface.ts` 与 `browser-tool-handlers.ts` 的**浏览器能力 MCP 工具面切分设计**（把宿主浏览器能力以 MCP server 形式暴露给 Agent，工具面按「会话生命周期 / 只读观测 / 导航与交互」三类切分，以及每个工具的粒度与参数大致为何）借鉴自 `CloudCLI`（`@cloudcli-ai/cloudcli`，许可 AGPL-3.0-or-later）：该许可与本仓库（MIT）**不兼容**，故**未复制其任何代码**——不复制文件、不逐行翻译、不沿用其命名与注释。b07 形态：工具元数据复用 `@awo/protocol` 的 `ToolDescriptor` / `ToolRegistry`（命名走 `mcp__<server>__<tool>`），副作用标注逐工具按语义定，缺省处理器全拒（稳定错误码 `browser_tool_backend_unavailable`）并复用本包既有的「不可用」占位姿态。
 
+`packages/agent-runtime/src/external-session-{index-types,source,index-store,index}.ts` 的**外部来源会话增量反向索引**，以及其中「索引器写库必须早于文件监听器把同一文件当成无关新会话」的**竞态处理**设计，借鉴自 `CloudCLI`（`@cloudcli-ai/cloudcli`，许可 AGPL-3.0-or-later）：该许可与本仓库（MIT）**不兼容**，故**未复制其任何代码**——不复制文件、不逐行翻译、不沿用其命名与注释，只借鉴设计并按 b07 形态独立重写。b07 形态：来源适配器收敛为可注入的两段式契约（`discover()` 只列候选 / `read()` 读单文件并归一化），默认实现解析 b07 自定义的 JSON Lines 会话文件；稳定身份分两层（文件级「来源 id + 归一化路径」作会话主键保证同一会话一条记录，内容级「再加内容摘要」作幂等身份）；竞态以「先 `claim()` 占位登记、再读内容、失败 `rollback()`」+ 主键唯一与 upsert 收敛为一条记录；越界/损坏/超大/未知形态一律 fail closed 并产出稳定诊断码。
+
 移植文件头部均带有出处注释。对上游代码的修改遵循 Apache-2.0 的再分发条款（保留许可与版权声明、标注修改）。
