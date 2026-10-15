@@ -2,6 +2,11 @@
 // 上游参考：ZCode `packages/provider/src/registry.ts`。
 
 import { compileModelOptionMap, resolveModelOptionValues } from './option-map.js';
+import {
+  probeProviderCapabilities,
+  type ProviderCapabilityFacets,
+  type ProviderCapabilityManifest,
+} from './capability/index.js';
 import type { ModelId, ModelSelection, ProviderDefinition, ProviderId, ProviderModelDefinition } from './types.js';
 
 export type ModelSelectionValidation =
@@ -41,6 +46,8 @@ export class ProviderRegistry {
   #view: ProviderRegistryView;
   #providerById = new Map<ProviderId, ProviderDefinition>();
   #modelByProviderId = new Map<ProviderId, Map<ModelId, ProviderModelDefinition>>();
+  /** 能力集合与连接描述分开登记：连接描述是纯数据，能力集合持有运行时对象。 */
+  #capabilitiesByProviderId = new Map<ProviderId, ProviderCapabilityFacets>();
   readonly #listeners = new Set<(event: ProviderRegistryChangedEvent) => void>();
 
   constructor(providers: readonly ProviderDefinition[] = []) {
@@ -115,10 +122,40 @@ export class ProviderRegistry {
     return model ? resolveModelOptionValues(model.optionSpecs, options) : undefined;
   }
 
+  /**
+   * 登记一个 provider 的能力集合。
+   * 只允许为已登记的 provider 登记——为未知 provider 登记能力属于编程错误，直接拒绝。
+   * 与 `replace`（整体替换连接目录）解耦：连接描述可由远端目录刷新，能力集合由宿主装配。
+   */
+  registerCapabilities(providerId: ProviderId, facets: ProviderCapabilityFacets): void {
+    if (!this.#providerById.has(providerId)) {
+      throw new Error(`无法为未登记的 Provider 登记能力：${providerId}`);
+    }
+    this.#capabilitiesByProviderId.set(providerId, facets);
+  }
+
+  /** 读取已登记的能力集合；未登记返回 undefined。 */
+  getCapabilities(providerId: ProviderId): ProviderCapabilityFacets | undefined {
+    return this.#capabilitiesByProviderId.get(providerId);
+  }
+
+  /**
+   * 产出该 provider 的稳定能力清单；provider 未登记时返回 undefined。
+   * 已登记但未登记能力集合的 provider 返回「全部不可用」的清单（fail-closed）。
+   */
+  describeCapabilities(providerId: ProviderId): ProviderCapabilityManifest | undefined {
+    if (!this.#providerById.has(providerId)) return undefined;
+    return probeProviderCapabilities(this.#capabilitiesByProviderId.get(providerId));
+  }
+
   /** 整体替换目录；revision 自增并广播给订阅者。 */
   replace(providers: readonly ProviderDefinition[], reason: string): void {
     this.#view = freezeView(this.#view.revision + 1, providers);
     this.#rebuildIndexes();
+    // 目录里已消失的 provider，其能力集合一并清掉，避免留下指向不存在 provider 的悬挂能力。
+    for (const providerId of [...this.#capabilitiesByProviderId.keys()]) {
+      if (!this.#providerById.has(providerId)) this.#capabilitiesByProviderId.delete(providerId);
+    }
     const event = Object.freeze({ revision: this.#view.revision, reason });
     for (const listener of this.#listeners) listener(event);
   }
