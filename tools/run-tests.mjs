@@ -2,7 +2,7 @@ import { readdir } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { join, relative, sep } from 'node:path';
 
-const roots = ['packages', 'apps'];
+const roots = ['packages', 'apps', 'tools'];
 const ignoredDirectories = new Set(['node_modules', 'dist', 'target', 'resources', '.git']);
 
 async function collectTests(directory) {
