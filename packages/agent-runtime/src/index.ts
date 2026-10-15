@@ -58,3 +58,9 @@ export * from './infrastructure/sqlite/native-host-authentication-store.js';
 export * from './infrastructure/sqlite/component-management-receipt-store.js';
 export * from './infrastructure/sqlite/component-provenance-store.js';
 export * from './trusted-desktop-issuer.js';
+// 插件市场 CLI（P1-4）：市场源解析、已知市场持久化、插件包清单校验（兼容 .claude-plugin/plugin.json）、
+// add/install/enable/list 子命令，install 落 McpAppRegistry。
+export * from './plugin-marketplace-types.js';
+export * from './plugin-marketplace-store.js';
+export * from './plugin-marketplace.js';
+export * from './plugin-marketplace-cli.js';

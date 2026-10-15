@@ -1,0 +1,6 @@
+{
+  "name": "@awo/tools",
+  "private": true,
+  "type": "module",
+  "description": "仓库工具脚本（Node ESM）；显式声明 type=module 让 tools/*.ts 以 ESM 运行（tsx）。"
+}
