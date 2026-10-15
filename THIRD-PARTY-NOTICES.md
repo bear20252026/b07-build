@@ -57,6 +57,7 @@
 | `apps/workbench/src/components/observability/CompanionGenUiPanel.tsx` | 无直接上游出处（b07 真实接线） | 本仓库新写：陪伴面承载面板 + 示例「陪伴状态卡」页面，用于证明 Gen UI 双轨（生成 HTML + 桥 + 16KiB 状态 + Tweak）这条缝在工作台真实通电 |
 | `apps/workbench/src/runtime/zcode/mcp-app-gesture-token.ts` | `packages/desktop/src/main/pluginSandbox/registry.ts`（`PLUGIN_SANDBOX_USER_GESTURE_TTL_MS` 与 `markUserGesture` / `consumeUserGesture`） | 由 main 进程沙箱注册表的字段与两个方法裁剪为渲染层独立注册表类：5 秒 TTL 常量与「一次性消费——无论新鲜与否都清空、未打标/超时即 false（fail-closed）」语义逐字保留；去掉 sandbox 记录、TTL 清理、maxEntries 等与手势无关的注册表职责；时间源改为构造参数注入（对齐上游 `options.now`） |
 | `apps/workbench/src/runtime/zcode/mcp-app-gesture-marking.ts` | `packages/desktop/src/main/pluginSandbox/guestPolicy.ts`（`input-event` 的 `mouseDown` / `keyDown` / `rawKeyDown` → `markUserGesture`） | Electron guest 的 `input-event` 改为浏览器宿主文档的 `pointerdown` / `keydown`（捕获阶段）：b07 沙箱是不透明源 iframe，宿主观察不到 guest 内部的指针/键盘事件，故打标信号取顶层文档的用户交互（transient activation 语义） |
+| `apps/workbench/src/runtime/zcode/mcp-app-origin.ts` | `packages/desktop/src/main/pluginSandbox/contract.ts`（`PLUGIN_SANDBOX_PARTITION_PREFIX`、`buildPluginSandboxPartition`）、`packages/desktop/src/main/pluginSandbox/host.ts`（孤儿 partition 正则 `^plugin-sandbox-v[12]-[a-f0-9]+$`） | 由 main 进程的 Electron partition 改写为渲染层纯逻辑：保留「`<前缀><hash>` 命名 + 按前缀正则识别孤儿」的做法，去掉 session / `clearStorageData` 等原生部分（b07 无 partition，清理动作列为未做）；哈希由 `node:crypto` 的 sha256（64 hex）改为纯 TS 的 FNV-1a 64 位（16 hex）——工作台是浏览器上下文、无同步加密摘要；新增 `deriveMcpAppSandboxLabel`，把派生标签放进 `mcpapp://` 的 **host**，使同一 app 得到稳定 origin、不同 app 得到隔离 origin |
 
 ### 语义借用（非源码移植）
 
