@@ -28,6 +28,20 @@ modules:
       - packages/protocol/src/task-event-browser-guard.ts
     owner: protocol
 
+  # —— 未实现能力的 fail-closed 契约占位：谓词恒 false、运行时全拒。——
+  # 零依赖契约层（最底层）：agent-runtime 与 workbench 都引用它，作为
+  # 「不可用」的单一事实源；占位标记见 package.json 的 awoCapabilityPlaceholder。
+  - id: capability-placeholder
+    roots: [packages/capability-placeholder/src]
+    managed: true
+    requires: []
+    publicEntrypoints:
+      - packages/capability-placeholder/src/index.ts
+      - packages/capability-placeholder/src/capability-predicates.ts
+      - packages/capability-placeholder/src/computer-use-runtime.ts
+      - packages/capability-placeholder/src/permission-port.ts
+    owner: protocol
+
   # —— Provider 三层：纯配置 / 远端目录 / 执行适配。——
   - id: provider-sdk
     roots: [packages/provider-sdk/src]
@@ -62,7 +76,7 @@ modules:
   - id: workbench
     roots: [apps/workbench/src]
     managed: true
-    requires: [protocol, provider-sdk-browser]
+    requires: [protocol, provider-sdk-browser, capability-placeholder]
     publicEntrypoints: []
     owner: workbench
 
@@ -70,7 +84,7 @@ modules:
   - id: agent-runtime
     roots: [packages/agent-runtime/src]
     managed: false
-    requires: [protocol]
+    requires: [protocol, capability-placeholder]
     publicEntrypoints:
       - packages/agent-runtime/src/index.ts
     owner: runtime
