@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type { McpAppAdmission, McpAppHostingServer } from '@awo/protocol';
-import { McpAppHost } from './McpAppHost';
+import { McpAppPageHost } from './McpAppPageHost';
 import { ApprovalRequestQueue, type ApprovalDecision } from '../../runtime/zcode/approval-request-queue';
 import { McpAppMountController } from '../../runtime/zcode/mcp-app-mount-controller';
 import type { McpAppToolApprovalRequest, McpAppToolAuditEntry } from '../../runtime/zcode/mcp-app-tool-gateway';
@@ -8,6 +8,9 @@ import type { McpAppToolApprovalRequest, McpAppToolAuditEntry } from '../../runt
 /**
  * MCP Apps 挂载点：把已准入的应用渲染进沙箱宿主，并把工具调用接到宿主侧
  * 工具授权网关（R4-04 风险分级 + 人工裁决 + 并发/超时 + 审计轨迹）。
+ *
+ * 渲染经 McpAppPageHost（页面管理器层）：按逻辑键共享页面实例、离屏回收、
+ * 活页/任务容量准入与准入串行；本面板只负责表单与工具裁决。
  *
  * 边界（与 McpAppHost 注释一致）：
  * - 准入来自 @awo/protocol 的 validateMcpAppManifest（服务器 + manifest 双向校验）；
@@ -166,7 +169,14 @@ export function McpAppPanel() {
             <span style={{ color: 'var(--muted)', fontSize: 11, fontWeight: 750, letterSpacing: '.08em' }}>MCP APPS MOUNT</span>
             <button type="button" onClick={onUnmount} title="卸载应用并丢弃网关与审计轨迹">卸载应用</button>
           </div>
-          <McpAppHost admission={admission} html={form.html} onToolCallRequest={onToolCallRequest} onGateViolation={onGateViolation} />
+          <McpAppPageHost
+            pageKey={`mcpapp:${admission.manifest.id}`}
+            taskKey="mcp-apps-panel"
+            admission={admission}
+            html={form.html}
+            onToolCallRequest={onToolCallRequest}
+            onGateViolation={onGateViolation}
+          />
         </section>
       )}
 
