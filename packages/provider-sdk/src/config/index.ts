@@ -3,5 +3,6 @@
 export * from './types.js';
 export * from './option-map.js';
 export * from './registry.js';
+export * from './capability/index.js';
 export * from './official-provider-presets.js';
 export * from './builtin-provider-definitions.js';

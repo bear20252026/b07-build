@@ -74,4 +74,6 @@
 
 `packages/provider-sdk/src/config/official-provider-presets.ts` 与 `packages/provider-sdk/browser/index.ts` 不是上游代码：前者是 b07 `apps/workbench/src/runtime/official-provider-catalog.ts` 的数据与查询规则**整段迁移**（原文件改为转发），后者是本仓库新增的浏览器安全出口；两者一并记录在此以免被误认为上游移植。
 
+`packages/provider-sdk/src/config/capability/` 下的 provider 能力面分解与「可选能力即缺席」的**设计思想**借鉴自 `CloudCLI`（`@cloudcli-ai/cloudcli`，许可 AGPL-3.0-or-later）：**未复制其任何代码**，仅借鉴「能力按面切分、可选能力以字段缺席表达」的接口切分思路，实现为 b07 自身风格独立重写。此处如实声明设计来源，以免被误认为原创。
+
 移植文件头部均带有出处注释。对上游代码的修改遵循 Apache-2.0 的再分发条款（保留许可与版权声明、标注修改）。

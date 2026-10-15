@@ -9,10 +9,22 @@ import { fileURLToPath } from 'node:url';
 
 const configDirectory = fileURLToPath(new URL('../src/config', import.meta.url));
 
+/** 递归收集配置层源文件；能力面契约子目录与配置层同守「零 IO」铁律，因此一并纳入。 */
 function configSources(): readonly { readonly name: string; readonly text: string }[] {
-  return readdirSync(configDirectory)
-    .filter((name) => name.endsWith('.ts'))
-    .map((name) => ({ name, text: readFileSync(join(configDirectory, name), 'utf8') }));
+  return collectSources(configDirectory, 'config');
+}
+
+function collectSources(directory: string, prefix: string): { name: string; text: string }[] {
+  const sources: { name: string; text: string }[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const relative = `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) {
+      sources.push(...collectSources(join(directory, entry.name), relative));
+    } else if (entry.name.endsWith('.ts')) {
+      sources.push({ name: relative, text: readFileSync(join(directory, entry.name), 'utf8') });
+    }
+  }
+  return sources;
 }
 
 const FORBIDDEN_PATTERNS: readonly { readonly label: string; readonly pattern: RegExp }[] = [
