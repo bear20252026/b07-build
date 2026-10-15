@@ -36,10 +36,22 @@
 | `apps/workbench/src/runtime/zcode/plugin-page-registry.ts` | `packages/ui/src/plugin-ui/adapters/pluginUiPageRegistry.ts`、`adapters/sandboxPageOwners.ts` | 由 React/DOM 适配器改写为不依赖 DOM 的引用计数注册表：保留 `acquire` 去重与 `subscribe/notify` 语义，新增引用计数（归零才把页面标记为离屏、交给管理器按宽限期回收）与并发创建去重；去掉 window beforeunload 监听与锚点绑定 |
 | `apps/workbench/src/runtime/zcode/mcp-app-page.ts` | `packages/ui/src/plugin-ui/adapters/pluginUiManagedPage.ts`（Page 生命周期子集） | 只裁剪出页面的活跃/忙碌状态机与订阅（`busy`/`running`/`suspend`/`destroy`/`subscribe`），去掉 controller、AppBridge、连接/通知 feed、widgetState 等宿主实现 |
 
+| `packages/provider-sdk/src/config/types.ts` | `packages/provider/src/config/provider-config.ts`、`packages/provider/src/config/model-config.ts`（Provider / Model 定义与选项规格的形状） | 收敛为 b07 需要的最小字段集（providerId / providerName / protocol / defaultBaseUrl / defaultModel / models）；去掉 zod schema、account 与 endpoint 相关字段；`ModelOptionSpec` 改为「JSON 模板文本 + `$name` 引用」表达映射 |
+| `packages/provider-sdk/src/config/registry.ts` | `packages/provider/src/registry.ts` | 保留 revision 自增、`replace`、`onDidChange`、重复 provider/model id 拒绝的语义；`validateSelection` 由上游硬编码的 reasoningLevel 校验改为按模型自带 `optionSpecs` 泛化校验，并在通过时直接产出请求体补丁；失败码由 `reasoning-level-missing` / `reasoning-level-not-supported` 收敛为 `option-not-supported` |
+| `packages/provider-sdk/src/config/option-map.ts` | `packages/model-option-map`（tokenizer / parser / compiler / evaluator / merge-patch） | 不移植表达式语言，只保留一档：JSON 模板 + `$name` 引用 + 深合并；新增 `values` 取值闭集校验与 `defaultValue` 回填，错误以稳定 code（`map-not-json` / `map-not-object` / `value-not-supported` / `unresolved-reference`）外显 |
+| `packages/provider-sdk/src/catalog/remote-catalog.ts` | `packages/provider-node/src/zcode-builtin-remote-synchronizer.ts`、`packages/provider-node/src/zcode-builtin-provider-config-source.ts`（远端同步与来源物化思路） | 由「下载归档并写入运行时缓存目录」改写为「注入式 fetch + 纯内存快照」：不落盘、不读环境变量、不拼接 URL；负载形状不合法即整批作废（不做部分接受），错误码收敛为 `catalog-network-error` / `catalog-http-error` / `catalog-invalid-payload` |
+| `packages/provider-sdk/src/catalog/materialize.ts` | `packages/provider-node/src/zcode-builtin-provider-config-materializer.ts` | 物化规则改为「按 providerId 整条覆盖」，不做字段级合并——避免远端只改 baseUrl 时把内置模型挂到远端地址上 |
+| `packages/provider-sdk/src/execution/failure-inspection.ts` | `apps/zcode-cli/packages/adapters/src/model/failure-inspection.ts`、`apps/zcode-cli/packages/adapters/src/model/failure-tls.ts` | 去掉 `ai` 包的 `APICallError` / `RetryError` 依赖，改为鸭子类型沿 `cause` 链读取，故本层零依赖；修正上游「数组对头先判 `forEach`」导致 `[名, 值]` 形态响应头被静默丢弃的陷阱（retry-after 会一起丢） |
+| `packages/provider-sdk/src/execution/failure-classifier.ts` | `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts` | 去掉 `@zcode/contracts` 枚举与 `ProviderBusinessError` 依赖，改用本包字符串闭集；不移植厂商业务码表，只读错误对象自带的 `providerCode` 与响应体 code；新增 `extractProviderErrorCode`（b07 桌面直连的稳定错误码前缀）供诊断复用 |
+| `packages/provider-sdk/src/execution/retry-policy.ts` | `apps/zcode-cli/packages/adapters/src/model/retry-budget.ts`、`apps/zcode-cli/packages/adapters/src/model/retry-policy.ts` | 合并两份为单一入口；`ModelRetryBudget` 枚举改为字符串闭集（`default` / `unbounded` / `single-attempt`）；新增 `retryDelayMs`：Retry-After 优先、`maxDelayMs` 封顶、等量抖动且随机源可注入（测试确定性） |
+| `packages/provider-sdk/src/execution/secret-guard.ts` | `apps/zcode-cli/packages/adapters/src/model/runner-network-headers.ts`、`apps/zcode-cli/packages/adapters/src/model/model-request-headers.ts`、`apps/zcode-cli/packages/adapters/src/model/request-security.ts` | 上游 `protectTransport` 在本仓库是空实现，这里补上真实语义：登记本次请求的密钥词表（显式密钥 + 敏感头值），传输失败时抛出脱敏后的 `ProviderTransportError`，只挂脱敏原因摘要、绝不挂原始错误对象；新增 `safeEndpointLabel`（源自 b07 `apps/workbench/src/runtime/provider-diagnostics.ts` 的 `safeBaseUrl`） |
+
 ### 语义借用（非源码移植）
 
 `apps/workbench/src/runtime/zcode/zcode-agent-adapter.ts` 与 `zcode-protocol-client.ts` 只借用上游**协议事实**，未移植实现代码：CAS 失败错误码 `-32009` 与 `data.actualRevision`（上游 `assertExpectedRevision`）、`session/subscribe` 的 `afterSeq`/`includeSnapshot` 续播与快照形态、`session/send` 的 `inputId`/`expectedRevision` 参数。上游为 Apache-2.0，此处按其条款声明出处。
 
 `apps/workbench/src/components/workspace/McpAppPageHost.tsx` 只借用上游 `packages/ui/src/plugin-ui/adapters/pluginUiPagePlane.ts` 的**锚点绑定与可见性上报**思路（锚点进出视口驱动页面保活/回收），未移植其 Electron webview 承载层代码：改写为 React 组件 + `IntersectionObserver`，页面渲染仍交给本仓库既有的 `McpAppHost` 沙箱 iframe。
+
+`packages/provider-sdk/src/config/official-provider-presets.ts` 与 `packages/provider-sdk/browser/index.ts` 不是上游代码：前者是 b07 `apps/workbench/src/runtime/official-provider-catalog.ts` 的数据与查询规则**整段迁移**（原文件改为转发），后者是本仓库新增的浏览器安全出口；两者一并记录在此以免被误认为上游移植。
 
 移植文件头部均带有出处注释。对上游代码的修改遵循 Apache-2.0 的再分发条款（保留许可与版权声明、标注修改）。

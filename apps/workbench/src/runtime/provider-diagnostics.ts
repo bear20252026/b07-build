@@ -1,3 +1,4 @@
+import { extractProviderErrorCode, safeEndpointLabel } from '@awo/provider-sdk/browser';
 import { loadDirectProviderAccounts } from './direct-provider-accounts';
 import type { DirectProviderProtocol } from './direct-provider-client';
 import { recordDirectUsageLedger } from './direct-provider-usage-ledger';
@@ -43,21 +44,8 @@ export function createProviderTraceId(): string {
   return `direct-${Date.now().toString(36)}-${traceSequence.toString(36)}`;
 }
 
-function safeBaseUrl(value: string): string {
-  try {
-    const url = new URL(value);
-    return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, '') || '/'}`;
-  } catch {
-    return '无效 Base URL';
-  }
-}
-
-function errorCode(value: unknown): string | undefined {
-  const text = value instanceof Error ? value.message : String(value ?? '');
-  const match = text.match(/\b(provider|api-key|base-url|model|messages|message-images)-[a-z0-9-]+\b/i);
-  return match?.[0].toLowerCase();
-}
-
+// Base URL 脱敏与错误码抽取都由 provider-sdk 执行适配层提供：
+// 前者保证用户信息/查询参数/片段不进报告，后者只认稳定错误码前缀、绝不回退成原始 message。
 function accountFor(providerId: string) {
   return loadDirectProviderAccounts().find((account) => account.providerId === providerId);
 }
@@ -76,6 +64,7 @@ export function recordProviderDiagnostic(input: Readonly<{
   includedImages?: boolean;
 }>): void {
   const account = accountFor(input.providerId);
+  const failureCode = input.outcome === 'failed' ? extractProviderErrorCode(input.error) : undefined;
   const entry: ProviderDiagnosticEntry = {
     schemaVersion: 1,
     traceId: input.traceId ?? createProviderTraceId(),
@@ -87,11 +76,11 @@ export function recordProviderDiagnostic(input: Readonly<{
     providerId: input.providerId,
     displayName: account?.displayName ?? input.providerId,
     protocol: account?.protocol ?? 'unknown',
-    baseUrl: safeBaseUrl(account?.baseUrl ?? ''),
+    baseUrl: safeEndpointLabel(account?.baseUrl ?? ''),
     model: input.model?.trim() || account?.model || '未记录模型',
     stage: input.stage,
     outcome: input.outcome,
-    ...(input.outcome === 'failed' && errorCode(input.error) ? { errorCode: errorCode(input.error) } : {}),
+    ...(failureCode ? { errorCode: failureCode } : {}),
     includedImages: Boolean(input.includedImages),
     sharedNativeSession: true,
   };
