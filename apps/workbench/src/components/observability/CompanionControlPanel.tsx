@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import type { CompanionPreferencesV1 } from '../../runtime/companion-preferences';
 import { HttpMimoTtsClient } from '../../runtime/mimo-tts-client';
+import { CompanionGenUiPanel } from './CompanionGenUiPanel';
 
 const ttsClient = new HttpMimoTtsClient();
 
@@ -27,6 +28,7 @@ export function CompanionControlPage({ localServiceReady, preferences, onBack, o
   const [ttsVoice, setTtsVoice] = useState('mimo_default');
   const [ttsPending, setTtsPending] = useState(false);
   const [ttsStatus, setTtsStatus] = useState<string>();
+  const [genUiFollowUp, setGenUiFollowUp] = useState<string>();
   const audioRef = useRef<HTMLAudioElement | undefined>(undefined);
   const visualStatus = preferences.visualEnabled ? visualModeLabel(preferences.visualMode) : '角色已完全关闭';
   const previewVoice = (): void => {
@@ -45,5 +47,7 @@ export function CompanionControlPage({ localServiceReady, preferences, onBack, o
     <section className="companion-voice-settings"><div><span className="panel-eyebrow">VOICE / EXPLICIT</span><h2>语音与主动交谈</h2><p>MiMo V2.5 TTS 可作为后续受限 Provider。开启语音只允许用户明确测试或明确播放；不会读取麦克风，也不会自动向 Provider 发送内容。</p></div><div className="companion-permission-list"><label><span><strong>允许 TTS 语音输出</strong><small>默认关闭；需要独立 Provider 连接和每次明确播放。</small></span><input aria-label="允许 TTS 语音输出" checked={preferences.voiceEnabled} disabled={!preferences.visualEnabled} onChange={(event) => onUpdate({ voiceEnabled: event.target.checked })} type="checkbox" /></label><label><span><strong>允许主动语音提示</strong><small>默认关闭；启用前提是 TTS 输出已开启。不会开启后台服务或发送对话内容。</small></span><input aria-label="允许主动语音提示" checked={preferences.proactiveSpeechEnabled} disabled={!preferences.visualEnabled || !preferences.voiceEnabled} onChange={(event) => onUpdate({ proactiveSpeechEnabled: event.target.checked })} type="checkbox" /></label></div></section>
     {preferences.voiceEnabled && <section className="companion-tts-preview"><div><span className="panel-eyebrow">MIMO TTS / EXPLICIT PREVIEW</span><h2>一次性语音试听</h2><p>只会把此处由你明确输入的文本发给已启用的 Xiaomi MiMo 会话连接。点击按钮后才播放；不会发送对话历史、保存音频或在后台自动说话。</p></div><label>试听文本<textarea aria-label="Companion TTS 试听文本" disabled={!localServiceReady || ttsPending} maxLength={1200} onChange={(event) => setTtsText(event.target.value)} value={ttsText} /></label><label>预置音色<select aria-label="Companion TTS 预置音色" disabled={!localServiceReady || ttsPending} onChange={(event) => setTtsVoice(event.target.value)} value={ttsVoice}><option value="mimo_default">MiMo 默认</option><option value="冰糖">冰糖</option><option value="茉莉">茉莉</option><option value="苏打">苏打</option><option value="白桦">白桦</option><option value="Mia">Mia</option><option value="Chloe">Chloe</option><option value="Milo">Milo</option><option value="Dean">Dean</option></select></label><button disabled={!localServiceReady || !ttsText.trim() || ttsPending} onClick={previewVoice} title="明确向已启用的 Xiaomi MiMo 会话连接发起一次语音试听；不会自动播放后续消息或保存音频。" type="button">{ttsPending ? '请求试听中…' : '明确试听并播放'}</button>{!localServiceReady && <small>请先附着本机 本机能力服务，并在模型连接中显式配置 Xiaomi MiMo。</small>}{ttsStatus && <p aria-live="polite" role="status">{ttsStatus}</p>}</section>}
     <section className="companion-restricted-capabilities"><div><span className="panel-eyebrow">HIGH-IMPACT CAPABILITIES</span><h2>默认严格关闭</h2><p>这些能力不会跟随 3D 角色、语音或主动提示自动开启；它们要求未来独立的权限设计、平台实现和用户确认。</p></div><div><article><strong>麦克风输入</strong><span>关闭</span><small>不采集音频或启动语音识别。</small></article><article><strong>屏幕捕获</strong><span>关闭</span><small>不读取桌面、窗口或屏幕内容。</small></article><article><strong>桌面自动化</strong><span>关闭</span><small>不控制鼠标、键盘、应用或系统设置。</small></article><article><strong>游戏控制与后台服务</strong><span>关闭</span><small>不连接游戏、不自动启动服务、不维持后台常驻。</small></article></div></section>
+    <CompanionGenUiPanel onFollowUp={(prompt) => setGenUiFollowUp(prompt)} />
+    {genUiFollowUp !== undefined && <section className="companion-gen-ui-follow-up"><span className="panel-eyebrow">GEN UI / FOLLOW-UP</span><h2>页面追问请求</h2><p>生成页面通过 <code>window.zcode.sendFollowUpMessage</code> 发起了追问：</p><blockquote>{genUiFollowUp}</blockquote><small>当前陪伴面未绑定会话，追问只在此回显；接入会话的投递留待后续批次。</small></section>}
   </section>;
 }
