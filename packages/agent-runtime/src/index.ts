@@ -18,6 +18,15 @@ export * from './memory-ledger.js';
 export * from './infrastructure/sqlite/memory-ledger-store.js';
 export * from './task-command-receipts.js';
 export * from './read-only-subtasks.js';
+// 子代理体系（P1-2）：profile 模型与 markdown 覆盖、只读工具集、工具面剔除、
+// Task/Agent 工具预算、父子消息路由、profile 落 memory-ledger。
+export * from './subagent-prompts.js';
+export * from './subagent-explore-tools.js';
+export * from './subagent-tool-policy.js';
+export * from './subagent-profile.js';
+export * from './subagent-tools.js';
+export * from './subagent-message-steering.js';
+export * from './subagent-profile-store.js';
 export * from './mcp-registry.js';
 export * from './mcp-app-registry.js';
 export * from './extension-registry.js';
