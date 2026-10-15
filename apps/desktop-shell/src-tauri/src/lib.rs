@@ -11,6 +11,8 @@ mod assistant_artifacts;
 mod conversation_store;
 mod credentials;
 mod direct_provider;
+#[cfg(not(mobile))]
+mod extension_host_process;
 mod external_url;
 #[cfg(not(mobile))]
 mod file_extract;
@@ -293,6 +295,7 @@ pub fn run() {
         .manage(workspace_index::WorkspaceIndexState::new())
         .manage(zcode_process::ZCodeProcessState::new())
         .manage(mcp_process::McpStdioState::new())
+        .manage(extension_host_process::ExtensionHostProcessState::new())
         .register_uri_scheme_protocol("mcpapp", |context, request| {
             let state = context
                 .app_handle()
@@ -352,6 +355,9 @@ pub fn run() {
             mcp_process::mcp_start_process,
             mcp_process::mcp_write_stdin,
             mcp_process::mcp_stop_process,
+            extension_host_process::extension_host_start,
+            extension_host_process::extension_host_stop,
+            extension_host_process::extension_host_status,
             mcp_app_host::mcpapp_stage_document,
             mcp_app_host::mcpapp_release_document,
             workspace_patch::workspace_stage_patch_batch,
