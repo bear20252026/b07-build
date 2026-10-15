@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP Apps 分维夹具（人工验收）</title>
+    <!--
+      人工验收夹具：只在 vite dev server 提供（`npm run dev --workspace=@awo/workbench`），
+      打开 http://localhost:5173/mcp-app-fixture.html。它不进入生产包——vite build 的默认入口
+      仍是 index.html。三个维度分别运行、分别报告。详见 docs/testing/mcp-app-dimension-fixture.md。
+    -->
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; padding: 24px; background: #07091a; color: #dbe7ff; font: 14px/1.6 system-ui, sans-serif; }
+      h1 { font-size: 20px; margin: 0 0 6px; }
+      h2 { font-size: 15px; margin: 22px 0 8px; }
+      p { margin: 6px 0; color: #9bb6e8; }
+      button { margin: 6px 8px 6px 0; padding: 6px 14px; border-radius: 10px; border: 1px solid rgba(159, 192, 255, .35); background: rgba(20, 34, 79, .8); color: #dbe7ff; cursor: pointer; }
+      button:disabled { opacity: .55; cursor: default; }
+      section { border: 1px solid rgba(159, 192, 255, .18); border-radius: 14px; padding: 12px 16px; margin-top: 14px; }
+      ul { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 4px; }
+      li[data-ok='true'] { color: #9fe6b8; }
+      li[data-ok='false'] { color: #ffb0c0; }
+      section[data-ok='true'] > h2 { color: #9fe6b8; }
+      section[data-ok='false'] > h2 { color: #ffb0c0; }
+    </style>
+  </head>
+  <body>
+    <main id="mcp-app-fixture-root"></main>
+    <script type="module" src="/src/runtime/zcode/fixture/browser-entry.ts"></script>
+  </body>
+</html>
