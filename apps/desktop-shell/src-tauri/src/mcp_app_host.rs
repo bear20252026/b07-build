@@ -7,9 +7,14 @@
 //! 生效，主窗口 CSP 保持严格、不放宽。
 //!
 //! 生命周期：workbench 在渲染实例前 `mcpapp_stage_document`（HTML + CSP 驻留
-//! 本机内存），iframe 指向 `mcpapp://localhost/<instanceId>/index.html`
-//! （Windows/WebView2 映射为 `http://mcpapp.localhost/<instanceId>/index.html`，
-//! 路径保留、宿主信息不参与路由）；卸载或换代后 `mcpapp_release_document`。
+//! 本机内存），iframe 指向 `mcpapp://<host>/<instanceId>/index.html`
+//! （Windows/WebView2 映射为 `http://mcpapp.<host>/<instanceId>/index.html`）；
+//! 卸载或换代后 `mcpapp_release_document`。
+//!
+//! `<host>` 由应用身份派生（P2-3）：同一 app 恒定、不同 app 不同，来源天然隔离
+//! （`localhost` 是留给既有共享来源调用方的兼容形态）。**路由只看路径**——
+//! `serve_mcpapp_document` 只接收 `request.uri().path()`，宿主信息一律忽略，
+//! 因此换 host 不需要改路由，`/`、`/<id>`、`/unknown/...` 的既有行为保持不变。
 //! 文档不落盘、不上传；沙箱 iframe 无 allow-same-origin，应用处于不透明源。
 
 use std::collections::HashMap;
@@ -97,9 +102,8 @@ pub struct ServedMcpAppDocument {
 }
 
 /// 从协议请求路径解析并服务文档。路径第一段 = instanceId，
-/// 其余段必须是 `index.html`（或省略）。Windows/WebView2 会把
-/// `mcpapp://localhost/<id>/index.html` 改写为
-/// `http://mcpapp.localhost/<id>/index.html`——路径不变，宿主不参与路由。
+/// 其余段必须是 `index.html`（或省略）。宿主（`<host>` / `mcpapp.<host>`）
+/// 只决定浏览器侧来源，**不参与路由**：本函数只消费路径。
 pub fn serve_mcpapp_document(state: &McpAppDocumentState, uri_path: &str) -> ServedMcpAppDocument {
     let not_found = || ServedMcpAppDocument {
         status: 404,

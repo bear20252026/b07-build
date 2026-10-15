@@ -14,7 +14,7 @@ import {
   type McpAppBridgeHostDescriptor,
 } from '@awo/protocol';
 import { McpAppInstanceLease } from '../../runtime/zcode/mcp-app-lease';
-import { mcpAppDocumentUrl, releaseMcpAppDocument, stageMcpAppDocument } from '../../runtime/zcode/mcp-app-document-client';
+import { mcpAppDocumentUrlForApp, releaseMcpAppDocument, stageMcpAppDocument } from '../../runtime/zcode/mcp-app-document-client';
 
 /**
  * MCP Apps 宿主：把已准入的交互式应用 HTML 渲染进沙箱 iframe。
@@ -74,7 +74,9 @@ export function McpAppHost({ admission, html, onToolCallRequest, hostDescriptor,
         await stageMcpAppDocument(instanceIdRef.current, html, csp);
         if (!cancelled) {
           setFallbackDocument(undefined);
-          setServedUrl(mcpAppDocumentUrl(instanceIdRef.current));
+          // P2-3：来源按 appIdentity 派生——同一 app 多次挂载共用同一 origin，
+          // 不同 app 的 origin 互不相同（沙箱 iframe 是不透明源，应用之间不会串存储）。
+          setServedUrl(mcpAppDocumentUrlForApp(instanceIdRef.current, admission.manifest.id));
         }
       } catch {
         if (!cancelled) {
