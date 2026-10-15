@@ -31,6 +31,8 @@ export * from './mcp-registry.js';
 export * from './mcp-app-registry.js';
 export * from './extension-registry.js';
 export * from './extension-activation.js';
+// 扩展宿主接线（B3）：激活计划 → ExtensionLaunchSpec 的 fail-closed 映射与可注入后端解析器。
+export * from './extension-host-launch.js';
 export * from './agent-adapter.js';
 export * from './audited-scheduler.js';
 export * from './task-runtime-service.js';
