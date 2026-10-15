@@ -1,3 +1,5 @@
+import type { UnavailableFlag } from '@awo/capability-placeholder';
+
 export type WorkbenchBrowserSessionStatus = 'requested' | 'authorized' | 'paused' | 'ended' | 'failed';
 export type WorkbenchBrowserSessionEventType = 'requested' | 'authorized' | 'paused' | 'resumed' | 'ended' | 'failed';
 
@@ -32,10 +34,10 @@ export interface WorkbenchBrowserSession {
   updatedAt: number;
   updatedBy: string;
   reason?: string;
-  canExecute: false;
-  canReadPageContent: false;
-  canReadBrowserSecrets: false;
-  canControlDesktop: false;
+  canExecute: UnavailableFlag;
+  canReadPageContent: UnavailableFlag;
+  canReadBrowserSecrets: UnavailableFlag;
+  canControlDesktop: UnavailableFlag;
 }
 
 export interface WorkbenchBrowserSessionEvent {
@@ -47,7 +49,7 @@ export interface WorkbenchBrowserSessionEvent {
   at: number;
   by: string;
   reason?: string;
-  canExecute: false;
+  canExecute: UnavailableFlag;
 }
 
 type BrowserSessionAction = 'authorize' | 'pause' | 'resume' | 'end';

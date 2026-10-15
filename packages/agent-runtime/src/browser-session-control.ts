@@ -3,6 +3,8 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
+import { canExecuteBrowserActions, unavailableCapabilityFlags } from '@awo/capability-placeholder';
+
 import {
   evaluatePublicEgressHost,
   isEgressIpLiteral,
@@ -136,7 +138,7 @@ export class BrowserSessionControlPlane {
     const snapshot: BrowserSessionSnapshotV1 = {
       schemaVersion: BROWSER_SESSION_SCHEMA_VERSION, sessionId, revision: 1, status: 'requested', adapterId: ADAPTER,
       targetHost: target.host, scopeDigest: target.scopeDigest, requestedBy: input.requestedBy, createdAt: input.at, updatedAt: input.at, updatedBy: input.requestedBy, reason,
-      canExecute: false, canReadPageContent: false, canReadBrowserSecrets: false, canControlDesktop: false,
+      ...unavailableCapabilityFlags(),
     };
     this.append(snapshot, 'requested', input.requestedBy, input.at, reason);
     return copySnapshot(snapshot);
@@ -194,7 +196,7 @@ export class BrowserSessionControlPlane {
 
   private append(snapshot: BrowserSessionSnapshotV1, type: BrowserSessionEventType, by: string, at: number, reason?: string): void {
     validateSnapshot(snapshot);
-    const event: BrowserSessionEventV1 = { schemaVersion: BROWSER_SESSION_SCHEMA_VERSION, eventId: `browser-event:${this.makeId()}`, sessionId: snapshot.sessionId, revision: snapshot.revision, type, at, by, reason, canExecute: false };
+    const event: BrowserSessionEventV1 = { schemaVersion: BROWSER_SESSION_SCHEMA_VERSION, eventId: `browser-event:${this.makeId()}`, sessionId: snapshot.sessionId, revision: snapshot.revision, type, at, by, reason, canExecute: canExecuteBrowserActions() };
     validateEvent(event); this.store.append(snapshot, event);
   }
 
@@ -261,8 +263,8 @@ export class SqliteBrowserSessionStore implements BrowserSessionStore {
   }
   listEvents(sessionId: string, limit: number): readonly BrowserSessionEventV1[] {
     const rows = this.db.prepare(`SELECT event_id, session_id, revision, type, at, by_actor, reason FROM browser_session_events WHERE session_id = ? ORDER BY revision DESC LIMIT ?`).all(sessionId, limit) as unknown as readonly EventRow[];
-    return rows.map((row) => ({ schemaVersion: BROWSER_SESSION_SCHEMA_VERSION, eventId: row.event_id, sessionId: row.session_id, revision: row.revision, type: row.type, at: row.at, by: row.by_actor, reason: row.reason ?? undefined, canExecute: false }));
+    return rows.map((row) => ({ schemaVersion: BROWSER_SESSION_SCHEMA_VERSION, eventId: row.event_id, sessionId: row.session_id, revision: row.revision, type: row.type, at: row.at, by: row.by_actor, reason: row.reason ?? undefined, canExecute: canExecuteBrowserActions() }));
   }
   close(): void { this.db.close(); }
-  private snapshot(row: SnapshotRow): BrowserSessionSnapshotV1 { return { schemaVersion: BROWSER_SESSION_SCHEMA_VERSION, sessionId: row.session_id, revision: row.revision, status: row.status, adapterId: row.adapter_id, targetHost: row.target_host, scopeDigest: row.scope_digest, requestedBy: row.requested_by, createdAt: row.created_at, updatedAt: row.updated_at, updatedBy: row.updated_by, reason: row.reason ?? undefined, canExecute: false, canReadPageContent: false, canReadBrowserSecrets: false, canControlDesktop: false }; }
+  private snapshot(row: SnapshotRow): BrowserSessionSnapshotV1 { return { schemaVersion: BROWSER_SESSION_SCHEMA_VERSION, sessionId: row.session_id, revision: row.revision, status: row.status, adapterId: row.adapter_id, targetHost: row.target_host, scopeDigest: row.scope_digest, requestedBy: row.requested_by, createdAt: row.created_at, updatedAt: row.updated_at, updatedBy: row.updated_by, reason: row.reason ?? undefined, ...unavailableCapabilityFlags() }; }
 }

@@ -2,13 +2,16 @@
 %% managed = 受 architecture-policy.yaml 强校验；legacy = 存量模块，仅记录。
 graph LR
   m_agent_runtime["agent-runtime (legacy)"]
+  m_capability_placeholder["capability-placeholder (managed)"]
   m_desktop_shell["desktop-shell (legacy)"]
   m_knowledge_workflow["knowledge-workflow (managed)"]
   m_protocol["protocol (managed)"]
   m_provider_sdk["provider-sdk (managed)"]
   m_provider_sdk_browser["provider-sdk-browser (managed)"]
   m_workbench["workbench (managed)"]
+  m_agent_runtime --> m_capability_placeholder
   m_agent_runtime --> m_protocol
   m_provider_sdk_browser --> m_provider_sdk
+  m_workbench --> m_capability_placeholder
   m_workbench --> m_protocol
   m_workbench --> m_provider_sdk_browser
