@@ -32,9 +32,14 @@
 | `packages/agent-runtime/src/plugin-marketplace-store.ts` | 上游 `known_marketplaces.json` / `installed_plugins.json` 的落盘思路 | 本仓库新写：内存 + SQLite 双实现（按 id 覆盖式快照、save 在事务内整表替换），与同包 `mcp-registry` / `extension-registry` 的 store 写法对齐；不移植上游的原子目录激活与事务代际（`cacheTransactionId`）机制 |
 | `packages/agent-runtime/src/plugin-marketplace-cli.ts` | `apps/zcode-cli/packages/cli/src/plugins-marketplace-command.ts`、`plugins-command.ts`、`plugins-command-format.ts` | 合并上游 marketplace 与 plugins 两条命令线为 `add` / `install` / `enable` / `list` 单入口，四个子命令统一 `--json`；argv 解析与 stdout/stderr 全部注入以便单测；`--json` 输出沿用上游扁平对象形态（marketplace / plugin / app / diagnostics），去掉上游 Human 表格、`--verbose` 与 warnings 分渠道细节 |
 | `tools/plugin-marketplace-cli.ts` | `apps/zcode-cli/packages/cli/src/main.ts` 的命令注册薄壳思路 | 本仓库新写的极薄 shim：把真实 argv / stdout / stderr 接到可单测的 `runPluginMarketplaceCli`，并装配 SQLite 默认依赖；不移植上游的全局选项、locale 与 bootstrap 装载 |
+| `apps/workbench/src/runtime/zcode/plugin-page-manager.ts` | `packages/ui/src/plugin-ui/app/pluginUiPageManager.ts` | 语义不变（离屏回收、任务/活页容量准入、admission 串行、迟到保护）；保留泛型与 `ManagedPluginPage` 契约，把上游内联常量提取为具名导出（离屏 5 分钟、任务 30、活页 64，按上游源码与测试核对）；注释中文本地化；`clear()` 改为先取任务快照再删除，避免迭代中修改 Map |
+| `apps/workbench/src/runtime/zcode/plugin-page-registry.ts` | `packages/ui/src/plugin-ui/adapters/pluginUiPageRegistry.ts`、`adapters/sandboxPageOwners.ts` | 由 React/DOM 适配器改写为不依赖 DOM 的引用计数注册表：保留 `acquire` 去重与 `subscribe/notify` 语义，新增引用计数（归零才把页面标记为离屏、交给管理器按宽限期回收）与并发创建去重；去掉 window beforeunload 监听与锚点绑定 |
+| `apps/workbench/src/runtime/zcode/mcp-app-page.ts` | `packages/ui/src/plugin-ui/adapters/pluginUiManagedPage.ts`（Page 生命周期子集） | 只裁剪出页面的活跃/忙碌状态机与订阅（`busy`/`running`/`suspend`/`destroy`/`subscribe`），去掉 controller、AppBridge、连接/通知 feed、widgetState 等宿主实现 |
 
 ### 语义借用（非源码移植）
 
 `apps/workbench/src/runtime/zcode/zcode-agent-adapter.ts` 与 `zcode-protocol-client.ts` 只借用上游**协议事实**，未移植实现代码：CAS 失败错误码 `-32009` 与 `data.actualRevision`（上游 `assertExpectedRevision`）、`session/subscribe` 的 `afterSeq`/`includeSnapshot` 续播与快照形态、`session/send` 的 `inputId`/`expectedRevision` 参数。上游为 Apache-2.0，此处按其条款声明出处。
+
+`apps/workbench/src/components/workspace/McpAppPageHost.tsx` 只借用上游 `packages/ui/src/plugin-ui/adapters/pluginUiPagePlane.ts` 的**锚点绑定与可见性上报**思路（锚点进出视口驱动页面保活/回收），未移植其 Electron webview 承载层代码：改写为 React 组件 + `IntersectionObserver`，页面渲染仍交给本仓库既有的 `McpAppHost` 沙箱 iframe。
 
 移植文件头部均带有出处注释。对上游代码的修改遵循 Apache-2.0 的再分发条款（保留许可与版权声明、标注修改）。
