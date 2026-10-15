@@ -28,6 +28,8 @@ export * from './task-runtime-service.js';
 export * from './run-trajectory.js';
 export * from './api-usage-ledger.js';
 export * from './browser-session-control.js';
+// 出网公网边界：主机名归一化 + IP 字面量公网校验（借 ZCode public egress 语义）。
+export * from './network/egress-policy.js';
 export * from './run-workspace-ledger.js';
 export * from './task-file-workspace.js';
 export * from './project-workspace.js';

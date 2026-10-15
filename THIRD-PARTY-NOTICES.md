@@ -17,6 +17,8 @@
 | `packages/protocol/src/session-protocol/session-command.ts` | `packages/shared/src/zcode-protocol-v4/command.ts`（命令信封与裁决闭集） | 重写为 TS 接口 + 构造/校验函数：状态与拒绝码沿用上游闭集，字段名对齐 b07 调用方；`withCommandBase` 改为未指定即沿用原基准（重试不得丢掉 CAS） |
 | `packages/protocol/src/session-protocol/session-command-ledger.ts` | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/command-inbox.ts`（幂等键控与有界裁决表纪律） | 上游是**接收方**（服务端）表，本文件把它落到**调用方**一侧：在途登记 + 已裁决 LRU、载荷指纹串号识破、stale 同基准重放识破 |
 | `packages/protocol/src/session-protocol/session-limits.ts` | 上游同类常量的量级参考 | 本仓库新写的约束值（补齐轮数/退避/缓冲上限/幂等表容量） |
+| `crates/process-supervisor/src/command_policy.rs` | `apps/zcode-cli/packages/core/src/tool/handlers/bash-readonly-policy-*.ts`（`bash-command-parser.ts`、`bash-readonly-policy-types/-argv/-argv-flags/-argv-direct/-argv-git/-argv-io/-commands/-flags-*/-git-subcommands-*/-callbacks/-git-callbacks/-multiword-*`） | 由 TypeScript 改写为 Rust：保留逐命令/逐标志的只读判定语义与全部只读数据表（含 git 子命令策略与 `find`/`tree` 写入选项）。去掉上游基于 `unbash` 的 AST 解析——b07 禁止命令拼接、管道与重定向，argv 由引号感知的拆分得到，不存在 `AndOr`/`Pipeline` 节点。新增 b07 语义：`Routine` 档（允许且无需确认的常规动作）与「对外发布 / 丢弃未提交工作 / 改写历史」子命令清单，使移植前子串匹配的两类错误一并消失——假阳性（`npm run clean` 被当成 `git clean`）与假阴性（`find . -delete`、`find . -exec` 未被识别为写入） |
+| `packages/agent-runtime/src/network/egress-policy.ts` | `apps/zcode-cli/packages/contracts/src/network/public-egress-ip.ts`、`apps/zcode-cli/packages/core/src/tool/handlers/webfetch-egress-guard.ts` | 合并上游两份文件为单一判定入口；去掉 `ipaddr.js` 依赖，改用 `node:net` 的 `BlockList`；把 IPv4-mapped（`::ffff:0:0/96`）与 NAT64/DNS64 well-known 前缀（`64:ff9b::/96`）承载的私网地址还原写成显式等价子网，而不是逐字节拆包 |
 
 ### 语义借用（非源码移植）
 

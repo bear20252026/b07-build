@@ -2,6 +2,21 @@ export type WorkbenchBrowserSessionStatus = 'requested' | 'authorized' | 'paused
 export type WorkbenchBrowserSessionEventType = 'requested' | 'authorized' | 'paused' | 'resumed' | 'ended' | 'failed';
 
 /**
+ * 与 agent-runtime 的出口策略保持一致的前置判定：本机名（含任意 `.localhost`
+ * 子域与末尾点写法）与任何 IP 字面量都不允许。这里只是界面的快速反馈，
+ * 权威判定在能力服务侧。
+ */
+function isBlockedBrowserTargetHost(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  return (
+    normalized === 'localhost' ||
+    normalized.endsWith('.localhost') ||
+    normalized.includes(':') ||
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(normalized)
+  );
+}
+
+/**
  * 浏览器侧只接受 本机能力服务 的脱敏会话投影；不会携带完整 URL、页面内容、cookie、密码或任何执行权限。
  */
 export interface WorkbenchBrowserSession {
@@ -115,7 +130,7 @@ export class HttpBrowserSessionClient {
     const reason = normalizedReason(input.reason);
     let target: URL;
     try { target = new URL(input.targetUrl.trim()); } catch { throw new Error('目标必须是有效 HTTPS URL'); }
-    if (target.protocol !== 'https:' || target.username || target.password || target.port || target.hostname === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(target.hostname) || target.hostname.includes(':')) throw new Error('目标仅允许公网 HTTPS 主机，且不允许凭据、本机、IP 或自定义端口');
+    if (target.protocol !== 'https:' || target.username || target.password || target.port || isBlockedBrowserTargetHost(target.hostname)) throw new Error('目标仅允许公网 HTTPS 主机，且不允许凭据、本机、IP 或自定义端口');
     return this.mutate('', 'create', { by, targetUrl: target.toString(), ...(reason ? { reason } : {}) });
   }
 
