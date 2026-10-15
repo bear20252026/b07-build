@@ -245,3 +245,28 @@ test('卸载：网关与准入态释放，调用回到未挂载语义', async ()
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.message, 'mcpapp-not-mounted');
 });
+
+test('用户手势门（P2-2）：透传到网关，无 token 拒绝、有 token 放行、一次性消费', async () => {
+  const controller = new McpAppMountController();
+  const tokens = new Set<string>();
+  const result = controller.mount({
+    server,
+    manifest: manifest(),
+    appInstanceId: 'mcpapp-panel-1',
+    riskTable: { read_note: 'low' },
+    executor: { execute: async () => 'note-body' },
+    consumeUserGesture: () => tokens.delete('mcpapp-panel-1'),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(controller.appInstanceId, 'mcpapp-panel-1', '显式实例标识被采纳');
+
+  const withoutGesture = await controller.callTool('read_note', {});
+  assert.equal(withoutGesture.ok, false);
+  if (!withoutGesture.ok) assert.equal(withoutGesture.reason, 'mcpapp-user-gesture-required');
+
+  tokens.add('mcpapp-panel-1');
+  assert.deepEqual(await controller.callTool('read_note', {}), { ok: true, result: 'note-body' });
+  const replayed = await controller.callTool('read_note', {});
+  assert.equal(replayed.ok, false);
+  if (!replayed.ok) assert.equal(replayed.reason, 'mcpapp-user-gesture-required', 'token 已消费，不能重放');
+});

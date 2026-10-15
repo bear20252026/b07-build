@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { McpAppToolGateway } from '../src/runtime/zcode/mcp-app-tool-gateway';
+import { McpAppGestureTokenRegistry } from '../src/runtime/zcode/mcp-app-gesture-token';
 
 function gateway(overrides: Partial<ConstructorParameters<typeof McpAppToolGateway>[0]> = {}): McpAppToolGateway {
   return new McpAppToolGateway({
@@ -89,4 +90,71 @@ test('审计轨迹有界（256 条）', async () => {
     await record.call(`call-${index}`, 'read_note', {});
   }
   assert.equal(record.audit.length, 256);
+});
+
+// —— 用户手势门（P2-2） ——
+
+/** 可控时钟 + 手势注册表：给网关注入真实的一次性手势门。 */
+function gestureGate(start = 1_000) {
+  let value = start;
+  const registry = new McpAppGestureTokenRegistry({ now: () => value });
+  return {
+    registry,
+    advance: (ms: number) => {
+      value += ms;
+    },
+    gate: (id = 'app-1') => () => registry.consume(id),
+  };
+}
+
+test('手势门：无新鲜 token 的调用被拒（fail-closed），不触达执行器', async () => {
+  const clock = gestureGate();
+  let executed = 0;
+  const record = gateway({
+    consumeUserGesture: clock.gate(),
+    execute: async () => {
+      executed += 1;
+      return 'ok';
+    },
+  });
+  const result = await record.call('call-1', 'read_note', {});
+  assert.deepEqual(result, { ok: false, reason: 'mcpapp-user-gesture-required' });
+  assert.equal(executed, 0);
+  assert.equal(record.audit[0]!.outcome, 'rejected');
+  assert.equal(record.audit[0]!.detail, 'mcpapp-user-gesture-required');
+});
+
+test('手势门：新鲜 token 放行 low 风险调用，且 token 只消费一次', async () => {
+  const clock = gestureGate();
+  const record = gateway({ consumeUserGesture: clock.gate() });
+  clock.registry.mark('app-1');
+  assert.deepEqual(await record.call('call-1', 'read_note', {}), { ok: true, result: { content: 'ok' } });
+  assert.deepEqual(await record.call('call-2', 'read_note', {}), { ok: false, reason: 'mcpapp-user-gesture-required' }, '第二次无 token');
+});
+
+test('手势门：超过 TTL 的 token 被拒（可注入时钟，不用 sleep）', async () => {
+  const clock = gestureGate();
+  const record = gateway({ consumeUserGesture: clock.gate() });
+  clock.registry.mark('app-1');
+  clock.advance(5_001);
+  assert.deepEqual(await record.call('call-1', 'read_note', {}), { ok: false, reason: 'mcpapp-user-gesture-required' });
+});
+
+test('手势门先于人工裁决：high 风险无手势时以手势原因拒绝，不占用裁决预算', async () => {
+  let asked = 0;
+  const record = gateway({
+    consumeUserGesture: () => false,
+    approve: async () => {
+      asked += 1;
+      return true;
+    },
+  });
+  const result = await record.call('call-1', 'write_note', {});
+  assert.deepEqual(result, { ok: false, reason: 'mcpapp-user-gesture-required' });
+  assert.equal(asked, 0, '没有手势背书的调用不应弹人工裁决');
+});
+
+test('未提供手势端口时不做手势门（保留旧接线语义）', async () => {
+  const record = gateway();
+  assert.deepEqual(await record.call('call-1', 'read_note', {}), { ok: true, result: { content: 'ok' } });
 });

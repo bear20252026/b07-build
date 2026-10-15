@@ -5,10 +5,11 @@
 // 的统一收口，任何工具调用都必须依次通过：
 //
 //   1. 准入复查（白名单，纵深防御）；
-//   2. 风险分级：未登记风险的工具按 high 处理（fail-closed）；
-//   3. 人工裁决：medium/high 必须经 approve 回调批准，未提供裁决入口 = 拒绝；
+//   2. 用户手势门（P2-2）：沙箱发起的特权操作必须被新鲜的一次性手势 token 背书；
+//   3. 风险分级：未登记风险的工具按 high 处理（fail-closed）；
+//   4. 人工裁决：medium/high 必须经 approve 回调批准，未提供裁决入口 = 拒绝；
 //      low 直接放行（与 ZCode「app-only 工具复用工具授权路径」一致的最小闭环）；
-//   4. 并发上限（缺省 4，对齐 ZCode 每实例并发）与单次超时（缺省 30 秒，
+//   5. 并发上限（缺省 4，对齐 ZCode 每实例并发）与单次超时（缺省 30 秒，
 //      对齐 ZCode 执行期限）；超时后底层调用不再回投结果。
 //
 // 每次调用（无论成败）都留下审计轨迹（容量有界），供界面与后续审计导出。
@@ -30,6 +31,13 @@ export interface McpAppToolGatewayOptions {
   riskFor(toolName: string): McpAppToolRisk;
   /** medium/high 的人工裁决入口；未提供 = 这些风险一律拒绝（fail-closed）。 */
   approve?(request: McpAppToolApprovalRequest): Promise<boolean>;
+  /**
+   * 用户手势门（P2-2）：返回 true = 本次调用被新鲜的一次性手势 token 背书。
+   * 沙箱应用发起的每一次工具执行都是宿主侧特权操作，必须由真实用户手势背书：
+   * 没有手势 / token 已消费 / 超时一律拒绝（fail-closed）。未提供该端口 = 不做手势门
+   * （保留旧接线语义；真实接线在 McpAppPanel 侧注入）。
+   */
+  consumeUserGesture?(): boolean;
   /** 底层执行器：真正连接 MCP 服务器执行工具的路径。 */
   execute(toolName: string, args: unknown): Promise<unknown>;
   readonly timeoutMs?: number;
@@ -43,6 +51,7 @@ export type McpAppToolGatewayResult =
       ok: false;
       reason:
         | 'mcpapp-tool-not-admitted'
+        | 'mcpapp-user-gesture-required'
         | 'mcpapp-approval-required'
         | 'mcpapp-approval-denied'
         | 'mcpapp-concurrency-limit'
@@ -112,10 +121,17 @@ export class McpAppToolGateway {
       this.record({ toolName, outcome: 'rejected', detail: 'mcpapp-tool-not-admitted' });
       return { ok: false, reason: 'mcpapp-tool-not-admitted' };
     }
-    // 2. 风险分级：未知工具 fail-closed 按 high。
+    // 2. 用户手势门（P2-2）：特权操作必须先消费一个新鲜的一次性手势 token；
+    //    未提供打标端口或 token 不存在/过期/已消费都拒绝（fail-closed），
+    //    且先于人工裁决——不给「无手势背书的调用」占用人的裁决预算。
+    if (this.options.consumeUserGesture && !this.options.consumeUserGesture()) {
+      this.record({ toolName, outcome: 'rejected', detail: 'mcpapp-user-gesture-required' });
+      return { ok: false, reason: 'mcpapp-user-gesture-required' };
+    }
+    // 3. 风险分级：未知工具 fail-closed 按 high。
     const risk = this.options.riskFor(toolName) ?? 'high';
     const preview = inputPreview(args, inputPreviewLimit);
-    // 3. 人工裁决：medium/high 必须经人；low 免批（最小闭环，与最小影响一致）。
+    // 4. 人工裁决：medium/high 必须经人；low 免批（最小闭环，与最小影响一致）。
     if (risk !== 'low') {
       const approve = this.options.approve;
       if (!approve) {
@@ -128,7 +144,7 @@ export class McpAppToolGateway {
         return { ok: false, reason: 'mcpapp-approval-denied' };
       }
     }
-    // 4. 并发上限：超出即拒（应用侧可稍后重试），不排队不让请求堆积。
+    // 5. 并发上限：超出即拒（应用侧可稍后重试），不排队不让请求堆积。
     const maxConcurrent = this.options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
     if (this.inFlight >= maxConcurrent) {
       this.record({ toolName, outcome: 'rejected', detail: 'mcpapp-concurrency-limit' });

@@ -1,8 +1,10 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { McpAppAdmission, McpAppHostingServer } from '@awo/protocol';
 import { McpAppPageHost } from './McpAppPageHost';
 import { ApprovalRequestQueue, type ApprovalDecision } from '../../runtime/zcode/approval-request-queue';
 import { McpAppMountController } from '../../runtime/zcode/mcp-app-mount-controller';
+import { McpAppGestureTokenRegistry } from '../../runtime/zcode/mcp-app-gesture-token';
+import { markMcpAppGestureOnUserInteraction } from '../../runtime/zcode/mcp-app-gesture-marking';
 import type { McpAppToolApprovalRequest, McpAppToolAuditEntry } from '../../runtime/zcode/mcp-app-tool-gateway';
 
 /**
@@ -14,6 +16,8 @@ import type { McpAppToolApprovalRequest, McpAppToolAuditEntry } from '../../runt
  *
  * 边界（与 McpAppHost 注释一致）：
  * - 准入来自 @awo/protocol 的 validateMcpAppManifest（服务器 + manifest 双向校验）；
+ * - 沙箱发起的工具调用先过用户手势门（P2-2）：宿主文档上的真实用户交互（pointerdown /
+ *   keydown）给当前挂载实例打一个 5 秒一次性 token，网关侧消费，缺失即拒（fail-closed）；
  * - medium/high 工具调用必须经本面板的人工裁决（ApprovalRequestQueue，消耗即移除）；
  * - 真实 MCP 连接尚未接入：执行器走 McpAppMountController 的 fail-closed 缺省，
  *   调用以 mcpapp-executor-unavailable 明确失败（界面按 isError 呈现给应用）。
@@ -53,6 +57,23 @@ export function McpAppPanel() {
   const approvalsRef = useRef<ApprovalRequestQueue | null>(null);
   if (approvalsRef.current === null) approvalsRef.current = new ApprovalRequestQueue();
   const approvalSeq = useRef(0);
+
+  // 用户手势 token（P2-2）：按挂载实例打标/一次性消费；mountSeq 保证换代后旧 token 不复活。
+  const gesturesRef = useRef<McpAppGestureTokenRegistry | null>(null);
+  if (gesturesRef.current === null) gesturesRef.current = new McpAppGestureTokenRegistry();
+  const mountSeq = useRef(0);
+  const instanceIdRef = useRef<string>();
+
+  // 真实用户交互 → 打标：只给「当前已挂载实例」打，未挂载时点击不打标。
+  // iframe 内的手势宿主观察不到，故信号取宿主文档的 pointerdown / keydown（transient activation 语义）。
+  useEffect(() => {
+    const registry = gesturesRef.current;
+    if (registry === null) return;
+    return markMcpAppGestureOnUserInteraction(window, () => {
+      const instanceId = instanceIdRef.current;
+      if (instanceId !== undefined) registry.mark(instanceId);
+    });
+  }, []);
 
   const [form, setForm] = useState<MountFormState>(EMPTY_FORM);
   const [admission, setAdmission] = useState<McpAppAdmission>();
@@ -104,12 +125,23 @@ export function McpAppPanel() {
       return;
     }
     const server: McpAppHostingServer = { id: form.serverId.trim(), declaredTools: parseDeclaredTools(form.declaredTools) };
-    const result = controllerRef.current?.mount({ server, manifest, approve });
+    mountSeq.current += 1;
+    const appInstanceId = `mcpapp-panel-${mountSeq.current}`;
+    const result = controllerRef.current?.mount({
+      server,
+      manifest,
+      approve,
+      appInstanceId,
+      // 手势门（P2-2）：消费当前实例的新鲜一次性 token；未打标/已消费/超时一律拒绝。
+      consumeUserGesture: () => gesturesRef.current?.consume(appInstanceId) ?? false,
+    });
     if (result === undefined) return;
     if (!result.ok) {
       setMountError(result.reason);
       return;
     }
+    // 挂载成功后才允许为该实例打标（坏 manifest 不该获得手势窗口）。
+    instanceIdRef.current = appInstanceId;
     setMountError(undefined);
     setViolations([]);
     setAdmission(result.admission);
@@ -119,6 +151,9 @@ export function McpAppPanel() {
   const onUnmount = (): void => {
     controllerRef.current?.unmount();
     approvalsRef.current?.denyAll('mcpapp-unmounted');
+    const instanceId = instanceIdRef.current;
+    if (instanceId !== undefined) gesturesRef.current?.forget(instanceId);
+    instanceIdRef.current = undefined;
     setAdmission(undefined);
     setAudit([]);
   };
