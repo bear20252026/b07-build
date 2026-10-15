@@ -119,9 +119,11 @@ export function useZcodeSession(): ZcodeSessionController {
       workspace: { workspacePath, workspaceKey: workspacePath },
       onEvent: (event) => {
         applyEvent(event);
-        if (event.kind === 'notification' && event.method === 'session/streamIncomplete') {
-          setStreamIncomplete(true);
-        }
+        if (event.kind !== 'notification') return;
+        // 补齐无望 → 提示；权威快照救回 → 撤销提示。两条必须成对，
+        // 否则缺口恢复后界面会一直挂着「视图可能不完整」。
+        if (event.method === 'session/streamIncomplete') setStreamIncomplete(true);
+        if (event.method === 'session/streamRecovered') setStreamIncomplete(false);
       },
       onPermissionRequest: (context: ZCodePermissionRequestContext) => {
         const params = (context.params ?? {}) as Record<string, unknown>;

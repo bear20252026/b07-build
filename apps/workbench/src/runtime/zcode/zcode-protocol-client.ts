@@ -15,7 +15,7 @@ export type ZCodeProtocolMessage =
   | { readonly id: number | string; readonly method: string; readonly params?: unknown }
   | { readonly method: string; readonly params?: unknown }
   | { readonly id: number | string; readonly result: unknown }
-  | { readonly id: number | string; readonly error: { readonly code: number; readonly message: string } };
+  | { readonly id: number | string; readonly error: { readonly code: number; readonly message: string; readonly data?: unknown } };
 
 export interface ZCodeProtocolDeps {
   start(runId: string, executable: string, workingDirectory: string | undefined): Promise<void>;
@@ -45,7 +45,17 @@ export const defaultZcodeProtocolDeps: ZCodeProtocolDeps = {
 };
 
 export class ZCodeProtocolError extends Error {
-  constructor(readonly code: string, message: string) {
+  constructor(
+    readonly code: string,
+    message: string,
+    /**
+     * 服务端 JSON-RPC 错误码。CAS 拒绝（-32009）等裁决语义必须按码分流——
+     * 错误文案是对人看的，随时会变，拿它判流程就是把协议实现绑在字符串上。
+     */
+    readonly protocolCode?: number,
+    /** 错误附带数据（如 stale 拒绝里的实际水位）：原样透传，由调用方解释。 */
+    readonly data?: unknown,
+  ) {
     super(message);
   }
 }
@@ -246,7 +256,12 @@ export class ZCodeProtocolClient {
       if (entry) {
         clearTimeout(entry.timer);
         this.pending.delete(message.id as number);
-        entry.reject(new ZCodeProtocolError(`zcode-protocol-error-${message.error.code}`, message.error.message));
+        entry.reject(new ZCodeProtocolError(
+          `zcode-protocol-error-${message.error.code}`,
+          message.error.message,
+          message.error.code,
+          message.error.data,
+        ));
       }
       return;
     }
