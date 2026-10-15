@@ -12,9 +12,13 @@
 //   - 市场清单文件优先 `.claude-plugin/marketplace.json`（上游常量），回退根目录 `marketplace.json`。
 //   - install 在通过校验后落 McpAppRegistry；插件通过 plugin.json 的 mcpApp 字段桥接宿主应用。
 //   - 依赖闭包解析（resolveDependencyClosure）未移植：b07 插件市场不承载跨插件依赖。
+//
+// 设计借鉴（非源码移植）：市场条目声明路径（path/directory）的越界拒绝，借鉴自一个
+// AGPL-3.0-or-later 的第三方项目（项目名与许可见 THIRD-PARTY-NOTICES.md「语义借用（非源码移植）」）；
+// 本文件为 b07 独立实现，未复制任何上游代码。
 
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { McpAppManifest } from './mcp-app-registry.js';
 import { McpAppRegistry } from './mcp-app-registry.js';
 import type { PluginMarketplaceStore } from './plugin-marketplace-store.js';
@@ -28,6 +32,7 @@ import type {
   PluginMarketplaceEntry,
   PluginMarketplaceManifest,
   PluginMcpAppDeclaration,
+  PluginSourceProvenance,
   PluginValidationDiagnostic,
 } from './plugin-marketplace-types.js';
 
@@ -359,10 +364,12 @@ export function pluginAppId(pluginName: string): string {
   return `mcpapp-${pluginName}`;
 }
 
-/** 来源加载结果：市场清单 + 目录型来源的插件包根目录。 */
+/** 来源加载结果：市场清单 + 目录型来源的插件包根目录 + 可选的来源出处。 */
 export interface LoadedMarketplace {
   manifest: PluginMarketplaceManifest;
   rootPath?: string;
+  /** 来源出处；远端 git 来源的解析器会填充，本地目录/文件来源为空。 */
+  provenance?: PluginSourceProvenance;
 }
 
 /** 市场来源加载器；远端来源可注入自定义实现，默认实现只处理本地目录与文件。 */
@@ -391,15 +398,62 @@ export function createLocalMarketplaceSourceResolver(): MarketplaceSourceResolve
   };
 }
 
-function resolvePluginRoot(marketplaceRoot: string | undefined, entry: PluginMarketplaceEntry): string | undefined {
-  if (!marketplaceRoot) return undefined;
-  const declared =
+/**
+ * 校验并解析市场条目声明的相对路径（`raw.path` / `raw.directory`）。
+ * 清单是外部输入，路径字段一旦越界就能把宿主指向市场根目录之外，故：
+ *   - 拒绝绝对路径；
+ *   - 拒绝含 `..` 段的路径（即便解析后仍在根内，也按越界处理，避免歧义与符号链接绕过）；
+ *   - 解析后必须仍落在市场根目录之内。
+ * 任一条不满足即返回 undefined（调用方据此 fail closed 并产出诊断）。
+ */
+function resolveDeclaredPluginPath(marketplaceRoot: string, declared: string): string | undefined {
+  if (isAbsolute(declared)) return undefined;
+  const segments = declared.split(/[\\/]+/u);
+  if (segments.includes('..')) return undefined;
+  const resolved = resolve(marketplaceRoot, declared);
+  const rel = relative(marketplaceRoot, resolved);
+  if (rel.startsWith('..') || isAbsolute(rel)) return undefined;
+  return resolved;
+}
+
+/** 插件包根目录定位结果：根目录（可选）+ 越界诊断。 */
+interface PluginRootResolution {
+  rootPath?: string;
+  diagnostics: PluginValidationDiagnostic[];
+}
+
+/**
+ * 插件包根目录定位：优先用条目声明的路径，其次按插件名、最后回退市场根目录。
+ * 声明路径越界时 fail closed——不尝试任何回退候选，避免恶意清单借回退「洗白」。
+ */
+function resolvePluginRoot(
+  marketplaceRoot: string | undefined,
+  entry: PluginMarketplaceEntry,
+  pluginId?: string,
+): PluginRootResolution {
+  const diagnostics: PluginValidationDiagnostic[] = [];
+  if (!marketplaceRoot) return { diagnostics };
+  const rawDeclared =
     typeof entry.raw.path === 'string' ? entry.raw.path : typeof entry.raw.directory === 'string' ? entry.raw.directory : undefined;
+  const declared = rawDeclared?.trim();
   const candidates: string[] = [];
-  if (declared) candidates.push(resolve(marketplaceRoot, declared));
+  if (declared) {
+    const declaredPath = resolveDeclaredPluginPath(marketplaceRoot, declared);
+    if (!declaredPath) {
+      diagnostics.push({
+        code: 'plugin_marketplace_entry_escaped',
+        message: `市场条目「${entry.name}」声明的路径越出市场根目录：${declared}`,
+        path: declared,
+        ...(pluginId ? { pluginId } : {}),
+        severity: 'error',
+      });
+      return { diagnostics };
+    }
+    candidates.push(declaredPath);
+  }
   candidates.push(join(marketplaceRoot, entry.name));
   candidates.push(marketplaceRoot);
-  return candidates.find((candidate) => findPluginManifestPath(candidate) !== undefined);
+  return { rootPath: candidates.find((candidate) => findPluginManifestPath(candidate) !== undefined), diagnostics };
 }
 
 export interface PluginMarketplaceOptions {
@@ -515,13 +569,18 @@ export class PluginMarketplace {
         diagnostics: [{ code: 'plugin_not_found', message: `市场中不存在插件：${input.pluginId}`, pluginId: input.pluginId, severity: 'error' }],
       };
     }
-    const rootPath = resolvePluginRoot(loaded.rootPath, entry);
-    if (!rootPath) {
-      return {
-        ok: false,
-        diagnostics: [{ code: 'plugin_manifest_not_found', message: `未能定位插件包根目录：${input.pluginId}`, pluginId: input.pluginId, severity: 'error' }],
-      };
+    const resolved = resolvePluginRoot(loaded.rootPath, entry, input.pluginId);
+    diagnostics.push(...resolved.diagnostics);
+    if (!resolved.rootPath) {
+      diagnostics.push({
+        code: 'plugin_manifest_not_found',
+        message: `未能定位插件包根目录：${input.pluginId}`,
+        pluginId: input.pluginId,
+        severity: 'error',
+      });
+      return { ok: false, diagnostics };
     }
+    const rootPath = resolved.rootPath;
     const inspected = inspectPluginPackage({ rootPath, expectedName: parsed.name, pluginId: input.pluginId });
     diagnostics.push(...inspected.diagnostics);
     if (!inspected.manifest || diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
@@ -582,6 +641,7 @@ export class PluginMarketplace {
       version: manifest.version ?? entry.version ?? DEFAULT_PLUGIN_VERSION,
       rootPath,
       ...(appId ? { appId } : {}),
+      ...(loaded.provenance ? { provenance: loaded.provenance } : {}),
       installedAt: this.nowIso(),
     };
     this.store.saveInstalled([...this.store.listInstalled().filter((item) => item.id !== installed.id), installed]);

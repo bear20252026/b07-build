@@ -43,6 +43,23 @@ export interface KnownMarketplaceRecord {
   pluginCount: number;
 }
 
+/**
+ * 插件来源出处（provenance）：远端来源安装后登记其仓库地址与 commit，供审计与展示。
+ * 设计借鉴（非源码移植）：从克隆目录的 `.git/config` 反解仓库地址的思路，借鉴自一个
+ * AGPL-3.0-or-later 的第三方项目（项目名与许可见 THIRD-PARTY-NOTICES.md「语义借用（非源码移植）」）；
+ * 本类型为 b07 独立形态。
+ */
+export interface PluginSourceProvenance {
+  /** 来源类型，与 MarketplaceSource 的判别式一致。 */
+  kind: MarketplaceSource['source'];
+  /** 归一化后的仓库地址（已去除内嵌凭据、去掉 `.git` 后缀）。 */
+  repoUrl?: string;
+  /** 请求检出的 ref（分支/标签）；未指定时为空。 */
+  ref?: string;
+  /** 实际检出的 commit（`git rev-parse HEAD`）；无法取得时为空。 */
+  commit?: string;
+}
+
 /** 已安装插件记录；`appId` 指向由 install 注册到 McpAppRegistry 的宿主应用。 */
 export interface InstalledPluginRecord {
   /** 稳定插件 id：`${name}@${marketplace}`。 */
@@ -54,12 +71,16 @@ export interface InstalledPluginRecord {
   rootPath: string;
   /** 安装时登记的 McpApp id；纯元数据插件（未声明 mcpApp）为空。 */
   appId?: string;
+  /** 来源出处；远端 git 来源安装时有值，本地目录/文件来源为空。 */
+  provenance?: PluginSourceProvenance;
   installedAt: string;
 }
 
 /**
  * 插件市场诊断码。前六个沿用上游 PluginDiagnosticCode 的语义；
- * 后两个是 b07 新增：插件包内 plugin.json 声明宿主 MCP App 时的桥接结果。
+ * 后四个是 b07 新增：插件包内 plugin.json 声明宿主 MCP App 时的桥接结果（两个），
+ * 以及清单路径越界（`plugin_marketplace_entry_escaped`）与远端来源不可用
+ * （`plugin_marketplace_source_unavailable`）两类安全/可用性诊断。
  */
 export type PluginDiagnosticCode =
   | 'plugin_manifest_not_found'
@@ -68,7 +89,9 @@ export type PluginDiagnosticCode =
   | 'plugin_marketplace_source_unsupported'
   | 'plugin_not_found'
   | 'plugin_app_declaration_missing'
-  | 'plugin_app_registration_failed';
+  | 'plugin_app_registration_failed'
+  | 'plugin_marketplace_entry_escaped'
+  | 'plugin_marketplace_source_unavailable';
 
 export type PluginDiagnosticSeverity = 'warning' | 'error';
 

@@ -273,3 +273,69 @@ test('PluginMarketplace：远端来源默认解析器显式拒绝（本批次不
   assert.equal(result.ok, false);
   assert.equal(result.diagnostics[0]?.code, 'plugin_marketplace_source_unsupported');
 });
+
+/** 写一个「市场根目录 + 清单声明 path」的夹具，用于越界校验用例。 */
+function writeMarketplaceWithDeclaredPath(root: string, declaredPath: string, pluginName: string): string {
+  const marketplaceRoot = join(root, 'marketplace');
+  mkdirSync(join(marketplaceRoot, '.claude-plugin'), { recursive: true });
+  writeFileSync(
+    join(marketplaceRoot, '.claude-plugin', 'marketplace.json'),
+    `${JSON.stringify({ name: 'local-market', plugins: [{ name: pluginName, path: declaredPath }] }, null, 2)}\n`,
+    'utf8',
+  );
+  return marketplaceRoot;
+}
+
+test('清单路径越界：`..` 与绝对路径被拒绝（fail closed），合法相对路径继续可用', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'awo-escape-'));
+  try {
+    // 市场之外放一个「看起来合法」的插件包，恶意清单试图用路径指到它。
+    const outsideRoot = join(root, 'outside');
+    mkdirSync(join(outsideRoot, '.claude-plugin'), { recursive: true });
+    writeFileSync(join(outsideRoot, '.claude-plugin', 'plugin.json'), `${JSON.stringify({ name: 'escapee' })}\n`, 'utf8');
+
+    const store = new InMemoryPluginMarketplaceStore();
+    const marketplace = new PluginMarketplace({ store, appRegistry: createAppRegistry(), nowIso: () => '2026-01-01T00:00:00.000Z' });
+
+    // 1) 相对路径含 `..`：越界拒绝。
+    const dotDot = writeMarketplaceWithDeclaredPath(root, '../../outside', 'escapee');
+    await marketplace.addMarketplace({ source: dotDot });
+    const relativeEscape = await marketplace.installPlugin({ pluginId: 'escapee@local-market' });
+    assert.equal(relativeEscape.ok, false);
+    assert.equal(relativeEscape.diagnostics[0]?.code, 'plugin_marketplace_entry_escaped');
+    assert.equal(relativeEscape.diagnostics[0]?.severity, 'error');
+    assert.equal(relativeEscape.diagnostics[0]?.pluginId, 'escapee@local-market');
+    assert.equal(relativeEscape.installed, undefined);
+    // 市场之外的那个包不得被登记。
+    assert.equal(marketplace.list().installed.length, 0);
+
+    // 2) 绝对路径：同样越界拒绝。
+    const absolute = writeMarketplaceWithDeclaredPath(root, outsideRoot, 'escapee');
+    await marketplace.addMarketplace({ source: absolute });
+    const absoluteEscape = await marketplace.installPlugin({ pluginId: 'escapee@local-market' });
+    assert.equal(absoluteEscape.ok, false);
+    assert.equal(absoluteEscape.diagnostics[0]?.code, 'plugin_marketplace_entry_escaped');
+    assert.equal(marketplace.list().installed.length, 0);
+
+    // 3) 合法相对路径：声明 path 指向市场内的嵌套目录，安装继续成功且 rootPath 被采用。
+    const legalRoot = join(root, 'legal');
+    mkdirSync(join(legalRoot, '.claude-plugin'), { recursive: true });
+    writeFileSync(
+      join(legalRoot, '.claude-plugin', 'marketplace.json'),
+      `${JSON.stringify({ name: 'legal-market', plugins: [{ name: 'inner-plugin', path: 'nested/inner-plugin' }] }, null, 2)}\n`,
+      'utf8',
+    );
+    mkdirSync(join(legalRoot, 'nested', 'inner-plugin', '.claude-plugin'), { recursive: true });
+    writeFileSync(
+      join(legalRoot, 'nested', 'inner-plugin', '.claude-plugin', 'plugin.json'),
+      `${JSON.stringify({ name: 'inner-plugin', version: '1.0.0' })}\n`,
+      'utf8',
+    );
+    await marketplace.addMarketplace({ source: legalRoot });
+    const legal = await marketplace.installPlugin({ pluginId: 'inner-plugin@legal-market' });
+    assert.equal(legal.ok, true, JSON.stringify(legal.diagnostics));
+    assert.equal(legal.installed?.rootPath, join(legalRoot, 'nested', 'inner-plugin'));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
