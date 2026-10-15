@@ -2,7 +2,10 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ToolRegistry, type ToolDescriptor } from '@awo/protocol';
+import { ToolRegistry, type ToolDescriptor, mcpToolName, parseMcpToolName } from '@awo/protocol';
+import { McpClientPool } from '../src/runtime/zcode/mcp-client-pool';
+import { McpLoopbackTransport } from '../src/runtime/zcode/mcp-client-transport';
+import { encodeMcpFrame, parseMcpFrame, type McpJsonRpcRequest } from '../src/runtime/zcode/mcp-client-wire';
 import { McpAppMountController, createUnavailableMcpAppToolExecutor, defaultMcpAppRisk, resolveMcpAppToolRisk } from '../src/runtime/zcode/mcp-app-mount-controller';
 
 const server = { id: 'demo', declaredTools: [{ name: 'read_note' }, { name: 'write_note' }] };
@@ -167,6 +170,64 @@ test('契约接入挂载：descriptor 声明 low 的工具免人工裁决直接�
   const controller = new McpAppMountController();
   controller.mount({ server, manifest: manifest(), tools: registry, executor: { execute: async () => 'note-body' } });
   assert.deepEqual(await controller.callTool('read_note', {}), { ok: true, result: 'note-body' });
+});
+
+test('挂载点通电：pool + descriptors 时缺省执行器直达真实会话', async () => {
+  // 真实服务器的 manifest 用 canonical 工具名（mcp__<server>__<tool>）：
+  // 白名单、descriptor、执行器解析三方共用同一命名。
+  const realServer = { id: 'demo', declaredTools: [{ name: 'mcp__demo__read_note' }] };
+  const [clientEnd, serverEnd] = McpLoopbackTransport.pair();
+  let failCall = false;
+  serverEnd.subscribe({
+    onLine: (line) => {
+      const message = parseMcpFrame(line);
+      if (!message || !('method' in message) || !('id' in message)) return;
+      const request = message as McpJsonRpcRequest;
+      if (request.method === 'initialize') {
+        void serverEnd.send(encodeMcpFrame({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2025-11-25', capabilities: {}, serverInfo: { name: 'fake', version: '1' } } }));
+        return;
+      }
+      if (request.method === 'tools/call') {
+        void serverEnd.send(
+          encodeMcpFrame(
+            failCall
+              ? { jsonrpc: '2.0', id: request.id, error: { code: -32603, message: 'server boom' } }
+              : { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: 'from-real-server' }] } },
+          ),
+        );
+      }
+    },
+  });
+  const pool = new McpClientPool({ idleGraceMs: 60_000, createTransport: () => clientEnd });
+  const registry = new ToolRegistry();
+  registry.register({
+    name: 'mcp__demo__read_note',
+    capability: 'filesystem.read',
+    defaultRisk: 'low',
+    readOnly: true,
+    destructive: false,
+    sideEffectScope: 'workspace',
+    resultBudgetChars: 32_000,
+    timeoutMs: 10_000,
+    concurrentSafe: true,
+  } satisfies ToolDescriptor);
+  const controller = new McpAppMountController();
+  // manifest 只请求 mcp__demo__read_note（canonical 名进白名单）。
+  const result = controller.mount({
+    server: realServer,
+    manifest: manifest({ requestedToolNames: ['mcp__demo__read_note'] }),
+    tools: registry,
+    pool,
+  });
+  assert.equal(result.ok, true);
+  const outcome = await controller.callTool('mcp__demo__read_note', { id: 1 });
+  assert.deepEqual(outcome, { ok: true, result: { content: [{ type: 'text', text: 'from-real-server' }] } });
+  // 协议失败路径：网关记 error，执行结果不外泄。
+  failCall = true;
+  const failed = await controller.callTool('mcp__demo__read_note', { id: 2 });
+  assert.equal(failed.ok, false);
+  if (!failed.ok) assert.match(failed.message ?? '', /server boom/);
+  await pool.close();
 });
 
 test('缺省执行器工厂：自身以传入原因拒绝', async () => {

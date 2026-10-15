@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ToolRegistry, ToolContractError, mcpToolName, type ToolDescriptor } from '../src/tool-contract';
+import { ToolRegistry, ToolContractError, mcpToolName, parseMcpToolName, type ToolDescriptor } from '../src/tool-contract';
 
 function descriptor(overrides: Partial<ToolDescriptor> = {}): ToolDescriptor {
   return {
@@ -41,6 +41,17 @@ test('MCP 工具命名：mcp__<server>__<tool>', () => {
   const registry = new ToolRegistry();
   registry.register(descriptor({ name: mcpToolName('demo', 'read_note') }));
   assert.equal(registry.resolve('mcp__demo__read_note')?.defaultRisk, 'low');
+});
+
+test('MCP 工具命名与反向解析：round-trip，畸形名拒绝', () => {
+  assert.equal(mcpToolName('demo', 'read_note'), 'mcp__demo__read_note');
+  assert.deepEqual(parseMcpToolName('mcp__demo__read_note'), { serverId: 'demo', toolName: 'read_note' });
+  // server 段按第一个 __ 切分：工具名里的下划线不破坏 round-trip。
+  assert.deepEqual(parseMcpToolName('mcp__demo__read_note_v2'), { serverId: 'demo', toolName: 'read_note_v2' });
+  assert.equal(parseMcpToolName('read_note'), undefined, '非 MCP 形态不猜');
+  assert.equal(parseMcpToolName('mcp__demo'), undefined);
+  assert.equal(parseMcpToolName('mcp____x'), undefined, '空 server 段拒绝');
+  assert.equal(parseMcpToolName('mcp__demo__'), undefined, '空 tool 段拒绝');
 });
 
 test('非法工具名被拒绝', () => {

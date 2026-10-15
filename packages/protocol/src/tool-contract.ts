@@ -37,6 +37,24 @@ export function mcpToolName(serverId: string, toolName: string): string {
   return `mcp__${serverId}__${toolName}`;
 }
 
+/**
+ * canonical 名反向解析：`mcp__<serverId>__<toolName>` → { serverId, toolName }。
+ * 与 mcpToolName round-trip；server/tool 名里的下划线由 sanitizeMcpName 折叠，
+ * 因此按「mcp__ 前缀 + 剩余部分第一个 `__`」分隔（server 段在前，与
+ * mcpToolName 的拼接顺序一致）。不是该形态的名字返回 undefined——调用方必须
+ * fail-closed，不得猜测分段。
+ */
+export function parseMcpToolName(name: string): { serverId: string; toolName: string } | undefined {
+  if (!name.startsWith('mcp__')) return undefined;
+  const rest = name.slice('mcp__'.length);
+  const separator = rest.indexOf('__');
+  if (separator <= 0) return undefined;
+  const serverId = rest.slice(0, separator);
+  const toolName = rest.slice(separator + 2);
+  if (serverId.length === 0 || toolName.length === 0) return undefined;
+  return { serverId, toolName };
+}
+
 const TOOL_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 export class ToolContractError extends Error {
