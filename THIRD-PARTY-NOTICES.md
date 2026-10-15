@@ -78,4 +78,6 @@
 
 `packages/agent-runtime/src/plugin-marketplace.ts` 的市场条目路径越界校验、以及 `packages/agent-runtime/src/plugin-git-source.ts` 的「从克隆目录 `.git/config` 反解仓库来源（provenance）」**设计思想**同样借鉴自 `CloudCLI`（`@cloudcli-ai/cloudcli`，许可 AGPL-3.0-or-later）：该许可与本仓库（MIT）**不兼容**，故**未复制其任何代码**——不复制文件、不逐行翻译、不沿用其命名与注释，只借鉴设计并按 b07 形态独立重写。b07 形态：路径越界收敛为「拒绝 `..`、拒绝绝对路径、解析后必须落在市场根目录内，否则产出 `plugin_marketplace_entry_escaped` 诊断并 fail closed」；git 调用收敛为可注入的 `GitRunner`（生产实现用 `child_process` 参数数组、不经 shell、设超时）。
 
+`packages/capability-placeholder/src/browser-tool-surface.ts` 与 `browser-tool-handlers.ts` 的**浏览器能力 MCP 工具面切分设计**（把宿主浏览器能力以 MCP server 形式暴露给 Agent，工具面按「会话生命周期 / 只读观测 / 导航与交互」三类切分，以及每个工具的粒度与参数大致为何）借鉴自 `CloudCLI`（`@cloudcli-ai/cloudcli`，许可 AGPL-3.0-or-later）：该许可与本仓库（MIT）**不兼容**，故**未复制其任何代码**——不复制文件、不逐行翻译、不沿用其命名与注释。b07 形态：工具元数据复用 `@awo/protocol` 的 `ToolDescriptor` / `ToolRegistry`（命名走 `mcp__<server>__<tool>`），副作用标注逐工具按语义定，缺省处理器全拒（稳定错误码 `browser_tool_backend_unavailable`）并复用本包既有的「不可用」占位姿态。
+
 移植文件头部均带有出处注释。对上游代码的修改遵循 Apache-2.0 的再分发条款（保留许可与版权声明、标注修改）。

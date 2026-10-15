@@ -1,9 +1,9 @@
 # @awo/capability-placeholder
 
-fail-closed 契约占位包。本构建不含桌面控制 / 计算机使用能力：**每一个运行时面
-（计算机使用运行时、能力谓词、权限端口）都报告 unavailable 并失败关闭**，
-关于未实现能力的谓词恒为 `false`，权限端口保持隐私 fail-closed 语义
-（未装配人工入口 = 拒绝）。
+fail-closed 契约占位包。本构建不含桌面控制 / 计算机使用 / 浏览器自动化能力：
+**每一个运行时面（计算机使用运行时、能力谓词、权限端口、浏览器 MCP 工具面）
+都报告 unavailable 并失败关闭**，关于未实现能力的谓词恒为 `false`，权限端口保持
+隐私 fail-closed 语义（未装配人工入口 = 拒绝）。
 
 本包是「契约包 + 全拒实现」的占位形态，而非缺席或半成品：调用方现在就能照着
 类型写代码，运行期得到明确的 fail-closed 结果，而不是一个偶尔能跑通的半成品
@@ -25,6 +25,13 @@ fail-closed 契约占位包。本构建不含桌面控制 / 计算机使用能�
 | `@awo/capability-placeholder/predicates` | 恒 `false` 的能力谓词（单一事实源） |
 | `@awo/capability-placeholder/computer-use` | fail-closed 的计算机使用运行时 |
 | `@awo/capability-placeholder/permission` | fail-closed 权限端口 |
+| `@awo/capability-placeholder/browser-tools` | 浏览器 MCP 工具面契约（13 个工具 + 参数 schema + 注册表） |
+| `@awo/capability-placeholder/browser-handlers` | 浏览器工具执行缝与全拒缺省处理器 |
+
+浏览器 MCP 工具面把「宿主能力 → 以 MCP server 暴露给 Agent」这一侧的工具清单
+定成契约（会话生命周期 / 只读观测 / 导航与交互三类），与 b07 既有的 MCP Apps
+（「沙箱应用 → 调用宿主工具」）是互补的另一个方向；本构建没有浏览器自动化后端，
+故每个工具的缺省处理器都以稳定错误码 `browser_tool_backend_unavailable` 明确失败。
 
 范式参考 ZCode `@zcode/zcode-cua`（Apache-2.0），出处与差异见根目录
 `THIRD-PARTY-NOTICES.md`。

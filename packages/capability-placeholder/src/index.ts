@@ -8,6 +8,8 @@ export {
   CAPABILITY_PLACEHOLDER,
   CAPABILITY_PLACEHOLDER_FIELD,
   CAPABILITY_UNAVAILABLE_TEXT,
+  BROWSER_TOOL_UNAVAILABLE_CODE,
+  BROWSER_TOOL_UNAVAILABLE_TEXT,
   PLACEHOLDER_SURFACES,
   type PlaceholderSurface,
 } from './placeholder-marker.js';
@@ -18,10 +20,37 @@ export {
   canExecuteBrowserActions,
   canReadBrowserSecrets,
   canReadPageContent,
+  canUseBrowserToolSurface,
   unavailableCapabilityFlags,
   type UnavailableCapabilityFlags,
   type UnavailableFlag,
 } from './capability-predicates.js';
+
+export {
+  BROWSER_TOOL_NAMES,
+  BROWSER_TOOL_SERVER_ID,
+  BROWSER_TOOL_SPECS,
+  BROWSER_TOOL_SURFACE_AVAILABLE,
+  createBrowserToolRegistry,
+  createBrowserToolSurface,
+  findBrowserToolSpec,
+  type BrowserToolCategory,
+  type BrowserToolParameter,
+  type BrowserToolParameterType,
+  type BrowserToolSpec,
+  type BrowserToolSurface,
+} from './browser-tool-surface.js';
+
+export {
+  BROWSER_TOOL_NOT_REGISTERED_CODE,
+  createBrowserToolExecutor,
+  createUnavailableBrowserToolHandler,
+  type BrowserToolCall,
+  type BrowserToolCallResult,
+  type BrowserToolExecutor,
+  type BrowserToolExecutorOptions,
+  type BrowserToolHandler,
+} from './browser-tool-handlers.js';
 
 export {
   createComputerUseRuntime,
