@@ -62,7 +62,7 @@ export function McpAppPanel() {
   const gesturesRef = useRef<McpAppGestureTokenRegistry | null>(null);
   if (gesturesRef.current === null) gesturesRef.current = new McpAppGestureTokenRegistry();
   const mountSeq = useRef(0);
-  const instanceIdRef = useRef<string>();
+  const instanceIdRef = useRef<string | undefined>(undefined);
 
   // 真实用户交互 → 打标：只给「当前已挂载实例」打，未挂载时点击不打标。
   // iframe 内的手势宿主观察不到，故信号取宿主文档的 pointerdown / keydown（transient activation 语义）。
