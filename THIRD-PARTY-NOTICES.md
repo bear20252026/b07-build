@@ -82,4 +82,6 @@
 
 `packages/agent-runtime/src/external-session-{index-types,source,index-store,index}.ts` 的**外部来源会话增量反向索引**，以及其中「索引器写库必须早于文件监听器把同一文件当成无关新会话」的**竞态处理**设计，借鉴自 `CloudCLI`（`@cloudcli-ai/cloudcli`，许可 AGPL-3.0-or-later）：该许可与本仓库（MIT）**不兼容**，故**未复制其任何代码**——不复制文件、不逐行翻译、不沿用其命名与注释，只借鉴设计并按 b07 形态独立重写。b07 形态：来源适配器收敛为可注入的两段式契约（`discover()` 只列候选 / `read()` 读单文件并归一化），默认实现解析 b07 自定义的 JSON Lines 会话文件；稳定身份分两层（文件级「来源 id + 归一化路径」作会话主键保证同一会话一条记录，内容级「再加内容摘要」作幂等身份）；竞态以「先 `claim()` 占位登记、再读内容、失败 `rollback()`」+ 主键唯一与 upsert 收敛为一条记录；越界/损坏/超大/未知形态一律 fail closed 并产出稳定诊断码。
 
+`crates/worktree/`（`src/{lib,slug,session,paths,dirty,git_env}.rs`）的**工作树隔离**设计研读自 **Claude Code** 还原源码（`src/utils/worktree.ts`，1519 行）。该上游**未以任何开源许可证发布**，与本仓库（MIT）**不存在许可兼容性**，故**未复制其任何代码**——不复制文件、不逐行翻译、不沿用其命名、注释与实现结构，只研读其设计约束并按 b07 形态独立重写为 Rust。b07 形态与差异：本 crate **不持有进程、不调 git**（真实 git 调用归桌面端 tokio 层，与 `process-supervisor` 的 `mcp_stdio.rs` 同一分工），只做规格校验与纯状态机，故可单测、无平台依赖；`CreateStage` 把「注册后失败必须回滚」写成类型级约束（`requires_rollback()`），而 `ChangeState` 把「命令失败 → 不可删」的 fail-closed 语义外显为独立于 `Dirty` 的 `Unknown` 态，使诊断能区分「真脏」与「git 故障」；`paths` 模块收敛目录名与分支名的唯一派生出口并附一致性自检，上游无对应模块。设计约束（路径穿越防护须先于任何副作用、嵌套 slug 拍平须为单射、复用路径不得依赖子进程、半成品须回滚、清理须双检查、git 调用须关闭凭据提示）逐条落实，逐条有对应单测。此处如实声明设计来源，以免被误认为原创。
+
 移植文件头部均带有出处注释。对上游代码的修改遵循 Apache-2.0 的再分发条款（保留许可与版权声明、标注修改）。
