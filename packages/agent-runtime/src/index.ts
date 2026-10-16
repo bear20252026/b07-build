@@ -95,3 +95,8 @@ export * from './infrastructure/node-memory-file-system.js';
 export * from './runtime-task-contract.js';
 export * from './runtime-task-registry.js';
 export * from './runtime-task-notification.js';
+// 压缩触发层（缺口 4）：补齐 baseline 2 上下文治理的「何时压、压哪一档、压不动怎么办」。
+// 与 microcompact 的分工：那个是「档位」（清哪些工具结果），本层是「触发」（该不该动手 + 择档 + 熔断）。
+// 与 context-budgeter 的分工：那个在装配后按预算裁剪（反应式），本层是前视的阈值判定。
+export * from './compaction-policy-contract.js';
+export * from './compaction-policy.js';
