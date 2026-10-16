@@ -5,6 +5,24 @@
 > 格式：`## [日期] 变更摘要` → `### 修正（原因→处置）` / `### 新增` / `### 决策`。
 > 每次更正都记录**为什么改**（基线：BASELINE.md v0.1.0）。
 
+## [2026-10-16] desktop-shell v0.2.0 安装包版本
+
+### 修正（原因→处置）
+
+- **desktop-shell 版本停在 0.1.19，落后于代码 102 个提交 → 升到 0.2.0。** 上一次云端打包在 2026-08-26；此后 `main` 累积 102 个提交（其中 87 个 feat/fix），**26 个直接改动 `apps/desktop-shell`**（MCP stdio 受监督进程与 Tauri 命令面、插件安装→激活计划→扩展宿主、终端逐命令只读判定与出网边界、补丁原生批量事务、安全加固 SEC-001..011、凭据迁入 OS 凭据管理器、工作区文件 API 与工具调用闭环、对话持久化改增量 SQLite 写入等）。版本不变则打包产物文件名与 8 月那次完全相同，无法区分——按 semver 属 minor 升级，故取 0.2.0。
+- **四处版本声明点必须同步，否则打包前校验直接拒绝。** 本次同时更新 `apps/desktop-shell/package.json`、`apps/desktop-shell/src-tauri/Cargo.toml`、`apps/desktop-shell/src-tauri/tauri.conf.json` 与 `publish-workbench-home-ui.ps1`（4 处引用：安装包名 ×2、版本元数据、说明文案），并重新生成 `package-lock.json`。`tools/verify-desktop-release-version.mjs` 校验通过（`desktop-release-version-ok=0.2.0`）。
+
+### 决策
+
+- **不改动打包流水线的形态。** Windows 与 macOS 均为**既有** workflow（`windows-desktop-shell-provenance.yml` / `macos-desktop-shell-provenance.yml`），本次仅触发，未新增 tag、未新建 GitHub Release、未改 workflow 权限。两者产物均为 **unsigned / ad-hoc 候选件**，声明 `publicTrust: false`，不自动启动 gateway 或原生 helper——这是既有设计，本次沿用而非改变。
+- **不做代码签名。** 流水线按设计不持有签名证书，产物为候选件（`windows-...-candidate` / `nova-macos-arm64-desktop-shell-candidate`）。若需可分发正式包，签名与公证须另立批次。
+
+### 验证
+
+- `node tools/verify-desktop-release-version.mjs` → `desktop-release-version-ok=0.2.0` ✅
+- 全仓库无 `0.1.19` 残留（排除 CHANGELOG 历史记录）✅
+- 云端双平台构建：Windows NSIS `NOVA_0.2.0_x64-setup.exe` + macOS `NOVA_0.2.0_aarch64.dmg`（见对应 workflow run）
+
 ## [2026-08-19] v0.19.0 受控扩展平面正式发布
 
 ### 决策
