@@ -1,0 +1,15 @@
+[package]
+name = "cdp-client"
+version = "0.1.0"
+edition = "2021"
+description = "AI Work OS - Chrome DevTools Protocol 帧纪律与目标发现（一个 crate=一类作用，纯协议逻辑，无 IO）"
+
+# 本 crate 刻意只依赖 serde/serde_json：协议的**编解码与判定**必须能脱离网络被
+# 纯数据单测覆盖。真正的 WebSocket 连接在 apps/desktop-shell 的 tokio 层，那里才
+# 引入传输依赖——这样"协议正确性"与"传输"两件事不会互相掩盖缺陷。
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
