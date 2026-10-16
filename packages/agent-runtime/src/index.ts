@@ -82,3 +82,9 @@ export * from './external-session-index-types.js';
 export * from './external-session-source.js';
 export * from './external-session-index-store.js';
 export * from './external-session-index.js';
+// 记忆 recall（缺口 2）：工作区事实记忆的清单扫描 + 确定性相关性选择 + 有界读取 + 陈旧标注。
+// 与 memory-ledger 的分工：账本管 SQLite 里受审查的记录，本层管工作区里可编辑的 .md 文件。
+// agent-runtime 不调模型，故默认选择器是确定性打分；`MemoryRecallSelector` 留接缝给上层注入。
+export * from './memory-recall-contract.js';
+export * from './memory-recall.js';
+export * from './infrastructure/node-memory-file-system.js';
