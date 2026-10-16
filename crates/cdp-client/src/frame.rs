@@ -71,6 +71,17 @@ impl CommandIdAllocator {
 /// `params` 用 `Value` 而非泛型：CDP 有 40+ 个方法、每个的参数结构都不同，为每个
 /// 方法建一个结构体会让"加一个方法"变成"改四处"，而这些结构体本身没有任何判定
 /// 逻辑——是纯粹的形状转写。校验发生在更有价值的地方（工具入参 schema），不在这里。
+///
+/// ## `session_id` 为什么必须是**顶层**字段
+///
+/// CDP 的扁平会话模型（flat session）规定：命令的目标会话由**与 `id`、`method` 并列
+/// 的顶层 `sessionId`** 表达。把它塞进 `params` 不是"换了个地方放"——对端根本不把
+/// `params.sessionId` 当路由信息看，它会认为这条命令没有指定会话，于是命令落在
+/// **浏览器级**会话上：轻则报"方法不存在"，重则作用到错误的上下文（例如
+/// `Runtime.evaluate` 在浏览器级执行，而不是在那个已 attach 的页面里）。
+///
+/// 这个错误还有个隐蔽之处：它**不会**在连接层报错，只会在语义层静默走偏。因此
+/// `CommandFrame` 把它做成一个显式字段，而不是让调用方自己往 `params` 里塞。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CommandFrame {
     /// 请求 id，唯一。
@@ -80,15 +91,39 @@ pub struct CommandFrame {
     /// 方法参数；无参数时省略而不是发 `null`（部分实现拒收显式 `null`）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub params: Option<Value>,
+    /// 目标会话 id。**与 `id`、`method` 并列在顶层**，绝不并入 `params`。
+    ///
+    /// 字段名按 CDP 的驼峰惯例序列化为 `sessionId`。
+    #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 impl CommandFrame {
-    /// 构造一条命令。
+    /// 构造一条**无目标会话**的命令（浏览器级）。
     pub fn new(id: CommandId, method: impl Into<String>, params: Option<Value>) -> Self {
         Self {
             id,
             method: method.into(),
             params,
+            session_id: None,
+        }
+    }
+
+    /// 构造一条**带目标会话**的命令：`sessionId` 位于顶层，与 `id`/`method` 并列。
+    ///
+    /// 用构造函数而不是让调用方自己改字段，是为了让"会话要放顶层"这件事只有一个
+    /// 落点——上一版的缺陷正是散落在 `encode_command` 里的一段 `map.insert`。
+    pub fn with_session(
+        id: CommandId,
+        method: impl Into<String>,
+        params: Option<Value>,
+        session_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            id,
+            method: method.into(),
+            params,
+            session_id: Some(session_id.into()),
         }
     }
 
@@ -96,6 +131,13 @@ impl CommandFrame {
     pub fn encode(&self) -> Result<String, FrameError> {
         if self.method.trim().is_empty() {
             return Err(FrameError::EmptyMethod);
+        }
+        // 空串会话 id 会被对端当作"没有会话"或直接拒收，两种都不是调用方想要的：
+        // 拒绝而不是发出一条语义不明的命令。
+        if let Some(session_id) = self.session_id.as_deref() {
+            if session_id.trim().is_empty() {
+                return Err(FrameError::EmptySessionId);
+            }
         }
         serde_json::to_string(self).map_err(|error| FrameError::Encode(error.to_string()))
     }
@@ -178,6 +220,8 @@ impl FrameInvalidReason {
 pub enum FrameError {
     /// 命令的 method 为空。
     EmptyMethod,
+    /// 命令指定了会话，但会话 id 是空串（或全空白）。
+    EmptySessionId,
     /// 序列化失败（理论上不会发生，保留以便不 panic）。
     Encode(String),
 }
@@ -186,6 +230,7 @@ impl std::fmt::Display for FrameError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyMethod => write!(f, "CDP 命令的 method 不得为空"),
+            Self::EmptySessionId => write!(f, "CDP 命令的 sessionId 不得为空"),
             Self::Encode(detail) => write!(f, "CDP 命令序列化失败：{detail}"),
         }
     }
@@ -381,6 +426,53 @@ mod tests {
     fn 空方法名被拒绝() {
         let frame = CommandFrame::new(CommandId(1), "   ", None);
         assert_eq!(frame.encode(), Err(FrameError::EmptyMethod));
+    }
+
+    #[test]
+    fn 带会话的命令把sessionId放在顶层() {
+        // 扁平会话模型的硬要求。放在 `params` 里对端不会当路由信息看，
+        // 命令会落到浏览器级会话上——这是"静默走偏"而不是报错，所以必须钉死。
+        let frame = CommandFrame::with_session(
+            CommandId(1),
+            "Runtime.evaluate",
+            Some(json!({ "expression": "1+1" })),
+            "SESSION-1",
+        );
+        let encoded = frame.encode().unwrap();
+        let parsed: Value = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(parsed["sessionId"], json!("SESSION-1"));
+        assert_eq!(parsed["method"], json!("Runtime.evaluate"));
+        assert_eq!(parsed["params"]["expression"], json!("1+1"));
+        // 反向断言：`params` 里**不得**出现 sessionId。
+        // 只断言顶层存在的话，一份"两处都写"的实现也能通过。
+        assert!(
+            parsed["params"].get("sessionId").is_none(),
+            "sessionId 不得出现在 params 内，实际：{}",
+            parsed["params"]
+        );
+    }
+
+    #[test]
+    fn 带会话且无参数时仍只发顶层sessionId() {
+        let frame = CommandFrame::with_session(CommandId(2), "Page.enable", None, "S-9");
+        let encoded = frame.encode().unwrap();
+        let parsed: Value = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(parsed["sessionId"], json!("S-9"));
+        // 无参数时应省略 `params`，而不是发一个只有 sessionId 的 params 对象。
+        assert!(parsed.get("params").is_none(), "无参数时不应出现 params");
+    }
+
+    #[test]
+    fn 无会话的命令不带sessionId字段() {
+        let frame = CommandFrame::new(CommandId(3), "Target.getTargets", None);
+        let parsed: Value = serde_json::from_str(&frame.encode().unwrap()).unwrap();
+        assert!(parsed.get("sessionId").is_none());
+    }
+
+    #[test]
+    fn 空会话id被拒绝() {
+        let frame = CommandFrame::with_session(CommandId(1), "Page.enable", None, "   ");
+        assert_eq!(frame.encode(), Err(FrameError::EmptySessionId));
     }
 
     #[test]

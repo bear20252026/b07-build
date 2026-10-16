@@ -294,8 +294,12 @@ export const BROWSER_TOOL_SPECS: readonly BrowserToolSpec[] = [
     parameters: [
       SESSION_ID,
       { name: 'action', type: 'string', required: false, description: 'list / new / select / close。' },
-      { name: 'index', type: 'number', required: false, description: '标签页下标。' },
+      { name: 'index', type: 'number', required: false, description: '标签页下标，用于 select。' },
       { name: 'url', type: 'string', required: false, description: '新建标签页时的目标地址。' },
+      // close 需要**稳定标识**而不是下标：下标会随标签页增删漂移，按它关闭可能关错。
+      // 这里如实声明，因为 Rust 侧确实要求它——不声明的后果是按公开契约构造的请求
+      // 会在映射层被 `MissingParameter` 拒掉（`close_session` 曾犯过同一个错）。
+      { name: 'targetId', type: 'string', required: false, description: '标签页的稳定目标 id，用于 close。' },
     ],
   },
 ];

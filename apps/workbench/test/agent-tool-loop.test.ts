@@ -82,3 +82,125 @@ test('不会修改传入的历史数组', async () => {
   await runAgentTurn({ client, providerId: 'p', messages: history, tools: [], execute: async () => 'x', onText: () => undefined });
   assert.deepEqual(history, [{ role: 'user', content: '问题' }]);
 });
+
+// ---------------------------------------------------------------------------
+// 回合中断：模型请求失败**不能**让已发生的工具执行痕迹消失。
+//
+// 失败注入确认过的原始行为：第 1 轮返回工具调用 → 工具成功执行 → 第 2 轮模型请求失败
+// → 整个回合抛错，调用方拿不到任何部分结果。界面随后删掉流式消息，而工具活动正挂在
+// 它上面 —— 结果是文件已经改了，聊天里的操作记录却消失了。
+// ---------------------------------------------------------------------------
+
+/** 假客户端：前 `succeedRounds` 轮正常，之后抛出给定错误。 */
+function failingClient(
+  responses: readonly { readonly text: string; readonly toolCalls: readonly DirectProviderToolCall[] }[],
+  failFromRound: number,
+  error: unknown,
+): DirectProviderClient {
+  let round = 0;
+  return {
+    async stream(input: { messages: readonly DirectProviderMessage[]; onText(chunk: string): void }) {
+      round += 1;
+      if (round >= failFromRound) throw error;
+      const scripted = responses[round - 1] ?? { text: '', toolCalls: [] };
+      input.onText(scripted.text);
+      return { model: 'test-model', toolCalls: scripted.toolCalls };
+    },
+  } as unknown as DirectProviderClient;
+}
+
+test('第二轮模型失败时不抛异常而是返回部分结果', async () => {
+  const client = failingClient([{ text: '我先改一下。', toolCalls: [readCall] }], 2, new Error('provider-sse-error: 连接被重置'));
+  const result = await runAgentTurn({
+    client,
+    providerId: 'p',
+    messages: baseMessages,
+    tools: [],
+    execute: async () => '已写入',
+    onText: () => undefined,
+  });
+  // 抛异常会让调用方丢掉整回合的痕迹；这里必须正常返回。
+  assert.equal(result.executedCalls, 1);
+  assert.equal(result.failure?.round, 2);
+  assert.equal(result.stoppedByRoundLimit, false);
+});
+
+test('失败时保留已执行工具的历史与回填结果', async () => {
+  const client = failingClient([{ text: '我先改一下。', toolCalls: [readCall] }], 2, new Error('boom'));
+  const result = await runAgentTurn({
+    client,
+    providerId: 'p',
+    messages: baseMessages,
+    tools: [],
+    execute: async () => '文件已更新',
+    onText: () => undefined,
+  });
+  // 历史里必须同时留下"我调用过什么"和"结果是什么"，否则排查失去依据。
+  assert.deepEqual(result.messages.slice(1), [
+    { role: 'assistant', content: '我先改一下。', toolCalls: [readCall] },
+    { role: 'tool', content: '文件已更新', toolCallId: 'call-1' },
+  ]);
+});
+
+test('失败时原始错误原样带出以便上层翻译', async () => {
+  const cause = new Error('provider-sse-error: 上游 502');
+  const client = failingClient([{ text: '', toolCalls: [readCall] }], 2, cause);
+  const result = await runAgentTurn({ client, providerId: 'p', messages: baseMessages, tools: [], execute: async () => 'ok', onText: () => undefined });
+  assert.equal(result.failure?.error, cause);
+});
+
+test('首轮就失败时没有执行任何工具', async () => {
+  const client = failingClient([], 1, new Error('第一轮就挂了'));
+  const result = await runAgentTurn({ client, providerId: 'p', messages: baseMessages, tools: [], execute: async () => '不该被调用', onText: () => undefined });
+  assert.equal(result.executedCalls, 0);
+  assert.equal(result.failure?.round, 1);
+  assert.deepEqual(result.messages, baseMessages);
+});
+
+test('execute抛出时同样不丢已完成的执行痕迹', async () => {
+  // execute 的契约是"失败返回描述而不是抛出"。真抛了说明契约被违反，
+  // 但已经执行过的调用仍然算数，不能把整回合的痕迹丢掉。
+  const twoCalls: readonly DirectProviderToolCall[] = [
+    { id: 'call-1', name: 'workspace_read_file', arguments: '{}' },
+    { id: 'call-2', name: 'workspace_write_file', arguments: '{}' },
+  ];
+  const client = failingClient([{ text: '开始', toolCalls: twoCalls }], 9, new Error('unused'));
+  let executed = 0;
+  const result = await runAgentTurn({
+    client,
+    providerId: 'p',
+    messages: baseMessages,
+    tools: [],
+    execute: async () => {
+      executed += 1;
+      if (executed === 2) throw new Error('执行器崩了');
+      return '第一个成功了';
+    },
+    onText: () => undefined,
+  });
+  // 第一个已经真的执行了 —— 它必须留在历史里。
+  assert.equal(result.executedCalls, 1);
+  assert.equal(result.failure?.error instanceof Error, true);
+  assert.deepEqual(result.messages.at(-1), { role: 'tool', content: '第一个成功了', toolCallId: 'call-1' });
+});
+
+test('成功路径不带failure字段', async () => {
+  const client = fakeClient([{ text: '完成。', toolCalls: [] }]);
+  const result = await runAgentTurn({ client, providerId: 'p', messages: baseMessages, tools: [], execute: async () => '', onText: () => undefined });
+  assert.equal(result.failure, undefined);
+});
+
+test('中断时仍如实触发onToolResult以留下收据', async () => {
+  const client = failingClient([{ text: '', toolCalls: [readCall] }], 2, new Error('boom'));
+  const receipts: string[] = [];
+  await runAgentTurn({
+    client,
+    providerId: 'p',
+    messages: baseMessages,
+    tools: [],
+    execute: async () => '结果',
+    onText: () => undefined,
+    onToolResult: (call) => receipts.push(call.id),
+  });
+  assert.deepEqual(receipts, ['call-1']);
+});

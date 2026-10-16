@@ -22,9 +22,25 @@ export interface BrowserToolCall {
   readonly signal?: AbortSignal;
 }
 
+/**
+ * 一个内容块：文本或图片。
+ *
+ * 图片必须是独立的一类。截图是 base64，把它当文本走"超长就截断"那条路，
+ * 截出来的是**不可解码的半个 base64**，而结果仍被标成成功 —— 那不是压缩，是损坏。
+ */
+export interface BrowserToolContent {
+  readonly type: 'text' | 'image';
+  /** 文本块才有。 */
+  readonly text?: string;
+  /** 图片块才有：base64 数据（从不截断）。 */
+  readonly data?: string;
+  /** 图片块才有：MIME 类型。 */
+  readonly mimeType?: string;
+}
+
 /** 与 MCP 工具结果同形：`content` + `isError`；失败时带稳定 `errorCode`。 */
 export interface BrowserToolCallResult {
-  readonly content: readonly { readonly type: 'text'; readonly text: string }[];
+  readonly content: readonly BrowserToolContent[];
   readonly isError: boolean;
   readonly errorCode?: string;
 }

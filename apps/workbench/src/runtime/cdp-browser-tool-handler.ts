@@ -30,6 +30,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   BrowserToolCall,
   BrowserToolCallResult,
+  BrowserToolContent,
   BrowserToolHandler,
 } from '@awo/capability-placeholder/browser-handlers';
 // 该码的**唯一定义**在契约包里。这里必须引用而不是抄一份字面量——
@@ -71,15 +72,14 @@ export interface BrowserBackendStatus {
   readonly sessionCount: number;
 }
 
-/** 一个内容块。 */
-interface BrowserToolContent {
-  readonly type: 'text';
-  readonly text: string;
-}
-
 /** 原生返回的原始结果形状（待校验）。 */
 interface RawBrowserToolCallResult {
-  readonly content?: readonly { readonly type?: unknown; readonly text?: unknown }[];
+  readonly content?: readonly {
+    readonly type?: unknown;
+    readonly text?: unknown;
+    readonly data?: unknown;
+    readonly mimeType?: unknown;
+  }[];
   readonly isError?: unknown;
   readonly errorCode?: unknown;
 }
@@ -110,10 +110,20 @@ function toToolCallResult(value: unknown): BrowserToolCallResult {
   const content: BrowserToolContent[] = [];
   for (const block of raw.content) {
     if (!block || typeof block !== 'object') continue;
-    // 只接受文本块。Rust 侧目前只会发文本；出现别的类型说明双方对不上，
-    // 此时**跳过**而不是编造一个 —— 编造会让上层拿到它没要过的内容。
-    if (block.type !== 'text' || typeof block.text !== 'string') continue;
-    content.push({ type: 'text', text: block.text });
+    if (block.type === 'text') {
+      if (typeof block.text !== 'string') continue;
+      content.push({ type: 'text', text: block.text });
+      continue;
+    }
+    // 图片块：截图走这条。**不截断** —— 截断产出的是不可解码的半个 base64，
+    // 而调用方无从察觉。原生侧已在超限时明确报错。
+    if (block.type === 'image') {
+      if (typeof block.data !== 'string' || !block.data) continue;
+      const mimeType = typeof block.mimeType === 'string' && block.mimeType ? block.mimeType : 'image/png';
+      content.push({ type: 'image', data: block.data, mimeType });
+      continue;
+    }
+    // 未知类型：**跳过**而不是编造 —— 编造会让上层拿到它没要过的内容。
   }
   if (content.length === 0) {
     return {

@@ -38,6 +38,22 @@ export interface AgentTurnResult {
   readonly executedCalls: number;
   /** 达到轮次上限而被截断：模型最后一轮仍在要工具。 */
   readonly stoppedByRoundLimit: boolean;
+  /**
+   * 回合因模型请求失败而中断。
+   *
+   * **关键**：中断不代表"什么都没发生"——失败之前可能已经执行过工具，文件真的被改了。
+   * 因此本函数**不抛异常**，而是把已经发生的事（`messages` 里的工具结果、
+   * `executedCalls`）连同失败原因一起返回，由上层决定如何呈现。
+   */
+  readonly failure?: AgentTurnFailure;
+}
+
+/** 回合中断的原因。 */
+export interface AgentTurnFailure {
+  /** 出错的轮次（从 1 开始）。 */
+  readonly round: number;
+  /** 原始错误；翻译成人话是上层的事（见 `streamErrorText`）。 */
+  readonly error: unknown;
 }
 
 export async function runAgentTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
@@ -48,17 +64,32 @@ export async function runAgentTurn(input: AgentTurnInput): Promise<AgentTurnResu
   let rounds = 0;
 
   for (let round = 1; round <= limit; round += 1) {
-    let text = '';
-    const completion = await input.client.stream({
-      providerId: input.providerId,
-      ...(model ? { model } : {}),
-      messages: history,
-      tools: input.tools,
-      onText: (chunk) => { text += chunk; input.onText(chunk); },
-      ...(input.onReasoning ? { onReasoning: input.onReasoning } : {}),
-      ...(input.onToolCallStart ? { onToolCallStart: input.onToolCallStart } : {}),
-    });
     rounds = round;
+    let text = '';
+    let completion;
+    try {
+      completion = await input.client.stream({
+        providerId: input.providerId,
+        ...(model ? { model } : {}),
+        messages: history,
+        tools: input.tools,
+        onText: (chunk) => { text += chunk; input.onText(chunk); },
+        ...(input.onReasoning ? { onReasoning: input.onReasoning } : {}),
+        ...(input.onToolCallStart ? { onToolCallStart: input.onToolCallStart } : {}),
+      });
+    } catch (error: unknown) {
+      // **不抛出**：抛出去会让上层丢掉整个回合的执行痕迹。上层若据此删掉流式消息，
+      // 用户看到的是"什么都没发生"，而磁盘上的文件已经变了——这会误导重试，
+      // 也让事后排查失去唯一依据。
+      return {
+        ...(model ? { model } : {}),
+        messages: history,
+        rounds,
+        executedCalls,
+        stoppedByRoundLimit: false,
+        failure: { round, error },
+      };
+    }
     if (completion.model) model = completion.model;
 
     // 模型不再要工具：这是正常出口，把这一轮说的话原样留下即可。
@@ -76,7 +107,21 @@ export async function runAgentTurn(input: AgentTurnInput): Promise<AgentTurnResu
     // 少了它，模型下一轮看不到自己做过什么，会重复发起同样的调用。
     history = [...history, { role: 'assistant' as const, content: text, toolCalls: completion.toolCalls }];
     for (const call of completion.toolCalls) {
-      const result = await input.execute(call.name, call.arguments);
+      let result: string;
+      try {
+        result = await input.execute(call.name, call.arguments);
+      } catch (error: unknown) {
+        // `execute` 的契约是"失败返回描述而不是抛出"。真抛了说明契约被违反，
+        // 但**已执行过的调用仍然算数**，同样不能把整回合的痕迹丢掉。
+        return {
+          ...(model ? { model } : {}),
+          messages: history,
+          rounds,
+          executedCalls,
+          stoppedByRoundLimit: false,
+          failure: { round, error },
+        };
+      }
       executedCalls += 1;
       input.onToolResult?.(call, result);
       history = [...history, { role: 'tool' as const, content: result, toolCallId: call.id }];
