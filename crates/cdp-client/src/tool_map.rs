@@ -689,7 +689,18 @@ mod tests {
     fn 导航接受http与https() {
         for good in ["http://example.com", "https://example.com/a?b=1"] {
             match map_tool_call("mcp__browser__navigate", Some(&json!({ "url": good }))) {
-                ToolMapOutcome::Steps(steps) => assert_eq!(steps[0].method, "Page.navigate"),
+                ToolMapOutcome::Steps(steps) => {
+                    assert_eq!(steps[0].method, "Page.navigate");
+                    // 断言**载荷**而不只是方法名：CDP 的 `Page.navigate` 靠 `params.url`
+                    // 决定去哪一页，参数丢了会变成一次"导航到空"的静默错行为——
+                    // 命令确实发出去了、也成功了，但去的是别处。
+                    // 只断言方法名的守卫对这类缺陷没有牙齿（本批实测：把载荷改成
+                    // 别的键名时，cdp-client 的 115 项测试全部照常通过）。
+                    assert_eq!(
+                        steps[0].params.as_ref().and_then(|p| p.get("url")),
+                        Some(&json!(good))
+                    );
+                }
                 other => panic!("{good} 应通过，实际：{other:?}"),
             }
         }

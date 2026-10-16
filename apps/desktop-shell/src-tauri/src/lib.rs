@@ -8,6 +8,8 @@
 #[cfg(not(mobile))]
 mod assistant_artifacts;
 #[cfg(not(mobile))]
+mod browser_tools;
+#[cfg(not(mobile))]
 mod conversation_store;
 mod credentials;
 mod direct_provider;
@@ -292,6 +294,7 @@ pub fn run() {
         .manage(workspace_approval::WorkspaceApprovalState::new())
         .manage(workspace_patch::WorkspacePatchState::new())
         .manage(mcp_app_host::McpAppDocumentState::new())
+        .manage(browser_tools::BrowserToolState::new())
         .manage(workspace_index::WorkspaceIndexState::new())
         .manage(zcode_process::ZCodeProcessState::new())
         .manage(mcp_process::McpStdioState::new())
@@ -358,6 +361,10 @@ pub fn run() {
             extension_host_process::extension_host_start,
             extension_host_process::extension_host_stop,
             extension_host_process::extension_host_status,
+            browser_tools::browser_backend_status,
+            browser_tools::browser_backend_set_enabled,
+            browser_tools::browser_backend_set_port,
+            browser_tools::browser_tool_call,
             mcp_app_host::mcpapp_stage_document,
             mcp_app_host::mcpapp_release_document,
             workspace_patch::workspace_stage_patch_batch,

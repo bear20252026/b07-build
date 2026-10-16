@@ -55,6 +55,17 @@ jobs:
           - crate: crates/cdp-client
             os: windows-latest
             system-deps: false
+          # cdp-transport 是 CDP 的 WebSocket 传输层：它把 cdp-client 的纯判定
+          # 落到真实 IO。跨平台差异在这里最可能出现（TCP 关闭语义、内核写缓冲
+          # 行为不同——本批就在 Windows 上观察到"对端消失后写入仍成功、失败在
+          # 下一次读时才浮现"），故两端都跑。它的集成测试会在
+          # 127.0.0.1 上起一个真的 WebSocket 服务端，无需系统依赖。
+          - crate: crates/cdp-transport
+            os: ubuntu-latest
+            system-deps: false
+          - crate: crates/cdp-transport
+            os: windows-latest
+            system-deps: false
           - crate: apps/desktop-shell/src-tauri
             os: ubuntu-latest
             system-deps: true
