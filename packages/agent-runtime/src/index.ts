@@ -6,6 +6,11 @@ export * from './permission-broker.js';
 export * from './hook-contract.js';
 export * from './hook-registry.js';
 export * from './hook-executor.js';
+// Hook 信任域：来源判定 + 准入过滤。Hook 是任意代码执行面，无条件执行等于把
+// "读了别人的代码"升级成"跑了别人的代码"；本层在过滤之后、执行之前插入信任准入。
+export * from './hook-trust-contract.js';
+export * from './hook-trust.js';
+export * from './infrastructure/sqlite/hook-trust-store.js';
 export * from './agent-profile.js';
 export * from './controlled-tool-runner.js';
 export * from './context-budgeter.js';
