@@ -88,3 +88,10 @@ export * from './external-session-index.js';
 export * from './memory-recall-contract.js';
 export * from './memory-recall.js';
 export * from './infrastructure/node-memory-file-system.js';
+// 运行期任务台账（缺口 3）：登记 / 独立观察者等待终态 / 就地后台化 / 消息投递 / 迟到完成围栏。
+// 与 recoverable-task-runtime 的分工：那个是「DAG 怎么跑完 + 怎么崩溃后接着跑」（执行器 + 持久化），
+// 本层是「任务在跑但我现在没在看它」（台账 + 观察）。与 provider-sdk 的 listBackgroundWork 的分工：
+// 那个是「问 provider 那边还有什么没完」，本层是「我自己的任务台账」，不依赖 provider 也不调模型。
+export * from './runtime-task-contract.js';
+export * from './runtime-task-registry.js';
+export * from './runtime-task-notification.js';
