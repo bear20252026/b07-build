@@ -46,6 +46,15 @@ jobs:
           - crate: crates/windows-native-host-helper
             os: windows-latest
             system-deps: false
+          # cdp-client 是纯协议逻辑（只依赖 serde/serde_json），两端行为必须一致：
+          # 帧解析与端点白名单是安全判定，跨平台差异会表现为"Windows 上连得上、
+          # Linux 上被拒"这类难复现的问题，故两边都跑。
+          - crate: crates/cdp-client
+            os: ubuntu-latest
+            system-deps: false
+          - crate: crates/cdp-client
+            os: windows-latest
+            system-deps: false
           - crate: apps/desktop-shell/src-tauri
             os: ubuntu-latest
             system-deps: true
