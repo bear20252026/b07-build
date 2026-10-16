@@ -34,6 +34,12 @@ jobs:
           - crate: crates/process-supervisor
             os: ubuntu-latest
             system-deps: false
+          - crate: crates/worktree
+            os: ubuntu-latest
+            system-deps: false
+          - crate: crates/worktree
+            os: windows-latest
+            system-deps: false
           - crate: crates/windows-native-host-helper
             os: ubuntu-latest
             system-deps: false
