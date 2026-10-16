@@ -16,6 +16,13 @@ export interface DAGNode {
   budget?: number;
   idempotencyKey?: string;
   deps: string[];
+  /**
+   * 工具入参。可选——既有实现不带此字段时行为不变。
+   *
+   * PreToolUse Hook 可通过 `Modify` 判决改写它；`ControlledToolRunner` 会把改写后的
+   * 版本放在这里传给真实实现。实现方应按需读取，缺省即"无入参"。
+   */
+  input?: Readonly<Record<string, unknown>>;
 }
 
 /** 工具执行器端口：消费方只依赖此接口，真实实现可整体替换（积木规则）。 */
