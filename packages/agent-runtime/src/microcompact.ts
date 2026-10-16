@@ -49,6 +49,9 @@
 //   可以用纯数据覆盖到分钟级边界。
 // 上游在此处调模型缓存 API 并改动消息内容；b07 把"应用"留给调用方。
 
+// 只读性判定统一走协议层的唯一入口，避免各处自行读静态布尔而漏掉逐入参判定。
+import { isToolReadOnlyWith, type ToolDescriptor } from '@awo/protocol';
+
 /**
  * 被清空的结果占位文案。
  *
@@ -137,16 +140,19 @@ export interface MicrocompactRequest {
 }
 
 /**
- * 从工具描述符派生「该工具的结果是否可清」。
+ * 从工具描述符派生「这次的调用结果是否可清」。
  *
  * 判据是**两个条件的合取**，缺一不可：
- * - `readOnly === true` —— 无副作用，重跑不会改变世界；
+ * - **本次调用只读** —— 无副作用，重跑不会改变世界；
  * - `sideEffectScope === 'none'` —— 作用域是纯读。
  *
- * 为什么两个都要：`readOnly` 描述"不写"，`sideEffectScope` 描述"作用到哪"。
- * 一个只读但作用到**外部世界**的工具（如外部检索）其结果是外部快照，重跑未必
- * 得到同样内容，清掉就永久丢失了当时的事实；只有"既只读、又作用域为 none"才
- * 真正是**可再生**的。
+ * 为什么两个都要：只读性描述"不写"，作用域描述"作用到哪"。一个只读但作用到
+ * **外部世界**的工具（如外部检索）其结果是外部快照，重跑未必得到同样内容，
+ * 清掉就永久丢失了当时的事实；只有"既只读、又作用域为 none"才真正是**可再生**的。
+ *
+ * 只读性走 [`isToolReadOnlyWith`] 而不是直接读 `readOnly` 布尔——这样逐入参的
+ * 判定（`Bash("ls")` 只读、`Bash("rm -rf")` 写入）能正确传导到这里：同一个工具
+ * 的只读调用结果可清、写入调用结果不可清。若直接读静态布尔，就无法表达这种差异。
  *
  * 判据来自描述符而不是硬编码工具名白名单——上游用 `COMPACTABLE_TOOLS` 字符串
  * 集合，b07 的工具集是可注册的，硬编码白名单会在新工具接入时静默失效（新工具
@@ -155,12 +161,15 @@ export interface MicrocompactRequest {
  *
  * 描述符缺失或字段缺省时一律返回 `false`（fail-closed：不声明就保留）。
  */
-export function isResultClearable(descriptor: {
-  readonly readOnly?: boolean;
-  readonly sideEffectScope?: string;
-} | undefined): boolean {
+export function isResultClearable(
+  descriptor:
+    | Pick<ToolDescriptor, 'readOnly' | 'isReadOnly' | 'sideEffectScope'>
+    | undefined,
+  input: Readonly<Record<string, unknown>> = {},
+): boolean {
   if (descriptor === undefined) return false;
-  return descriptor.readOnly === true && descriptor.sideEffectScope === 'none';
+  if (descriptor.sideEffectScope !== 'none') return false;
+  return isToolReadOnlyWith(descriptor, input);
 }
 
 /** 为什么没有触发（用于诊断与观测，不产生副作用）。 */
