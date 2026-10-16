@@ -93,6 +93,7 @@ packages/agent-runtime     Profile、策略、预算、DAG、任务/会话恢复
 packages/provider-sdk      模型驱动端口、adapter 与确定性路由
 crates/process-supervisor  Rust 进程监督与任务控制面
 crates/cdp-client          CDP 帧纪律与目标发现（浏览器工具面的真实后端协议层）
+crates/cdp-transport       CDP 命令会话到真实 WebSocket 的落地层（连接、命令往返、超时与断连）
 sidecars/document-worker   Python 文档计算 sidecar
 apps/workbench             React 三栏工作台（本地化石墨主题、意图、事件订阅、快照、审批恢复与引用预览）
 apps/runtime-gateway       本地 HTTP 适配器：薄进程入口、显式 composition root、统一 router 与按能力分组的 DTO routes

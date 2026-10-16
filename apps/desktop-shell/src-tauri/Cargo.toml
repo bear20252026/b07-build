@@ -37,6 +37,9 @@ rand = "0.8"
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
 # MCP stdio 子进程的规格校验与帧纪律（crate 内纯逻辑；进程管理在本壳 tokio 层）。
 process-supervisor = { path = "../../../crates/process-supervisor" }
+# 浏览器工具面的真实后端：CDP 协议判定（纯逻辑）与 WebSocket 传输（本壳 tokio 层）。
+cdp-client = { path = "../../../crates/cdp-client" }
+cdp-transport = { path = "../../../crates/cdp-transport" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # AtomCode enables SChannel alongside Rustls on Windows because browser/curl-native traffic can

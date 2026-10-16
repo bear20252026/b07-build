@@ -16,5 +16,6 @@
 #![allow(non_snake_case)]
 
 pub mod frame;
+pub mod session;
 pub mod target;
 pub mod tool_map;
