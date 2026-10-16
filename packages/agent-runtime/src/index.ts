@@ -10,6 +10,7 @@ export * from './agent-profile.js';
 export * from './controlled-tool-runner.js';
 export * from './context-budgeter.js';
 export * from './context-assembly.js';
+export * from './microcompact.js';
 export * from './execution-budget.js';
 export * from './recoverable-task-runtime.js';
 export * from './infrastructure/sqlite/task-snapshot-store.js';
