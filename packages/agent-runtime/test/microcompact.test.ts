@@ -393,37 +393,69 @@ test('默认常量值符合与缓存 TTL 对齐的设计意图', () => {
 
 // ──────────────── 从工具描述符派生可清性 ────────────────
 
+/** 造一份最小可用的描述符片段；只保留可清性判定用到的三个字段。 */
+function clearability(
+  overrides: Partial<
+    Pick<ToolDescriptor, 'readOnly' | 'isReadOnly' | 'sideEffectScope'>
+  > = {},
+): Pick<ToolDescriptor, 'readOnly' | 'isReadOnly' | 'sideEffectScope'> {
+  return { readOnly: true, sideEffectScope: 'none', ...overrides };
+}
+
 test('只读且作用域为 none 的结果可清', () => {
   // 既只读、又作用域为 none，才是真正可再生的。
-  assert.equal(isResultClearable({ readOnly: true, sideEffectScope: 'none' }), true);
+  assert.equal(isResultClearable(clearability()), true);
 });
 
 test('只读但作用到工作区的结果不可清', () => {
-  assert.equal(isResultClearable({ readOnly: true, sideEffectScope: 'workspace' }), false);
+  assert.equal(isResultClearable(clearability({ sideEffectScope: 'workspace' })), false);
 });
 
 test('只读但作用到外部世界的结果不可清', () => {
   // 外部检索的结果是外部快照，重跑未必得到同样内容——清掉就永久丢失当时的事实。
-  assert.equal(isResultClearable({ readOnly: true, sideEffectScope: 'external' }), false);
+  assert.equal(isResultClearable(clearability({ sideEffectScope: 'external' })), false);
 });
 
 test('非只读的结果不可清', () => {
-  assert.equal(isResultClearable({ readOnly: false, sideEffectScope: 'none' }), false);
+  assert.equal(isResultClearable(clearability({ readOnly: false })), false);
 });
 
 test('描述符缺失时不可清（fail-closed）', () => {
   assert.equal(isResultClearable(undefined), false);
 });
 
-test('描述符字段缺省时不可清（fail-closed）', () => {
-  assert.equal(isResultClearable({}), false);
-  assert.equal(isResultClearable({ readOnly: true }), false);
-  assert.equal(isResultClearable({ sideEffectScope: 'none' }), false);
+test('作用域检查先于只读检查：非 none 时即便只读也不可清', () => {
+  // 两个条件缺一不可，任一条不满足都返回 false。
+  assert.equal(
+    isResultClearable(clearability({ readOnly: true, sideEffectScope: 'external' })),
+    false,
+  );
+});
+
+test('逐入参只读判定会传导到可清性：ls 可清、rm 不可清', () => {
+  // 这是把基线 4 的函数式 readOnly 接进微压缩的收益点：
+  // 同一个 shell 工具，只读调用的结果可清，写入调用的结果不可清。
+  const shell = clearability({
+    readOnly: false,
+    isReadOnly: (input) => String(input.command).trim() === 'ls',
+  });
+
+  assert.equal(isResultClearable(shell, { command: 'ls' }), true);
+  assert.equal(isResultClearable(shell, { command: 'rm -rf /' }), false);
+});
+
+test('isReadOnly 抛异常时可清性收敛为 false，不向上传播', () => {
+  const broken = clearability({
+    isReadOnly: () => {
+      throw new Error('策略表故障');
+    },
+  });
+  assert.equal(isResultClearable(broken, {}), false);
 });
 
 test('真实 ToolDescriptor 形态可直接传入', () => {
   // 与 packages/protocol 的 ToolDescriptor 结构兼容：文件读取类工具可清。
-  const fileRead = {
+  const fileRead: ToolDescriptor = {
     name: 'FileRead',
     capability: 'document.parse',
     defaultRisk: 'low',
@@ -437,7 +469,13 @@ test('真实 ToolDescriptor 形态可直接传入', () => {
   assert.equal(isResultClearable(fileRead), true);
 
   // 写入类工具不可清。
-  const fileWrite = { ...fileRead, name: 'FileWrite', readOnly: false, destructive: true, sideEffectScope: 'workspace' };
+  const fileWrite: ToolDescriptor = {
+    ...fileRead,
+    name: 'FileWrite',
+    readOnly: false,
+    destructive: true,
+    sideEffectScope: 'workspace',
+  };
   assert.equal(isResultClearable(fileWrite), false);
 });
 

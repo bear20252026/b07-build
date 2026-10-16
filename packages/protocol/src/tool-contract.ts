@@ -20,6 +20,16 @@ export interface ToolDescriptor {
   readonly capability: Capability;
   /** 缺省风险等级；调用点可以按参数提高，不能低于此。 */
   readonly defaultRisk: RiskLevel;
+  /**
+   * **工具级**缺省只读声明。
+   *
+   * 表示"这个工具在一般情况下是否只读"。它不足以表达逐命令/逐标志的差异——
+   * 例如 shell 工具：`ls` 只读，`rm -rf` 写入，同一个工具名两者都干。要表达这种
+   * 差异必须用 [`ToolDescriptor.isReadOnly`]。
+   *
+   * 当 `isReadOnly` 存在时本字段**不再被用于判定**，只作为无入参上下文时的兜底
+   * 与文档用途；判定请一律走 `isToolReadOnlyWith(descriptor, input)`。
+   */
   readonly readOnly: boolean;
   readonly destructive: boolean;
   readonly sideEffectScope: SideEffectScope;
@@ -30,6 +40,58 @@ export interface ToolDescriptor {
   /** 是否允许并发执行；false 时同工具调用串行。 */
   readonly concurrentSafe: boolean;
   readonly description?: string;
+  /**
+   * **按入参**判定本次调用是否只读。
+   *
+   * 设计研读自 Claude Code 的 `Tool.isReadOnly(input)`：把"只读"从工具的**静态属性**
+   * 变成**函数**，从而能表达"逐命令 / 逐标志只读判定"（基线 1 原文要求）——
+   * `Bash("ls")` 只读、`Bash("rm -rf /")` 写入。
+   *
+   * 实现约束（与上游一致）：
+   * - **必须纯**：只读 `input`，不得有副作用，不得依赖外部可变状态。判定会被
+   *   策略层在每次调用前执行，不确定性会让审批结果无法复现。
+   * - **必须 fail-closed**：无法确定时返回 `false`（当作写入）。**默认缺省即
+   *   `false`**——上游 `TOOL_DEFAULTS.isReadOnly` 也是 `() => false`（注释原文
+   *   "assume writes"）。宁可多要一次审批，也不要漏放一次写入。
+   * - **不得抛异常**：抛错会被判定为"策略层故障"。若确实需要拒绝，返回 `false`
+   *   让后续权限链给出结论，而不是在这里抛。
+   *
+   * 可选：未提供时退化为 `readOnly` 静态字段。这样既有工具描述符无需改动。
+   */
+  readonly isReadOnly?: (input: Readonly<Record<string, unknown>>) => boolean;
+}
+
+/**
+ * 判定一次具体调用是否只读：优先用按入参的函数，退化为静态声明。
+ *
+ * **这是唯一的判定入口**——不要在调用点直接读 `descriptor.readOnly`，否则
+ * 那些提供了 `isReadOnly` 的工具会被静默按静态值处理（多半是把写入当只读，
+ * 或反之），而这类错误不会报错，只会表现为"审批行为不符合预期"。
+ *
+ * 三条 fail-closed 纪律：
+ * 1. `isReadOnly` 抛异常 → 视为写入（`false`），不向上传播。策略层故障绝不能被
+ *    当作"只读放行"。
+ * 2. 返回值非布尔（JS 调用方可能给 `undefined`/`'true'` 等）→ 视为写入。
+ * 3. 描述符缺失 → 视为写入。
+ */
+export function isToolReadOnlyWith(
+  descriptor: Pick<ToolDescriptor, 'readOnly' | 'isReadOnly'> | undefined,
+  input: Readonly<Record<string, unknown>>,
+): boolean {
+  if (descriptor === undefined) return false;
+
+  if (descriptor.isReadOnly !== undefined) {
+    try {
+      const verdict = descriptor.isReadOnly(input);
+      // 严格等于 true：`'true'`、`1`、`undefined` 都不算只读。
+      return verdict === true;
+    } catch {
+      // 策略层故障 → 当作写入。绝不能因故障而放行。
+      return false;
+    }
+  }
+
+  return descriptor.readOnly === true;
 }
 
 /** MCP 工具 canonical 名：`mcp__<serverId>__<toolName>`（与 ZCode descriptor 一致）。 */
