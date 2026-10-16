@@ -13,7 +13,11 @@ import { conversationStore } from './conversation-store';
 import { historyCharBudgetFor } from './context-budget';
 import { runAgentTurn } from './agent-tool-loop';
 import { executeWorkspaceTool, WORKSPACE_TOOLS, type WorkspaceWriteApprovalRequest } from './workspace-tools';
+import { createLocalStorageWorkspaceFileJournalStorage, createWorkspaceFileRecorder } from './workspace-file-journal';
 import { buildWorkspaceIndex, projectMapContextText, readWorkspaceProjectMap, workspaceIndexErrorText } from './workspace-index';
+
+// 文件变更日志的存储句柄。工厂本身不碰 `window`（方法才碰），故可在模块级创建。
+const workspaceFileJournalStorage = createLocalStorageWorkspaceFileJournalStorage();
 
 export interface DirectConversationSelection { readonly providerId: string; readonly model?: string; }
 export interface DirectConversationActivity { readonly kind: 'reasoning' | 'web-search' | 'research' | 'hybrid-search' | 'searxng' | 'attachment' | 'tool'; readonly text: string; readonly createdAt: number; readonly sources?: readonly WebSearchSource[]; }
@@ -457,7 +461,9 @@ export function useDirectConversations(): DirectConversations {
           ...(selection.model ? { model: selection.model } : {}),
           messages: messagesForProvider,
           tools: WORKSPACE_TOOLS,
-          execute: (name, args) => executeWorkspaceTool(name, args, requestWorkspaceWriteApproval),
+          // 第四个参数是文件变更录制器：写入**成功之后**才回调，把 before/after 记进
+          // 该会话的日志，供日后"回退对话同时还原文件"使用。缺席时行为与接入前逐字节相同。
+          execute: (name, args) => executeWorkspaceTool(name, args, requestWorkspaceWriteApproval, createWorkspaceFileRecorder(workspaceFileJournalStorage, conversationId)),
           onText,
           onReasoning,
           onToolResult: (call, result) => {

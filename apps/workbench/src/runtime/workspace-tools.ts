@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { derivePatchedContent, normalizeRelativePath, parseStructuredPatch, planPatchSections, type ParsedPatch } from '@awo/protocol';
 import type { DirectProviderTool } from './direct-provider-client';
 import { nativeErrorCode, searchResultText, searchWorkspaceFiles } from './workspace-index';
+import type { WorkspaceFileChangeRecorder } from './workspace-file-journal';
 
 /**
  * 工作区文件工具：Agent 的第一组真实能力。
@@ -187,7 +188,14 @@ async function sha256Hex(text: string): Promise<string> {
 }
 
 /** SEC-008 落盘共用路径：领一次性票据（绑定原文/目标摘要）→ 原生验证并原子消耗后写入。 */
-async function writeApprovedContent(path: string, previous: string, content: string): Promise<string> {
+async function writeApprovedContent(
+  path: string,
+  previous: string,
+  content: string,
+  // 写入**成功之后**才回调。失败路径不得留痕：留痕会让回退去"还原"一个从未发生过的状态。
+  onWritten?: WorkspaceFileChangeRecorder,
+  toolName = 'workspace_write_file',
+): Promise<string> {
   let token: string;
   try {
     const [previousSha256, nextSha256] = await Promise.all([sha256Hex(previous), sha256Hex(content)]);
@@ -197,13 +205,18 @@ async function writeApprovedContent(path: string, previous: string, content: str
   }
   try {
     const result = await invoke<FileResult>('workspace_write_file', { path, content, approvalToken: token });
+    onWritten?.({ path, toolName, beforeContent: previous, afterContent: content });
     return `已写入 ${result.path}（${result.byteSize} 字符）。`;
   } catch (error: unknown) {
     return workspaceToolErrorText(error);
   }
 }
 
-async function writeFile(args: Record<string, unknown>, approve: WorkspaceWriteApprover | undefined): Promise<string> {
+async function writeFile(
+  args: Record<string, unknown>,
+  approve: WorkspaceWriteApprover | undefined,
+  recordFileChange?: WorkspaceFileChangeRecorder,
+): Promise<string> {
   const path = stringArgument(args, 'path').trim();
   const content = stringArgument(args, 'content');
   if (!path) return '缺少 path 参数：请提供相对于工作区根的文件路径。';
@@ -219,7 +232,7 @@ async function writeFile(args: Record<string, unknown>, approve: WorkspaceWriteA
   }
   if (previous === content) return `${path} 的内容与目标内容完全一致，未写入。`;
   if (!await approve({ path, previous, next: content })) return `用户拒绝对 ${path} 的写入；未修改任何内容。请如实转告用户，并且不要再换别的方式尝试写入同一个文件。`;
-  return writeApprovedContent(path, previous, content);
+  return writeApprovedContent(path, previous, content, recordFileChange, 'workspace_write_file');
 }
 
 /** 单次补丁工具最多处理的文件 section 数：多文件补丁逐个走审批，太多会变成审批疲劳。 */
@@ -294,7 +307,11 @@ function patchNativeErrorText(error: unknown): string {
  * 只有 commit 阶段的磁盘错误才可能造成部分应用，原生侧会回滚已应用部分
  * 并如实返回 rolledBack / rollbackErrors，这里原样转告。
  */
-async function patchFile(args: Record<string, unknown>, approve: WorkspaceWriteApprover | undefined): Promise<string> {
+async function patchFile(
+  args: Record<string, unknown>,
+  approve: WorkspaceWriteApprover | undefined,
+  recordFileChange?: WorkspaceFileChangeRecorder,
+): Promise<string> {
   const patchText = stringArgument(args, 'patch');
   if (!patchText.trim()) return '缺少 patch 参数：请给出完整的结构化补丁文本（以 *** Begin Patch 开头、*** End Patch 结尾）。';
 
@@ -410,9 +427,33 @@ async function patchFile(args: Record<string, unknown>, approve: WorkspaceWriteA
     ].join('\n');
   }
 
-  const lines: string[] = [];
-  lines.push(`已应用 ${result.applied.length} 个文件操作：`);
+  // 只为**真正落盘**的操作留痕（`result.applied`）：被回滚的操作没有改变磁盘，
+  // 给它们留痕会让回退去"还原"一个从未存在过的状态。
+  const preparedByPath = new Map(prepared.map((item) => [item.operation.path, item]));
+  const toolName = 'workspace_patch_file';
   for (const item of result.applied) {
+    const entry = preparedByPath.get(item.path);
+    if (!entry) continue;
+    if (item.kind === 'delete') {
+      recordFileChange?.({ path: item.path, toolName, beforeContent: entry.previous, afterContent: null });
+      continue;
+    }
+    if (item.kind === 'add') {
+      recordFileChange?.({ path: item.path, toolName, beforeContent: null, afterContent: entry.next });
+      continue;
+    }
+    if (entry.operation.movePath) {
+      // 移动 = 源路径的旧内容消失 + 目标路径出现新内容，故拆成两条记录。
+      // 只记源路径会让回退把文件还原到源路径，而目标路径上那份副本留在原地。
+      recordFileChange?.({ path: item.path, toolName, beforeContent: entry.previous, afterContent: null });
+      recordFileChange?.({ path: entry.operation.movePath, toolName, beforeContent: null, afterContent: entry.next });
+      continue;
+    }
+    recordFileChange?.({ path: item.path, toolName, beforeContent: entry.previous, afterContent: entry.next });
+  }
+
+  const lines: string[] = [];
+  lines.push(`已应用 ${result.applied.length} 个文件操作：`);  for (const item of result.applied) {
     const verb = item.kind === 'add' ? '新建' : item.kind === 'delete' ? '删除' : '写入';
     lines.push(`- ${verb} ${item.path}${item.kind === 'delete' ? '' : `（${item.byteSize} 字符）`}${lenientPaths.some((path) => path === item.path || path.startsWith(`${item.path} →`)) ? '（注意：补丁通过宽松匹配命中，实际改动可能超出字面描述）' : ''}`);
   }
@@ -437,7 +478,12 @@ async function patchFile(args: Record<string, unknown>, approve: WorkspaceWriteA
  * 任何失败都以“失败描述”的形式返回而不是抛出：工具结果必须是模型能读到的一句话，
  * 抛异常会让整个 Agent 回合中断，模型也就失去了自我修正的机会。
  */
-export async function executeWorkspaceTool(name: string, rawArguments: string, approveWrite?: WorkspaceWriteApprover): Promise<string> {
+export async function executeWorkspaceTool(
+  name: string,
+  rawArguments: string,
+  approveWrite?: WorkspaceWriteApprover,
+  recordFileChange?: WorkspaceFileChangeRecorder,
+): Promise<string> {
   if (!['workspace_search_files', 'workspace_list_files', 'workspace_read_file', 'workspace_write_file', 'workspace_patch_file'].includes(name)) {
     return `未知工具 ${name}。可用工具：workspace_search_files、workspace_list_files、workspace_read_file、workspace_write_file、workspace_patch_file。`;
   }
@@ -447,8 +493,8 @@ export async function executeWorkspaceTool(name: string, rawArguments: string, a
     if (name === 'workspace_search_files') return await searchFiles(args);
     if (name === 'workspace_list_files') return await listFiles(args);
     if (name === 'workspace_read_file') return await readFile(args);
-    if (name === 'workspace_patch_file') return await patchFile(args, approveWrite);
-    return await writeFile(args, approveWrite);
+    if (name === 'workspace_patch_file') return await patchFile(args, approveWrite, recordFileChange);
+    return await writeFile(args, approveWrite, recordFileChange);
   } catch (error: unknown) {
     return workspaceToolErrorText(error);
   }
