@@ -69,7 +69,7 @@ test('追加后能原样读回', () => {
   appendWorkspaceFileChange(storage, CONVERSATION, change('a.md', 'old', 'new'), 123);
   const snapshot = readWorkspaceFileJournal(storage, CONVERSATION);
   assert.deepEqual(snapshot.records, [
-    { path: 'a.md', toolName: 'workspace_write_file', beforeContent: 'old', afterContent: 'new', at: 123 },
+    { path: 'a.md', toolName: 'workspace_write_file', beforeContent: 'old', afterContent: 'new', at: 123, sequence: 1 },
   ]);
   assert.equal(snapshot.droppedCount, 0);
   assert.equal(snapshot.unjournalable, false);
@@ -207,7 +207,15 @@ test('非法JSON判为作废', () => {
 
 test('结构版本不符判为作废', () => {
   const storage = memoryStorage();
-  seed(storage, { version: 2, records: [], dropped: 0, unjournalable: false });
+  seed(storage, { version: 3, nextSequence: 1, records: [], dropped: 0, unjournalable: false });
+  assert.equal(readWorkspaceFileJournal(storage, CONVERSATION).unjournalable, true);
+});
+
+test('v1日志判为作废（记录没有序号，无法切片）', () => {
+  // 按错误的范围回退会漏文件，而用户以为回到了那一刻。故整份作废而不是勉强兼容。
+  // 代价可接受：本功能此前没有任何界面入口，不存在依赖 v1 的真实用户。
+  const storage = memoryStorage();
+  seed(storage, { version: 1, records: [], dropped: 0, unjournalable: false });
   assert.equal(readWorkspaceFileJournal(storage, CONVERSATION).unjournalable, true);
 });
 
@@ -226,12 +234,14 @@ test('非对象判为作废', () => {
 test('字段非法的记录计入droppedCount而不被当作合法记录', () => {
   const storage = memoryStorage();
   seed(storage, {
-    version: 1,
+    version: 2,
+    nextSequence: 6,
     records: [
-      { path: 'ok.md', toolName: 'workspace_write_file', beforeContent: 'old', afterContent: 'new', at: 1 },
-      { path: 'no-tool.md', beforeContent: 'old', afterContent: 'new', at: 2 },
-      { path: '   ', toolName: 't', beforeContent: null, afterContent: 'x', at: 3 },
-      { path: 'undef-before.md', toolName: 't', afterContent: 'x', at: 4 },
+      { path: 'ok.md', toolName: 'workspace_write_file', beforeContent: 'old', afterContent: 'new', at: 1, sequence: 1 },
+      { path: 'no-tool.md', beforeContent: 'old', afterContent: 'new', at: 2, sequence: 2 },
+      { path: '   ', toolName: 't', beforeContent: null, afterContent: 'x', at: 3, sequence: 3 },
+      { path: 'undef-before.md', toolName: 't', afterContent: 'x', at: 4, sequence: 4 },
+      { path: 'no-sequence.md', toolName: 't', beforeContent: null, afterContent: 'x', at: 5 },
       'garbage',
       null,
     ],
@@ -240,7 +250,8 @@ test('字段非法的记录计入droppedCount而不被当作合法记录', () =>
   });
   const snapshot = readWorkspaceFileJournal(storage, CONVERSATION);
   assert.deepEqual(snapshot.records.map((item) => item.path), ['ok.md']);
-  assert.equal(snapshot.droppedCount, 5);
+  // 6 条非法：缺 toolName / 空 path / 缺 beforeContent / 缺 sequence / 'garbage' / null。
+  assert.equal(snapshot.droppedCount, 6);
 });
 
 test('存储读取抛异常时判为作废而不是崩', () => {
@@ -257,7 +268,7 @@ test('存储读取抛异常时判为作废而不是崩', () => {
 
 test('存储里已有的dropped计数被保留并累加', () => {
   const storage = memoryStorage();
-  seed(storage, { version: 1, records: [], dropped: 7, unjournalable: false });
+  seed(storage, { version: 2, nextSequence: 1, records: [], dropped: 7, unjournalable: false });
   appendWorkspaceFileChange(storage, CONVERSATION, change('a.md', 'old', 'new'), 1);
   assert.equal(readWorkspaceFileJournal(storage, CONVERSATION).droppedCount, 7);
 });
@@ -269,4 +280,19 @@ test('读取不修改存储（纯读）', () => {
   readWorkspaceFileJournal(storage, CONVERSATION);
   readWorkspaceFileJournal(storage, CONVERSATION);
   assert.equal(storage.data[workspaceFileJournalKey(CONVERSATION)], before);
+});
+
+test('清空日志后序号不复位', () => {
+  // 若清空连序号一起复位，建在清空之前的检查点会把之后的新记录判成"发生在它之前"，
+  // 于是回退范围变成空 —— 用户以为回到了那一刻，其实什么都没退。
+  const storage = memoryStorage();
+  appendWorkspaceFileChange(storage, CONVERSATION, change('a.md', null, 'x'), 1);
+  appendWorkspaceFileChange(storage, CONVERSATION, change('b.md', null, 'y'), 2);
+  assert.equal(readWorkspaceFileJournal(storage, CONVERSATION).nextSequence, 3);
+  clearWorkspaceFileJournal(storage, CONVERSATION);
+  const cleared = readWorkspaceFileJournal(storage, CONVERSATION);
+  assert.deepEqual(cleared.records, []);
+  assert.equal(cleared.nextSequence, 3, '清空的是记录，不是时间轴');
+  appendWorkspaceFileChange(storage, CONVERSATION, change('c.md', null, 'z'), 3);
+  assert.equal(readWorkspaceFileJournal(storage, CONVERSATION).records[0]?.sequence, 3, '新记录接着原来的序号');
 });

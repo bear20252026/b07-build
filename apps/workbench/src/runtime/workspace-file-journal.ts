@@ -55,12 +55,27 @@ export interface WorkspaceFileJournalSnapshot {
   readonly droppedCount: number;
   /** 本会话的日志已作废（曾出现无法记录的写入）。 */
   readonly unjournalable: boolean;
+  /**
+   * 下一条记录的序号。建检查点时把它存下来，回退时据此切片。
+   *
+   * 之所以存"下一个"而不是"最后一个"：`>= nextSequence` 天然表达"发生在此之后"，
+   * 空日志（nextSequence = 1）也成立，不需要给"还没有记录"单开一个分支。
+   */
+  readonly nextSequence: number;
 }
 
 export const WORKSPACE_FILE_JOURNAL_KEY_PREFIX = 'awo.workspace-file-journal.v1.';
 
 interface StoredJournal {
-  readonly version: 1;
+  readonly version: 2;
+  /**
+   * 下一条记录的序号。
+   *
+   * 存在存储里而**不是**从 `records` 推出来：日志会被清空、会从头部丢弃，
+   * 若靠"最后一条 +1"推算，清空后就会从 1 重新数，于是建在清空之前的检查点
+   * 会把新记录判成"发生在它之前" —— 静默少退。序号必须跨清空单调。
+   */
+  readonly nextSequence: number;
   readonly records: readonly unknown[];
   readonly dropped: number;
   readonly unjournalable: boolean;
@@ -71,7 +86,7 @@ export function workspaceFileJournalKey(conversationId: string): string {
 }
 
 function emptyStored(): StoredJournal {
-  return { version: 1, records: [], dropped: 0, unjournalable: false };
+  return { version: 2, nextSequence: 1, records: [], dropped: 0, unjournalable: false };
 }
 
 /**
@@ -97,12 +112,22 @@ function readStored(storage: WorkspaceFileJournalStorage, conversationId: string
   }
   if (!parsed || typeof parsed !== 'object') return { ...emptyStored(), unjournalable: true };
   const candidate = parsed as Partial<StoredJournal>;
-  if (candidate.version !== 1 || !Array.isArray(candidate.records)) {
+  // **只认 version 2**。v1 的记录没有序号，无法回答"哪些改动发生在检查点之后" ——
+  // 而按错误的范围回退会漏文件（用户以为回到了那一刻，其实没有）。故整份作废。
+  //
+  // 代价可接受：本功能此前**没有任何界面入口**（`previewWorkspaceFileRewind` 零调用方），
+  // 所以不存在依赖 v1 日志的真实用户；留着兼容反而会让人以为它还能用。
+  if (candidate.version !== 2 || !Array.isArray(candidate.records)) {
     return { ...emptyStored(), unjournalable: true };
   }
   const dropped = typeof candidate.dropped === 'number' && candidate.dropped >= 0 ? candidate.dropped : 0;
+  const nextSequence =
+    typeof candidate.nextSequence === 'number' && Number.isSafeInteger(candidate.nextSequence) && candidate.nextSequence >= 1
+      ? candidate.nextSequence
+      : 1;
   return {
-    version: 1,
+    version: 2,
+    nextSequence,
     records: candidate.records,
     dropped,
     unjournalable: candidate.unjournalable === true,
@@ -149,7 +174,7 @@ export function readWorkspaceFileJournal(
     if (isWorkspaceFileChangeRecord(raw)) records.push(raw);
     else droppedCount += 1;
   }
-  return { records, droppedCount, unjournalable: stored.unjournalable };
+  return { records, droppedCount, unjournalable: stored.unjournalable, nextSequence: stored.nextSequence };
 }
 
 /**
@@ -181,16 +206,18 @@ export function appendWorkspaceFileChange(
     beforeContent: change.beforeContent,
     afterContent: change.afterContent,
     at: now,
+    sequence: stored.nextSequence,
   };
 
   const records = [...stored.records, record];
   let dropped = stored.dropped;
   while (records.length > MAX_FILE_CHANGE_RECORDS) {
+    // 从**头部**丢（见上方注释：丢最旧的）。序号不回收，被丢的那段由此可被识别为"够不到"。
     records.shift();
     dropped += 1;
   }
 
-  if (!writeStored(storage, conversationId, { version: 1, records, dropped, unjournalable: false })) {
+  if (!writeStored(storage, conversationId, { version: 2, nextSequence: stored.nextSequence + 1, records, dropped, unjournalable: false })) {
     // 写不进去（配额满）：作废，而不是静默丢弃这条 —— 静默丢弃就是一个洞。
     writeStored(storage, conversationId, { ...emptyStored(), unjournalable: true });
   }
@@ -202,7 +229,13 @@ export function clearWorkspaceFileJournal(
   conversationId: string,
 ): void {
   try {
-    storage.write(workspaceFileJournalKey(conversationId), JSON.stringify(emptyStored()));
+    // **保留 nextSequence**：清空的是记录，不是时间轴。若连序号一起复位，建在清空之前
+    // 的检查点就会把之后的新记录判成"发生在它之前"，于是静默少退。
+    const stored = readStored(storage, conversationId);
+    storage.write(
+      workspaceFileJournalKey(conversationId),
+      JSON.stringify({ ...emptyStored(), nextSequence: stored.nextSequence }),
+    );
   } catch {
     /* 清不掉也不该让调用方崩：下次读取会因结构非法而自然作废。 */
   }

@@ -83,8 +83,9 @@ test('日志有洞时阻断且不产出任何操作', async () => {
   const storage = memoryStorage();
   // 直接构造一份"丢过记录"的日志：这是历史不完整的信号。
   storage.data[workspaceFileJournalKey(CONVERSATION)] = JSON.stringify({
-    version: 1,
-    records: [{ path: 'a.md', toolName: 'workspace_write_file', beforeContent: 'old', afterContent: 'new', at: 1 }],
+    version: 2,
+    nextSequence: 2,
+    records: [{ path: 'a.md', toolName: 'workspace_write_file', beforeContent: 'old', afterContent: 'new', at: 1, sequence: 1 }],
     dropped: 3,
     unjournalable: false,
   });
@@ -209,4 +210,92 @@ test('WebCrypto摘要器与node的sha256一致', async () => {
   const hasher = createWebCryptoContentHasher();
   const value = await hasher.sha256('hello');
   assert.equal(value, createHash('sha256').update('hello').digest('hex'));
+});
+
+// ---------------------------------------------------------------------------
+// 按检查点位置切片：**只回退那一刻之后**的改动。
+//
+// 这是本模块最容易犯的错：把整份日志都退回去，在"回到中途某个检查点"时会把更早的
+// 改动一起撤掉，而多退不可逆。设计文档写的是"用户要回到的是检查点那一刻"，
+// 但旧实现传的是整份日志 —— 第一次接线就会回退过头。
+// ---------------------------------------------------------------------------
+
+/** 写三条改动：a.md 两次、b.md 一次，序号 1..3。 */
+function threeChanges() {
+  const storage = memoryStorage();
+  appendWorkspaceFileChange(storage, 'conv', { path: 'a.md', toolName: 'workspace_write_file', beforeContent: null, afterContent: 'v1' }, 1);
+  appendWorkspaceFileChange(storage, 'conv', { path: 'a.md', toolName: 'workspace_write_file', beforeContent: 'v1', afterContent: 'v2' }, 2);
+  appendWorkspaceFileChange(storage, 'conv', { path: 'b.md', toolName: 'workspace_write_file', beforeContent: null, afterContent: 'b1' }, 3);
+  return storage;
+}
+
+test('从检查点位置切片：只回退该位置之后的改动', async () => {
+  // 检查点建在"a.md 已写成 v1"之后（nextSequence = 2），所以只需回退序号 2、3。
+  const plan = await previewWorkspaceFileRewind({
+    storage: threeChanges(),
+    conversationId: 'conv',
+    reader: readerFrom({ 'a.md': 'v2', 'b.md': 'b1' }),
+    hasher: fakeHasher,
+    fromSequence: 2,
+  });
+  assert.equal(plan.canApply, true);
+  // a.md 应回到 v1（而不是删除 —— 删除是"回到会话开始"才该发生的事）。
+  const a = plan.operations.find((operation) => operation.path === 'a.md');
+  assert.equal(a?.nextContent, 'v1');
+});
+
+test('省略fromSequence等于回到会话开始', async () => {
+  // 合法用法（"这轮改动我全都不要了"），但与"回到某个检查点"不是一回事。
+  const plan = await previewWorkspaceFileRewind({
+    storage: threeChanges(),
+    conversationId: 'conv',
+    reader: readerFrom({ 'a.md': 'v2', 'b.md': 'b1' }),
+    hasher: fakeHasher,
+  });
+  assert.equal(plan.canApply, true);
+  // a.md 回到"不存在"，b.md 被删除。
+  const a = plan.operations.find((operation) => operation.path === 'a.md');
+  assert.equal(a?.action, 'delete');
+});
+
+test('位置之后没有改动时计划为空', async () => {
+  const plan = await previewWorkspaceFileRewind({
+    storage: threeChanges(),
+    conversationId: 'conv',
+    reader: readerFrom({ 'a.md': 'v2', 'b.md': 'b1' }),
+    hasher: fakeHasher,
+    fromSequence: 4,
+  });
+  // "无事可做"是正常结果（已处于目标状态），必须与"被拦下"区分开。
+  assert.equal(plan.nothingToDo, true);
+  assert.equal(plan.canApply, false);
+  assert.deepEqual(plan.operations, []);
+});
+
+test('够不到检查点位置时阻断而不是少退', async () => {
+  // 现存最早记录是序号 2（序号 1 被丢过）：目标位置 2 之后虽然还有记录，
+  // 但"把现有的都退了"会漏掉序号 1 那次改动对 a.md 的影响 ——
+  // 用户看到"回退成功"，工作区却没回到那一刻。
+  const storage = memoryStorage();
+  appendWorkspaceFileChange(storage, 'conv', { path: 'a.md', toolName: 'workspace_write_file', beforeContent: 'v1', afterContent: 'v2' }, 2);
+  const seeded = JSON.parse(storage.data[workspaceFileJournalKey('conv')]!) as { records: { sequence: number }[] };
+  // 手工造出"头部被丢过"的日志：现存最早记录的序号是 2，说明序号 1 那段已经不在了。
+  storage.data[workspaceFileJournalKey('conv')] = JSON.stringify({
+    version: 2,
+    nextSequence: 3,
+    records: seeded.records.map((record) => ({ ...record, sequence: 2 })),
+    dropped: 0,
+    unjournalable: false,
+  });
+  // 目标位置 1：现存最早记录是 2，中间那段（序号 1）不在。
+  const plan = await previewWorkspaceFileRewind({
+    storage,
+    conversationId: 'conv',
+    reader: readerFrom({ 'a.md': 'v2' }),
+    hasher: fakeHasher,
+    fromSequence: 1,
+  });
+  assert.equal(plan.canApply, false);
+  assert.equal(plan.unsafeFiles[0]?.reason, FILE_REWIND_JOURNAL_INCOMPLETE_CODE);
+  assert.deepEqual(plan.operations, []);
 });

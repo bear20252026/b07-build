@@ -13,7 +13,7 @@ import { conversationStore } from './conversation-store';
 import { historyCharBudgetFor } from './context-budget';
 import { runAgentTurn, type AgentToolExecution, type AgentTurnFailure } from './agent-tool-loop';
 import { executeWorkspaceTool, WORKSPACE_TOOLS, type WorkspaceWriteApprovalRequest } from './workspace-tools';
-import { createLocalStorageWorkspaceFileJournalStorage, createWorkspaceFileRecorder } from './workspace-file-journal';
+import { createLocalStorageWorkspaceFileJournalStorage, createWorkspaceFileRecorder, readWorkspaceFileJournal } from './workspace-file-journal';
 import { browserAgentTools, createBrowserToolExecutor, isBrowserToolName } from './browser-agent-tools';
 import { readBrowserBackendStatus, setBrowserBackendEnabled as setNativeBrowserBackendEnabled, type BrowserBackendStatus } from './cdp-browser-tool-handler';
 import { buildWorkspaceIndex, projectMapContextText, readWorkspaceProjectMap, workspaceIndexErrorText } from './workspace-index';
@@ -32,7 +32,7 @@ export interface DirectConversationMessage { readonly id: string; readonly role:
  */
 export interface DirectConversationInterruption { readonly executedToolCalls: number; }
 export interface DirectConversation { readonly schemaVersion: 1; readonly id: string; readonly title: string; readonly selection: DirectConversationSelection; readonly messages: readonly DirectConversationMessage[]; readonly projectId?: string; readonly createdAt: number; readonly updatedAt: number; }
-export interface DirectConversationCheckpoint { readonly schemaVersion: 1; readonly id: string; readonly conversationId: string; readonly label: string; readonly messageCount: number; readonly createdAt: number; readonly conversation: DirectConversation; }
+export interface DirectConversationCheckpoint { readonly schemaVersion: 2; readonly id: string; readonly conversationId: string; readonly label: string; readonly messageCount: number; readonly createdAt: number; /** 建检查点时文件日志的下一个序号；序号 >= 它的文件改动发生在该检查点之后。 */ readonly fileChangeSequence: number; readonly conversation: DirectConversation; }
 
 const STORAGE_KEY = 'awo.direct-conversations.v1';
 const CHECKPOINT_STORAGE_KEY = 'awo.direct-conversation-checkpoints.v1';
@@ -128,8 +128,11 @@ function safeCheckpoint(value: unknown): DirectConversationCheckpoint | undefine
   if (!value || typeof value !== 'object') return undefined;
   const input = value as Partial<DirectConversationCheckpoint>;
   const conversation = safeConversation(input.conversation);
-  if (!conversation || input.schemaVersion !== 1 || typeof input.id !== 'string' || typeof input.conversationId !== 'string' || typeof input.label !== 'string' || typeof input.messageCount !== 'number' || !Number.isSafeInteger(input.messageCount) || typeof input.createdAt !== 'number' || !Number.isSafeInteger(input.createdAt)) return undefined;
-  return { schemaVersion: 1, id: input.id, conversationId: input.conversationId, label: input.label.slice(0, 80), messageCount: Math.max(0, input.messageCount), createdAt: input.createdAt, conversation };
+  // 只认 schemaVersion 2：v1 检查点没有记录文件日志位置，无法回答"该回到哪一刻"，
+  // 勉强接受会让回退范围变成"整份日志"—— 多退是不可逆的。丢弃它，界面上就不会
+  // 出现一个按下去会多退的按钮。
+  if (!conversation || input.schemaVersion !== 2 || typeof input.id !== 'string' || typeof input.conversationId !== 'string' || typeof input.label !== 'string' || typeof input.messageCount !== 'number' || !Number.isSafeInteger(input.messageCount) || typeof input.createdAt !== 'number' || !Number.isSafeInteger(input.createdAt) || typeof input.fileChangeSequence !== 'number' || !Number.isSafeInteger(input.fileChangeSequence) || input.fileChangeSequence < 1) return undefined;
+  return { schemaVersion: 2, id: input.id, conversationId: input.conversationId, label: input.label.slice(0, 80), messageCount: Math.max(0, input.messageCount), createdAt: input.createdAt, fileChangeSequence: input.fileChangeSequence, conversation };
 }
 function loadCheckpoints(): readonly DirectConversationCheckpoint[] { try { const raw: unknown = JSON.parse(window.localStorage.getItem(CHECKPOINT_STORAGE_KEY) ?? '[]'); return Array.isArray(raw) ? raw.map(safeCheckpoint).filter((item): item is DirectConversationCheckpoint => Boolean(item)).sort((left, right) => right.createdAt - left.createdAt).slice(0, MAX_CHECKPOINTS) : []; } catch { return []; } }
 function persistCheckpoints(checkpoints: readonly DirectConversationCheckpoint[]): void { try { window.localStorage.setItem(CHECKPOINT_STORAGE_KEY, JSON.stringify(checkpoints.slice(0, MAX_CHECKPOINTS))); } catch { /* Keep conversations usable when storage is full. */ } }
@@ -475,7 +478,7 @@ export function useDirectConversations(): DirectConversations {
   }, [update]);
   const createCheckpoint = useCallback((label: string): void => {
     if (!activeConversation) return;
-    const checkpoint = checkpointConversation(activeConversation, nextId('checkpoint'), label, Date.now());
+    const checkpoint = checkpointConversation(activeConversation, nextId('checkpoint'), label, Date.now(), readWorkspaceFileJournal(workspaceFileJournalStorage, activeConversation.id).nextSequence);
     setCheckpoints((current) => { const next = [checkpoint, ...current].slice(0, MAX_CHECKPOINTS); persistCheckpoints(next); return next; });
   }, [activeConversation]);
   const branchFromMessage = useCallback((messageId: string): void => {

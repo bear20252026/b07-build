@@ -26,6 +26,7 @@ import {
   type FileRewindOperation,
   type FileRewindPlan,
   type FileRewindUnsafeFile,
+  recordsAfterSequence,
 } from './workspace-file-rewind-contract.js';
 import { buildWorkspaceFileRewindPlan } from './workspace-file-rewind.js';
 import {
@@ -50,6 +51,14 @@ export interface WorkspaceFileRewindPreviewInput {
   readonly conversationId: string;
   readonly reader: CurrentFileStateReader;
   readonly hasher: ContentHasher;
+  /**
+   * 目标检查点的日志位置（`DirectConversationCheckpoint.fileChangeSequence`）。
+   *
+   * **省略等于"回到会话开始"**，会撤掉本会话的全部文件改动。这是一个合法用法
+   * （"这轮对话的改动我全都不要了"），但它与"回到某个检查点"不是一回事 ——
+   * 所以调用方必须显式决定传什么，不能靠默认值蒙。
+   */
+  readonly fromSequence?: number;
 }
 
 /**
@@ -75,11 +84,33 @@ export async function previewWorkspaceFileRewind(
         ? '该会话的文件变更历史已作废（曾出现无法记录的写入），无法安全还原文件。'
         : `该会话的文件变更历史有 ${journal.droppedCount} 条记录已被丢弃，无法安全还原文件。`,
     };
-    return { canApply: false, safeFiles: [], unsafeFiles: [reason], ignoredFiles: [], operations: [] };
+    return { canApply: false, nothingToDo: false, safeFiles: [], unsafeFiles: [reason], ignoredFiles: [], operations: [] };
+  }
+
+  // 切片：只回退**目标位置之后**的改动。
+  //
+  // 不切片（把整份日志都退回去）在"回到中途某个检查点"时会把更早的改动一起撤掉，
+  // 而多退是不可逆的 —— 这是本模块最容易犯、也最难在测试里显形的一类错。
+  let records = journal.records;
+  if (input.fromSequence !== undefined) {
+    const sliced = recordsAfterSequence(journal.records, input.fromSequence);
+    if (sliced === undefined) {
+      // 够不到：更早的记录已被丢弃或清空过。此时"把现有的都退了"会漏文件，
+      // 而用户看到的是"回退成功"。
+      const reason: FileRewindUnsafeFile = {
+        path: 'workspace',
+        reason: FILE_REWIND_JOURNAL_INCOMPLETE_CODE,
+        operationCount: 0,
+        toolNames: [],
+        message: '该检查点之后的文件变更记录已不完整（日志被清空或丢弃过），无法安全还原到那一刻。',
+      };
+      return { canApply: false, nothingToDo: false, safeFiles: [], unsafeFiles: [reason], ignoredFiles: [], operations: [] };
+    }
+    records = sliced;
   }
 
   return buildWorkspaceFileRewindPlan({
-    records: journal.records,
+    records,
     reader: input.reader,
     hasher: input.hasher,
   });

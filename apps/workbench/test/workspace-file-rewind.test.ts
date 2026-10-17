@@ -37,6 +37,8 @@ function readerFrom(files: Readonly<Record<string, FileEntry>>): CurrentFileStat
   };
 }
 
+let nextSequence = 1;
+
 function record(
   path: string,
   beforeContent: string | null,
@@ -44,7 +46,8 @@ function record(
   toolName = 'workspace_write_file',
   at = 1,
 ): WorkspaceFileChangeRecord {
-  return { path, toolName, beforeContent, afterContent, at };
+  // 序号按调用顺序自动分配：规划器不读它（切片在客户端做），但契约要求它存在且为正整数。
+  return { path, toolName, beforeContent, afterContent, at, sequence: nextSequence++ };
 }
 
 function planFor(records: readonly WorkspaceFileChangeRecord[], files: Readonly<Record<string, FileEntry>>) {
@@ -443,7 +446,7 @@ test('shell工具判据覆盖bash与terminal但不误伤普通工具', () => {
 });
 
 test('缺少beforeContent字段与显式null是两件事', () => {
-  const base = { path: 'a.md', toolName: 't', afterContent: 'x', at: 1 };
+  const base = { path: 'a.md', toolName: 't', afterContent: 'x', at: 1, sequence: 1 };
   assert.equal(isWorkspaceFileChangeRecord({ ...base, beforeContent: null }), true, 'null 是合法值：当时没有这个文件');
   assert.equal(isWorkspaceFileChangeRecord(base), false, '字段缺失是记录损坏，不能当成 null');
   assert.equal(isWorkspaceFileChangeRecord({ ...base, beforeContent: 1 }), false);
@@ -451,6 +454,16 @@ test('缺少beforeContent字段与显式null是两件事', () => {
   assert.equal(isWorkspaceFileChangeRecord({ ...base, afterContent: undefined }), false);
   assert.equal(isWorkspaceFileChangeRecord(null), false);
   assert.equal(isWorkspaceFileChangeRecord('a.md'), false);
+});
+
+test('缺少sequence或序号非正整数都判为损坏', () => {
+  // 序号错位会让切片算错范围，进而多退或少退 —— 比"少一条记录"更危险。
+  const base = { path: 'a.md', toolName: 't', beforeContent: null, afterContent: 'x', at: 1 };
+  assert.equal(isWorkspaceFileChangeRecord({ ...base, sequence: 1 }), true);
+  assert.equal(isWorkspaceFileChangeRecord(base), false, '缺 sequence');
+  for (const sequence of [0, -1, 1.5, Number.NaN]) {
+    assert.equal(isWorkspaceFileChangeRecord({ ...base, sequence }), false, `sequence=${sequence}`);
+  }
 });
 
 test('记录顺序按传入顺序而非时间戳', async () => {

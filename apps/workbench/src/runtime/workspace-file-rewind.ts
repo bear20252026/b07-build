@@ -262,6 +262,9 @@ export async function buildWorkspaceFileRewindPlan(input: FileRewindPlanInput): 
 
   return {
     canApply: safeFiles.length > 0 && !blocked,
+    // "无事可做"必须与"被拦下"区分开：前者是正常结果（已处于目标状态），
+    // 后者是故障。两者都表现为 `canApply: false`，界面靠这个字段分辨。
+    nothingToDo: safeFiles.length === 0 && unsafeFiles.length === 0,
     safeFiles,
     unsafeFiles,
     ignoredFiles,

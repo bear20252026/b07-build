@@ -52,6 +52,17 @@ export interface WorkspaceFileChangeRecord {
   readonly afterContent: string | null;
   /** 写入完成时间（毫秒）。 */
   readonly at: number;
+  /**
+   * 会话内**单调递增**的追加序号（从 1 开始，跨清空不复位）。
+   *
+   * 为什么不能靠 `at` 切片：时间戳可能并列，也可能因系统时钟回拨而后退，
+   * 而"哪些记录发生在检查点之后"必须严格按**因果顺序**回答 —— 答错的后果是
+   * 回退多退或少退（少退 = 用户以为回到那一刻，其实没有）。
+   *
+   * 序号不复位是刻意的：日志被清空后重新追加，若从 1 重新数，一个建在
+   * "清空之前"的检查点就会把新记录判成"发生在它之前"，于是静默少退。
+   */
+  readonly sequence: number;
 }
 
 /**
@@ -166,6 +177,15 @@ export interface FileRewindPlan {
   readonly ignoredFiles: readonly FileRewindIgnoredFile[];
   /** 待执行操作；`canApply` 为 `false` 时**必为空数组**。 */
   readonly operations: readonly FileRewindOperation[];
+  /**
+   * 没有需要回退的改动（既无安全项、也无阻断项）。
+   *
+   * 为什么要单开一个字段：`canApply` 的定义是"有安全项且未阻断"，于是
+   * "已经处于目标状态"和"被拦下了"都会得到 `canApply: false`。加了按检查点切片
+   * 之后，前者是**正常且常见**的结果（用户点了一个更早的检查点，或刚回退过），
+   * 界面必须能把它显示成"无需改动"而不是"无法回退"—— 后者会让人以为出了故障。
+   */
+  readonly nothingToDo: boolean;
 }
 
 /** 读取某个路径当前状态的端口。实现方负责把 IO 错误转成 `failed`，不抛异常。 */
@@ -237,5 +257,29 @@ export function isWorkspaceFileChangeRecord(value: unknown): value is WorkspaceF
   if (typeof record.toolName !== 'string') return false;
   if (record.afterContent !== null && typeof record.afterContent !== 'string') return false;
   if (record.beforeContent !== null && typeof record.beforeContent !== 'string') return false;
+  // 序号必须是**正整数**：0 / 负数 / 小数说明写入方把计数搞错了，而"计数错了"
+  // 正是让切片错位、进而多退或少退的那条路径。
+  if (typeof record.sequence !== 'number' || !Number.isSafeInteger(record.sequence) || record.sequence < 1) return false;
   return true;
+}
+
+/**
+ * 取"发生在 `fromSequence` 那一刻之后"的记录。
+ *
+ * `fromSequence` 是检查点创建时日志的下一个序号，因此判据是 `record.sequence >= fromSequence`。
+ *
+ * 返回 `undefined` 表示**够不到**：`fromSequence` 之后、现存最早记录之前的那些记录
+ * 已经不在了（被丢弃或清空过）。此时不能"把现有的都退了"就算完 —— 那样会漏掉文件，
+ * 而用户看到的是"回退成功"。明确拒绝才是对的。
+ */
+export function recordsAfterSequence(
+  records: readonly WorkspaceFileChangeRecord[],
+  fromSequence: number,
+): readonly WorkspaceFileChangeRecord[] | undefined {
+  const after = records.filter((record) => record.sequence >= fromSequence);
+  if (after.length === 0) return [];
+  const earliest = records[0]?.sequence;
+  // 现存最早记录的序号已经越过 `fromSequence`，说明中间那段不在了。
+  if (earliest !== undefined && earliest > fromSequence) return undefined;
+  return after;
 }
