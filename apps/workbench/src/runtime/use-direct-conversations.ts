@@ -16,6 +16,7 @@ import { executeWorkspaceTool, WORKSPACE_TOOLS, type WorkspaceWriteApprovalReque
 import { invoke } from '@tauri-apps/api/core';
 import { createLocalStorageWorkspaceFileJournalStorage, createWorkspaceFileRecorder, readWorkspaceFileJournal } from './workspace-file-journal';
 import { applyFileRewindPlan, createTauriWorkspaceFileStateReader, createWebCryptoContentHasher, previewWorkspaceFileRewind } from './workspace-file-rewind-client';
+import { summarizeConversationRuns, type ConversationRun } from './conversation-runs';
 import type { FileRewindPlan } from './workspace-file-rewind-contract';
 import { browserAgentTools, createBrowserToolExecutor, isBrowserToolName } from './browser-agent-tools';
 import { readBrowserBackendStatus, setBrowserBackendEnabled as setNativeBrowserBackendEnabled, type BrowserBackendStatus } from './cdp-browser-tool-handler';
@@ -285,6 +286,11 @@ export interface DirectConversations {
   readonly searching: boolean;
   readonly error?: string;
   readonly checkpoints: readonly DirectConversationCheckpoint[];
+  /**
+   * 会话即运行：每次对话汇总成一条运行记录（目标 / 工具调用 / 改过的文件）。
+   * 只读汇总，不是第二套执行模型。
+   */
+  readonly runs: readonly ConversationRun[];
   /** Agent 请求覆写某个工作区文件时挂起的确认；为空表示当前没有待确认的写入。 */
   readonly pendingWorkspaceWrite?: WorkspaceWriteApprovalRequest;
   /**
@@ -336,6 +342,11 @@ export function useDirectConversations(): DirectConversations {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string>();
   const [checkpoints, setCheckpoints] = useState<readonly DirectConversationCheckpoint[]>(loadCheckpoints);
+  /** 运行记录：由会话 + 文件日志派生。文件日志读 localStorage，故随会话变化重算即可。 */
+  const runs = useMemo(
+    () => summarizeConversationRuns(conversations, (id) => readWorkspaceFileJournal(workspaceFileJournalStorage, id).records),
+    [conversations],
+  );
   const [pendingWorkspaceWrite, setPendingWorkspaceWrite] = useState<WorkspaceWriteApprovalRequest>();
   /** 原生账本里有内容尚未落盘（已回退到备用存储，但原生那一路还没补上）。 */
   const [unsavedChanges, setUnsavedChanges] = useState<boolean>(() => conversationStore.hasUnsaved());
@@ -752,5 +763,5 @@ export function useDirectConversations(): DirectConversations {
     } finally { setStreaming(false); }
   }, [activeConversation, streaming, update, requestWorkspaceWriteApproval, browserBackend]);
 
-  return { conversations, activeConversation, streaming, searching, error, checkpoints, pendingWorkspaceWrite, unsavedChanges, browserBackend, setBrowserBackendEnabled, resolveWorkspaceWrite, create, select, clearSelection, rename, remove, createCheckpoint, branchFromMessage, restoreCheckpoint, previewFileRewind, applyFileRewind, exportActive, send };
+  return { conversations, activeConversation, streaming, searching, error, checkpoints, pendingWorkspaceWrite, unsavedChanges, browserBackend, setBrowserBackendEnabled, resolveWorkspaceWrite, create, select, clearSelection, rename, remove, createCheckpoint, branchFromMessage, restoreCheckpoint, previewFileRewind, applyFileRewind, runs, exportActive, send };
 }
