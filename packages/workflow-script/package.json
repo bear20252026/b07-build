@@ -1,0 +1,11 @@
+{
+  "name": "@awo/workflow-script",
+  "version": "0.1.0",
+  "description": "AI Work OS - 动态工作流脚本：模型可写面的 facade、静态站点收集与 journal 重放（纯包，无 IO）",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "typescript": "^5.5.4"
+  }
+}

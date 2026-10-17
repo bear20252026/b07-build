@@ -43,6 +43,37 @@ impl TerminalRunState {
     }
 }
 
+/// 把预留的 run_id **原子地**转为"运行中"。
+///
+/// ## 为什么必须在一个临界区里做完
+///
+/// 准入检查在**同一个临界区**内同时看 `runs` 与 `reserved`，这是 SEC-005 的原子预留。
+/// 但"预留 → 登记"的**交接**曾经分成两步：先 `reserved.remove()`，再 `runs.insert()`。
+/// 两步之间那个 id 在两张表里都不存在，并发请求于是看到"既未预留、也未运行"，
+/// 放行第二个进程 —— 原子准入在交接处被抵消，闭环没合上。
+///
+/// 加锁顺序与准入检查一致（先 `runs` 后 `reserved`），避免两条路径互相死锁。
+///
+/// 返回是否登记成功。预留不在（例如已被取消路径释放）时**不登记**：那种情况下
+/// 这个进程已经不该被接管，调用方应据此失败并让 `kill_on_drop` 收尾。
+///
+/// 对 `V` 泛型化是为了可测：真进程类型在单测里造不出来，而这条判定的原子性
+/// 恰恰是本项缺陷的核心，必须有牙齿。
+async fn promote_reserved_to_running<V>(
+    runs: &Mutex<HashMap<String, V>>,
+    reserved: &Mutex<HashSet<String>>,
+    run_id: &str,
+    value: V,
+) -> bool {
+    let mut runs = runs.lock().await;
+    let mut reserved = reserved.lock().await;
+    if !reserved.remove(run_id) {
+        return false;
+    }
+    runs.insert(run_id.to_string(), value);
+    true
+}
+
 impl Default for TerminalRunState {
     fn default() -> Self {
         Self::new()
@@ -315,12 +346,12 @@ pub async fn start_terminal_command(
         .ok_or("terminal-command-output-unavailable")?;
     let run_id = request.run_id.clone();
     let child = Arc::new(Mutex::new(child));
-    state.reserved.lock().await.remove(&run_id);
-    state
-        .runs
-        .lock()
-        .await
-        .insert(run_id.clone(), child.clone());
+    // SEC-005 的闭环：预留 → 运行必须在同一个临界区里交接（见 `promote_reserved_to_running`）。
+    if !promote_reserved_to_running(&state.runs, &state.reserved, &run_id, child.clone()).await {
+        // 预留已被释放（例如取消路径抢先处理）：不接管这个进程。
+        // `child` 在此被丢弃，`kill_on_drop(true)` 会把它收掉。
+        return Err("terminal-run-reservation-lost");
+    }
     tauri::async_runtime::spawn(relay_lines(app.clone(), run_id.clone(), "stdout", stdout));
     tauri::async_runtime::spawn(relay_lines(app.clone(), run_id.clone(), "stderr", stderr));
     let runs = state.runs.clone();
@@ -413,12 +444,164 @@ pub async fn cancel_terminal_command(
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_terminal_command, valid_run_id, ClassifyTerminalCommandRequest};
+    use super::{classify_terminal_command, promote_reserved_to_running, valid_run_id, ClassifyTerminalCommandRequest};
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    /// 极简 block_on：本 crate 的 tokio 未开 `rt` feature，用不了 `#[tokio::test]`。
+    /// 这里的 future 只涉及 `tokio::sync::Mutex`（不需要 reactor），忙轮询足够。
+    fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        use std::task::{Context, Poll, Waker};
+        let waker = Waker::noop();
+        let mut context = Context::from_waker(waker);
+        let mut pinned = std::pin::pin!(future);
+        loop {
+            match pinned.as_mut().poll(&mut context) {
+                Poll::Ready(value) => return value,
+                Poll::Pending => std::hint::spin_loop(),
+            }
+        }
+    }
 
     #[test]
     fn validates_run_identifiers() {
         assert!(valid_run_id("run-123"));
         assert!(!valid_run_id("bad id"));
+    }
+
+    /// 模拟 `start_terminal_command` 里的准入检查：**同时看两张表**，都不含则抢占。
+    ///
+    /// 加锁顺序与生产代码一致（先 `runs` 后 `reserved`）。
+    async fn try_admit(
+        runs: &Mutex<HashMap<String, u32>>,
+        reserved: &Mutex<HashSet<String>>,
+        run_id: &str,
+    ) -> bool {
+        let runs = runs.lock().await;
+        let mut reserved = reserved.lock().await;
+        if runs.contains_key(run_id) || reserved.contains(run_id) {
+            return false;
+        }
+        reserved.insert(run_id.to_string());
+        true
+    }
+
+    #[test]
+    fn 交接期间并发准入不得看到空窗() {
+        // 本项缺陷的并发复现，**必须让"准入"与"交接"同时发生**。
+        //
+        // 只让多个线程都做交接是抓不到的：它们都在第一步就 `remove` 失败而返回，
+        // 根本不会去看 `runs` —— 窗口确实存在，但没人从那里经过。
+        // 缺陷真正的表现形式是**准入方**看到"既未预留、也未运行"于是放行第二个进程。
+        //
+        // 用栅栏把两条路径凑到同一时刻，并跑多轮，让"偶然没撞上"的概率可忽略。
+        const ROUNDS: usize = 300;
+        let mut both_admitted = 0;
+        for round in 0..ROUNDS {
+            let runs = Arc::new(Mutex::new(HashMap::<String, u32>::new()));
+            let reserved = Arc::new(Mutex::new(HashSet::<String>::new()));
+            block_on(reserved.lock()).insert("run-1".to_string());
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+
+            let promoter = {
+                let (runs, reserved, barrier) = (Arc::clone(&runs), Arc::clone(&reserved), Arc::clone(&barrier));
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    block_on(promote_reserved_to_running(&runs, &reserved, "run-1", 1))
+                })
+            };
+            let admitter = {
+                let (runs, reserved, barrier) = (Arc::clone(&runs), Arc::clone(&reserved), Arc::clone(&barrier));
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    block_on(try_admit(&runs, &reserved, "run-1"))
+                })
+            };
+
+            let promoted = promoter.join().unwrap();
+            let admitted = admitter.join().unwrap();
+            if promoted && admitted {
+                both_admitted += 1;
+                assert!(false, "第 {round} 轮：交接与准入同时成功 = 同一 run_id 起了两个进程");
+            }
+        }
+        assert_eq!(both_admitted, 0);
+    }
+
+
+    #[test]
+    fn 预留到运行的交接是原子的() {
+        // 本项缺陷的并发复现：交接分两步时，两步之间 id 在两张表里都不存在，
+        // 并发请求看到"既未预留、也未运行"，于是各起一个进程。
+        //
+        // **必须用栅栏把线程凑到同一时刻**：没有栅栏时每个线程往往一口气跑完整个
+        // 交接，窗口根本没人经过 —— 那样这条测试对"分两步"的实现也会全绿，
+        // 变成一条没有牙齿的测试（注入验证时确实如此，故补上栅栏）。
+        const THREADS: usize = 8;
+        // 同一轮内只允许一次成功；跑多轮是为了让"偶然没撞上"的概率降到可忽略。
+        for round in 0..200 {
+            let runs = Arc::new(Mutex::new(HashMap::<String, u32>::new()));
+            let reserved = Arc::new(Mutex::new(HashSet::<String>::new()));
+            block_on(reserved.lock()).insert("run-1".to_string());
+            let barrier = Arc::new(std::sync::Barrier::new(THREADS));
+
+            let mut handles = Vec::new();
+            for index in 0..THREADS as u32 {
+                let (runs, reserved, barrier) = (Arc::clone(&runs), Arc::clone(&reserved), Arc::clone(&barrier));
+                handles.push(std::thread::spawn(move || {
+                    barrier.wait();
+                    block_on(promote_reserved_to_running(&runs, &reserved, "run-1", index))
+                }));
+            }
+            // join 消耗 handle，故用显式循环而不是 filter（filter 给的是 &handle）。
+            let mut succeeded = 0;
+            for handle in handles {
+                if handle.join().unwrap() {
+                    succeeded += 1;
+                }
+            }
+
+            assert_eq!(succeeded, 1, "第 {round} 轮：同一 run_id 只应成功启动一次");
+            assert_eq!(block_on(runs.lock()).len(), 1, "第 {round} 轮：运行表只应有一条");
+            assert!(
+                !block_on(reserved.lock()).contains("run-1"),
+                "第 {round} 轮：交接后不应仍处于预留态"
+            );
+        }
+    }
+
+    #[test]
+    fn 交接后id同时只存在于运行表() {
+        // 闭环的可观察形态：交接完成后 id 在运行表、不在预留表。
+        let runs = Mutex::new(HashMap::<String, u32>::new());
+        let reserved = Mutex::new(HashSet::<String>::new());
+        block_on(reserved.lock()).insert("run-2".to_string());
+        assert!(block_on(promote_reserved_to_running(&runs, &reserved, "run-2", 7)));
+        assert!(block_on(runs.lock()).contains_key("run-2"));
+        assert!(!block_on(reserved.lock()).contains("run-2"));
+    }
+
+    #[test]
+    fn 预留不在时不接管进程() {
+        // 取消路径可能抢先释放预留。这时不该把进程登记进去，
+        // 而应让调用方失败、由 kill_on_drop 收尾。
+        let runs = Mutex::new(HashMap::<String, u32>::new());
+        let reserved = Mutex::new(HashSet::<String>::new());
+        assert!(!block_on(promote_reserved_to_running(&runs, &reserved, "run-3", 1)));
+        assert!(block_on(runs.lock()).is_empty(), "未预留的 id 不得进入运行表");
+    }
+
+    #[test]
+    fn 不同id各自独立交接() {
+        let runs = Mutex::new(HashMap::<String, u32>::new());
+        let reserved = Mutex::new(HashSet::<String>::new());
+        for id in ["a", "b"] {
+            block_on(reserved.lock()).insert(id.to_string());
+        }
+        assert!(block_on(promote_reserved_to_running(&runs, &reserved, "a", 1)));
+        assert!(block_on(promote_reserved_to_running(&runs, &reserved, "b", 2)));
+        assert_eq!(block_on(runs.lock()).len(), 2);
     }
 
     #[test]

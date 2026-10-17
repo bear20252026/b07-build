@@ -11,15 +11,32 @@ import { branchConversation, checkpointConversation, conversationJson, conversat
 import { recordSessionPerformance } from './session-performance-ledger';
 import { conversationStore } from './conversation-store';
 import { historyCharBudgetFor } from './context-budget';
-import { runAgentTurn } from './agent-tool-loop';
+import { runAgentTurn, type AgentToolExecution, type AgentTurnFailure } from './agent-tool-loop';
 import { executeWorkspaceTool, WORKSPACE_TOOLS, type WorkspaceWriteApprovalRequest } from './workspace-tools';
+import { invoke } from '@tauri-apps/api/core';
+import { createLocalStorageWorkspaceFileJournalStorage, createWorkspaceFileRecorder, readWorkspaceFileJournal } from './workspace-file-journal';
+import { applyFileRewindPlan, createTauriWorkspaceFileStateReader, createWebCryptoContentHasher, previewWorkspaceFileRewind } from './workspace-file-rewind-client';
+import { summarizeConversationRuns, type ConversationRun } from './conversation-runs';
+import type { FileRewindPlan } from './workspace-file-rewind-contract';
+import { browserAgentTools, createBrowserToolExecutor, isBrowserToolName } from './browser-agent-tools';
+import { readBrowserBackendStatus, setBrowserBackendEnabled as setNativeBrowserBackendEnabled, type BrowserBackendStatus } from './cdp-browser-tool-handler';
 import { buildWorkspaceIndex, projectMapContextText, readWorkspaceProjectMap, workspaceIndexErrorText } from './workspace-index';
+
+// 文件变更日志的存储句柄。工厂本身不碰 `window`（方法才碰），故可在模块级创建。
+const workspaceFileJournalStorage = createLocalStorageWorkspaceFileJournalStorage();
 
 export interface DirectConversationSelection { readonly providerId: string; readonly model?: string; }
 export interface DirectConversationActivity { readonly kind: 'reasoning' | 'web-search' | 'research' | 'hybrid-search' | 'searxng' | 'attachment' | 'tool'; readonly text: string; readonly createdAt: number; readonly sources?: readonly WebSearchSource[]; }
-export interface DirectConversationMessage { readonly id: string; readonly role: 'user' | 'assistant'; readonly text: string; readonly context?: string; readonly createdAt: number; readonly model?: string; readonly activities?: readonly DirectConversationActivity[]; }
+export interface DirectConversationMessage { readonly id: string; readonly role: 'user' | 'assistant'; readonly text: string; readonly context?: string; readonly createdAt: number; readonly model?: string; readonly activities?: readonly DirectConversationActivity[]; readonly interrupted?: DirectConversationInterruption; }
+/**
+ * 回合被中断（模型请求失败）但**已经执行过工具**的收据。
+ *
+ * 它必须留在消息上：工具改的是真实文件，不会因为后续回答失败而回滚。没有这条收据，
+ * 界面就无法区分"什么都没发生"与"文件已经改了但回答没拿到"，用户会重试并重复改动。
+ */
+export interface DirectConversationInterruption { readonly executedToolCalls: number; }
 export interface DirectConversation { readonly schemaVersion: 1; readonly id: string; readonly title: string; readonly selection: DirectConversationSelection; readonly messages: readonly DirectConversationMessage[]; readonly projectId?: string; readonly createdAt: number; readonly updatedAt: number; }
-export interface DirectConversationCheckpoint { readonly schemaVersion: 1; readonly id: string; readonly conversationId: string; readonly label: string; readonly messageCount: number; readonly createdAt: number; readonly conversation: DirectConversation; }
+export interface DirectConversationCheckpoint { readonly schemaVersion: 2; readonly id: string; readonly conversationId: string; readonly label: string; readonly messageCount: number; readonly createdAt: number; /** 建检查点时文件日志的下一个序号；序号 >= 它的文件改动发生在该检查点之后。 */ readonly fileChangeSequence: number; readonly conversation: DirectConversation; }
 
 const STORAGE_KEY = 'awo.direct-conversations.v1';
 const CHECKPOINT_STORAGE_KEY = 'awo.direct-conversation-checkpoints.v1';
@@ -29,6 +46,8 @@ const MAX_MESSAGES = 200;
 const MAX_PROVIDER_MESSAGES = 200;
 const AUTO_TEXT_FILE_THRESHOLD = 12_000;
 const STREAM_PERSIST_DELAY_MS = 280;
+/** 原生账本写入失败后的重试间隔。失败多为暂时性（磁盘忙、数据库被占），退避重试。 */
+const NATIVE_PERSIST_RETRY_DELAY_MS = 4_000;
 const MAX_SEARCH_SOURCES_PER_TURN = 10;
 
 function validProjectId(value: unknown): value is string { return typeof value === 'string' && /^project-[a-f0-9-]{8,80}$/.test(value); }
@@ -56,7 +75,8 @@ function safeMessage(value: unknown): DirectConversationMessage | undefined {
   if ((input.role !== 'user' && input.role !== 'assistant') || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 1_000_000 || typeof input.id !== 'string' || typeof createdAt !== 'number' || !Number.isSafeInteger(createdAt)) return undefined;
   const context = typeof input.context === 'string' && input.context.trim() && input.context.length <= 1_000_000 ? input.context : undefined;
   const activities = Array.isArray(input.activities) ? input.activities.map(safeActivity).filter((item): item is DirectConversationActivity => Boolean(item)).slice(-4) : [];
-  return { id: input.id, role: input.role, text: input.text, ...(context ? { context } : {}), createdAt, ...(typeof input.model === 'string' ? { model: input.model } : {}), ...(activities.length ? { activities } : {}) };
+  const interrupted = isUsableInterruption(input.interrupted) ? { executedToolCalls: input.interrupted.executedToolCalls } : undefined;
+  return { id: input.id, role: input.role, text: input.text, ...(context ? { context } : {}), createdAt, ...(typeof input.model === 'string' ? { model: input.model } : {}), ...(activities.length ? { activities } : {}), ...(interrupted ? { interrupted } : {}) };
 }
 
 function safeConversation(value: unknown): DirectConversation | undefined {
@@ -86,12 +106,37 @@ function persist(conversations: readonly DirectConversation[]): void {
   }
 }
 
+/**
+ * 合并"原生账本加载结果"与"内存里当前状态"。
+ *
+ * 加载是异步的，返回时用户可能已经建了新会话或发了消息。无条件用加载结果替换
+ * 当前状态会把这些新状态抹掉。规则：按 id 取 `updatedAt` 更大的一方
+ * （最后写入者胜）；只在内存里存在的（加载期间新建）保留；只在账本里存在的纳入。
+ */
+export function mergeLoadedConversations(
+  current: readonly DirectConversation[],
+  stored: readonly DirectConversation[],
+): readonly DirectConversation[] {
+  const byId = new Map<string, DirectConversation>();
+  for (const conversation of stored) byId.set(conversation.id, conversation);
+  for (const conversation of current) {
+    const existing = byId.get(conversation.id);
+    // 内存那份更新（或账本里没有）→ 保留内存那份。相等时也取内存那份：
+    // 内存是用户刚操作过的，账本可能是稍早的同一版本。
+    if (!existing || conversation.updatedAt >= existing.updatedAt) byId.set(conversation.id, conversation);
+  }
+  return [...byId.values()].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, MAX_CONVERSATIONS);
+}
+
 function safeCheckpoint(value: unknown): DirectConversationCheckpoint | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const input = value as Partial<DirectConversationCheckpoint>;
   const conversation = safeConversation(input.conversation);
-  if (!conversation || input.schemaVersion !== 1 || typeof input.id !== 'string' || typeof input.conversationId !== 'string' || typeof input.label !== 'string' || typeof input.messageCount !== 'number' || !Number.isSafeInteger(input.messageCount) || typeof input.createdAt !== 'number' || !Number.isSafeInteger(input.createdAt)) return undefined;
-  return { schemaVersion: 1, id: input.id, conversationId: input.conversationId, label: input.label.slice(0, 80), messageCount: Math.max(0, input.messageCount), createdAt: input.createdAt, conversation };
+  // 只认 schemaVersion 2：v1 检查点没有记录文件日志位置，无法回答"该回到哪一刻"，
+  // 勉强接受会让回退范围变成"整份日志"—— 多退是不可逆的。丢弃它，界面上就不会
+  // 出现一个按下去会多退的按钮。
+  if (!conversation || input.schemaVersion !== 2 || typeof input.id !== 'string' || typeof input.conversationId !== 'string' || typeof input.label !== 'string' || typeof input.messageCount !== 'number' || !Number.isSafeInteger(input.messageCount) || typeof input.createdAt !== 'number' || !Number.isSafeInteger(input.createdAt) || typeof input.fileChangeSequence !== 'number' || !Number.isSafeInteger(input.fileChangeSequence) || input.fileChangeSequence < 1) return undefined;
+  return { schemaVersion: 2, id: input.id, conversationId: input.conversationId, label: input.label.slice(0, 80), messageCount: Math.max(0, input.messageCount), createdAt: input.createdAt, fileChangeSequence: input.fileChangeSequence, conversation };
 }
 function loadCheckpoints(): readonly DirectConversationCheckpoint[] { try { const raw: unknown = JSON.parse(window.localStorage.getItem(CHECKPOINT_STORAGE_KEY) ?? '[]'); return Array.isArray(raw) ? raw.map(safeCheckpoint).filter((item): item is DirectConversationCheckpoint => Boolean(item)).sort((left, right) => right.createdAt - left.createdAt).slice(0, MAX_CHECKPOINTS) : []; } catch { return []; } }
 function persistCheckpoints(checkpoints: readonly DirectConversationCheckpoint[]): void { try { window.localStorage.setItem(CHECKPOINT_STORAGE_KEY, JSON.stringify(checkpoints.slice(0, MAX_CHECKPOINTS))); } catch { /* Keep conversations usable when storage is full. */ } }
@@ -113,7 +158,55 @@ export function providerHistory(messages: readonly DirectConversationMessage[], 
   let total = tail.reduce((length, message) => length + (message.context ?? message.text).length, 0);
   let start = 0;
   while (total > budget && start < tail.length - 1) { total -= (tail[start]!.context ?? tail[start]!.text).length; start += 1; }
-  return tail.slice(start).filter((message) => message.text !== '…').map((message) => ({ role: message.role, content: message.context ?? message.text }));
+  return tail.slice(start).filter((message) => message.text !== '…').map((message) => ({ role: message.role, content: (message.context ?? message.text) + (isUsableInterruption(message.interrupted) ? interruptedReceiptForProvider(message.interrupted.executedToolCalls) : '') }));
+}
+
+/**
+ * 中断收据是否可用。数据来自持久化存储（可被手改、被旧版本写坏），必须逐字段校验。
+ *
+ * 收据会进入发给模型的上下文，伪造一条不该影响重试时的判断。
+ */
+function isUsableInterruption(value: DirectConversationInterruption | undefined): value is DirectConversationInterruption {
+  const count = value?.executedToolCalls;
+  return typeof count === 'number' && Number.isSafeInteger(count) && count > 0;
+}
+
+/**
+ * 本轮是否注入浏览器工具。
+ *
+ * 抽成纯函数有两个理由：
+ * 1. 这条判定同时决定"告诉模型有哪些工具"与"把调用路由到哪"，两边必须给出同一个答案；
+ * 2. 它是"`send` 的依赖数组漏了后端状态"这类缺陷的落点 —— 漏掉依赖会让它永远读到
+ *    初始的 `undefined`，表现为开关按了没反应（功能静默失效）。
+ *
+ * 后端没启用时不注入：注入了模型会调用它们，然后拿到一串"不可用"，
+ * 把整个回合浪费在注定失败的调用上。
+ */
+export function shouldInjectBrowserTools(
+  requested: boolean,
+  status: BrowserBackendStatus | undefined,
+): boolean {
+  return requested && status?.enabled === true;
+}
+
+/**
+ * 回合被中断但已执行过工具时，写进正文的提示。
+ *
+ * 必须明说"操作已完成"：否则用户会以为整件事失败了，重试一遍，把工作区又改一次。
+ */
+export function interruptedTurnNote(executedToolCalls: number, error: unknown): string {
+  return `\n\n（本回合已执行 ${executedToolCalls} 次工具调用，工作区可能已被改动且不会自动回滚；后续模型请求失败：${streamErrorText(error)}）`;
+}
+
+/**
+ * 中断收据在**重试**时发给模型的那句话 —— 幂等边界。
+ *
+ * 正文提示是给人看的，这句是给模型看的：重试是一次全新的请求，模型看不到上一回合
+ * 执行过什么，很可能把同一批工具再调一遍。把收据带进上下文，模型才知道
+ * "这些已经生效了，先确认当前状态再决定下一步"。
+ */
+function interruptedReceiptForProvider(executedToolCalls: number): string {
+  return `\n\n（上一回合在执行 ${executedToolCalls} 次工具调用后中断，那些调用已经生效且不会回滚。不要重复执行它们；先确认当前状态，再决定下一步。）`;
 }
 
 export function streamErrorText(error: unknown): string {
@@ -193,8 +286,28 @@ export interface DirectConversations {
   readonly searching: boolean;
   readonly error?: string;
   readonly checkpoints: readonly DirectConversationCheckpoint[];
+  /**
+   * 会话即运行：每次对话汇总成一条运行记录（目标 / 工具调用 / 改过的文件）。
+   * 只读汇总，不是第二套执行模型。
+   */
+  readonly runs: readonly ConversationRun[];
   /** Agent 请求覆写某个工作区文件时挂起的确认；为空表示当前没有待确认的写入。 */
   readonly pendingWorkspaceWrite?: WorkspaceWriteApprovalRequest;
+  /**
+   * 原生账本里仍有内容未落盘（已回退到备用存储）。
+   *
+   * 界面应据此显示"尚未保存"：静默的风险比可见的提示危险得多。
+   */
+  readonly unsavedChanges: boolean;
+  /**
+   * 浏览器真实后端的当前状态；不可读时为 `undefined`（按不可用处理）。
+   *
+   * 这一项存在的理由：后端开关此前没有任何界面入口，于是"能开"这件事
+   * 只存在于代码里。界面据此渲染开关。
+   */
+  readonly browserBackend?: BrowserBackendStatus;
+  /** 开关浏览器真实后端；关闭会断开全部会话，返回被断开的会话数。 */
+  setBrowserBackendEnabled(enabled: boolean): Promise<number>;
   /** 批准(true)或拒绝(false)当前挂起的写入。 */
   resolveWorkspaceWrite(approved: boolean): void;
   create(selection: DirectConversationSelection, projectId?: string): string;
@@ -205,9 +318,20 @@ export interface DirectConversations {
   createCheckpoint(label: string): void;
   branchFromMessage(messageId: string): void;
   restoreCheckpoint(id: string): void;
+  /**
+   * 预览"把工作区文件回退到该检查点"会做什么。**只读**：不写文件、不领票据。
+   *
+   * 回退是破坏性动作，必须先能看清"会动哪些、哪些被拦下"，再决定要不要落盘。
+   */
+  previewFileRewind(checkpointId: string): Promise<FileRewindPlan>;
+  /**
+   * 落盘一次文件回退。逐文件确认走与普通补丁**相同**的审批门。
+   * 返回值可直接展示给用户。
+   */
+  applyFileRewind(conversationId: string, plan: FileRewindPlan): Promise<string>;
   exportActive(format: 'markdown' | 'json'): string | undefined;
   /** `useWorkspaceTools` 开启后本轮进入 Agent 回合：模型可以调用工作区文件工具，最多 6 轮。 */
-  send(selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch?: boolean, researchMode?: Last30DaysMode | 'hybrid' | 'searxng-local', attachments?: readonly DirectChatAttachmentContext[], useWorkspaceTools?: boolean): Promise<boolean>;
+  send(selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch?: boolean, researchMode?: Last30DaysMode | 'hybrid' | 'searxng-local', attachments?: readonly DirectChatAttachmentContext[], useWorkspaceTools?: boolean, useBrowserTools?: boolean): Promise<boolean>;
 }
 
 /** AtomCode 式“可继续、可切换”的对话历史；保存用户消息和模型文本，不保存密钥、Base URL 或请求头。 */
@@ -218,11 +342,22 @@ export function useDirectConversations(): DirectConversations {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string>();
   const [checkpoints, setCheckpoints] = useState<readonly DirectConversationCheckpoint[]>(loadCheckpoints);
+  /** 运行记录：由会话 + 文件日志派生。文件日志读 localStorage，故随会话变化重算即可。 */
+  const runs = useMemo(
+    () => summarizeConversationRuns(conversations, (id) => readWorkspaceFileJournal(workspaceFileJournalStorage, id).records),
+    [conversations],
+  );
   const [pendingWorkspaceWrite, setPendingWorkspaceWrite] = useState<WorkspaceWriteApprovalRequest>();
+  /** 原生账本里有内容尚未落盘（已回退到备用存储，但原生那一路还没补上）。 */
+  const [unsavedChanges, setUnsavedChanges] = useState<boolean>(() => conversationStore.hasUnsaved());
+  /** 浏览器真实后端的状态；不可读时保持 undefined（按不可用处理）。 */
+  const [browserBackend, setBrowserBackend] = useState<BrowserBackendStatus>();
   const pendingWriteResolve = useRef<((approved: boolean) => void) | undefined>(undefined);
   const mountedRef = useRef(true);
   const deferredPersistTimer = useRef<number | undefined>(undefined);
   const deferredPersistSnapshot = useRef<readonly DirectConversation[] | undefined>(undefined);
+  /** 原生账本写入失败后的退避重试定时器。 */
+  const nativeRetryTimer = useRef<number | undefined>(undefined);
   const latestConversations = useRef<readonly DirectConversation[]>([]);
   useEffect(() => () => { mountedRef.current = false; }, []);
   /** Agent 想覆写文件时挂起等待用户决定；没有这个入口，写入工具会直接拒绝。 */
@@ -260,13 +395,63 @@ export function useDirectConversations(): DirectConversations {
       if (!mountedRef.current) return;
       const stored = rows.map(safeConversation).filter((conversation): conversation is DirectConversation => Boolean(conversation));
       if (stored.length === 0) {
-        load().forEach((conversation) => conversationStore.upsert(conversation));
+        // 迁移方向是 localStorage → 原生。失败也不丢数据：localStorage 里那份没被删。
+        load().forEach((conversation) => { void conversationStore.upsert(conversation); });
         return;
       }
-      setConversations(stored);
-      latestConversations.current = stored;
+      // 加载是**异步**的：返回时用户可能已经建了新会话或发了消息。
+      // 直接 `setConversations(stored)` 会用旧快照覆盖掉这些新状态 —— 那是数据丢失。
+      // 改为按 id 合并，同一 id 取 `updatedAt` 更大的一方（最后写入者胜）。
+      setConversations((current) => {
+        const merged = mergeLoadedConversations(current, stored);
+        latestConversations.current = merged;
+        return merged;
+      });
     });
   }, []);
+  /**
+   * 原生账本有未落盘内容时，退避重试。
+   *
+   * 失败原因多为暂时性（磁盘忙、数据库被占），一次失败不该让原生那一路永久停摆。
+   * 重试成功且队列排空后，`flushPending` 会清掉降级标记，`available()` 重新为真。
+   */
+  useEffect(() => {
+    const unsubscribe = conversationStore.onUnsavedChange((unsavedCount) => {
+      if (!mountedRef.current) return;
+      setUnsavedChanges(unsavedCount > 0);
+      if (unsavedCount === 0 || nativeRetryTimer.current !== undefined) return;
+      nativeRetryTimer.current = window.setTimeout(() => {
+        nativeRetryTimer.current = undefined;
+        void conversationStore.flushPending();
+      }, NATIVE_PERSIST_RETRY_DELAY_MS);
+    });
+    return () => {
+      unsubscribe();
+      if (nativeRetryTimer.current !== undefined) { window.clearTimeout(nativeRetryTimer.current); nativeRetryTimer.current = undefined; }
+    };
+  }, []);
+  /**
+   * 读一次浏览器后端状态。
+   *
+   * 状态读不到（非桌面运行时、命令缺失）时保持 `undefined`：界面据此把开关
+   * 渲染成不可用，而不是显示一个按了没反应的开关。
+   */
+  const refreshBrowserBackend = useCallback(async (): Promise<void> => {
+    try {
+      const status = await readBrowserBackendStatus();
+      if (mountedRef.current) setBrowserBackend(status);
+    } catch {
+      if (mountedRef.current) setBrowserBackend(undefined);
+    }
+  }, []);
+  useEffect(() => { void refreshBrowserBackend(); }, [refreshBrowserBackend]);
+  /** 开关浏览器真实后端。关闭会断开全部会话，返回被断开的会话数。 */
+  const setBrowserBackendEnabled = useCallback(async (enabled: boolean): Promise<number> => {
+    const disconnected = await setNativeBrowserBackendEnabled(enabled);
+    await refreshBrowserBackend();
+    return disconnected;
+  }, [refreshBrowserBackend]);
+
   const activeConversation = useMemo(() => conversations.find((conversation) => conversation.id === activeId), [activeId, conversations]);
 
   const update = useCallback((transform: (current: readonly DirectConversation[]) => readonly DirectConversation[], persistence: 'immediate' | 'deferred' | 'stream' = 'immediate'): void => {
@@ -280,8 +465,19 @@ export function useDirectConversations(): DirectConversations {
     const changed = next.filter((conversation) => !current.includes(conversation));
     const removed = current.filter((conversation) => !next.some((candidate) => candidate.id === conversation.id));
     if (conversationStore.available()) {
-      changed.forEach((conversation) => conversationStore.upsert(conversation));
-      removed.forEach((conversation) => conversationStore.remove(conversation.id));
+      // 原生账本优先，但**必须处理失败**：`upsert`/`remove` 现在返回是否真的落盘。
+      // 失败时立刻把**完整快照**写进备用存储——不能假定"以后还会再存一次"，
+      // 那中间的崩溃/强退就会把这段内容丢掉。
+      const writes: Promise<boolean>[] = [
+        ...changed.map((conversation) => conversationStore.upsert(conversation)),
+        ...removed.map((conversation) => conversationStore.remove(conversation.id)),
+      ];
+      void Promise.all(writes).then((results) => {
+        if (results.every(Boolean)) return;
+        // localStorage 那一路本来就是整份覆盖，所以这里写的是 `next` 而不是只写变动项。
+        persist(next);
+        setUnsavedChanges(true);
+      });
       return next;
     }
     if (persistence === 'deferred') queueDeferredPersist(next); else { flushDeferredPersist(); persist(next); }
@@ -307,7 +503,7 @@ export function useDirectConversations(): DirectConversations {
   }, [update]);
   const createCheckpoint = useCallback((label: string): void => {
     if (!activeConversation) return;
-    const checkpoint = checkpointConversation(activeConversation, nextId('checkpoint'), label, Date.now());
+    const checkpoint = checkpointConversation(activeConversation, nextId('checkpoint'), label, Date.now(), readWorkspaceFileJournal(workspaceFileJournalStorage, activeConversation.id).nextSequence);
     setCheckpoints((current) => { const next = [checkpoint, ...current].slice(0, MAX_CHECKPOINTS); persistCheckpoints(next); return next; });
   }, [activeConversation]);
   const branchFromMessage = useCallback((messageId: string): void => {
@@ -316,6 +512,39 @@ export function useDirectConversations(): DirectConversations {
     if (!branch) return;
     update((current) => [branch, ...current]); setActiveId(branch.id);
   }, [activeConversation, update]);
+  /**
+   * 预览文件回退。**只读**，但会真的读盘（要算当前摘要做 CAS 比对）。
+   *
+   * `fromSequence` 用检查点记录的位置：只回退该检查点**之后**的改动。
+   * 不传它会退掉整份日志 —— 那是"回到会话开始"，与"回到这个检查点"不是一回事。
+   */
+  const previewFileRewind = useCallback(async (checkpointId: string): Promise<FileRewindPlan> => {
+    const checkpoint = checkpoints.find((item) => item.id === checkpointId);
+    if (!checkpoint) throw new Error('找不到该检查点，可能已被删除。');
+    return previewWorkspaceFileRewind({
+      storage: workspaceFileJournalStorage,
+      conversationId: checkpoint.conversationId,
+      reader: createTauriWorkspaceFileStateReader(invoke),
+      hasher: createWebCryptoContentHasher(),
+      fromSequence: checkpoint.fileChangeSequence,
+    });
+  }, [checkpoints]);
+
+  /**
+   * 落盘一次文件回退。
+   *
+   * 逐文件确认走的是与普通补丁同一个审批门（`requestWorkspaceWriteApproval`）——
+   * 回退是破坏性动作，不能有"不用确认"的旁路。
+   *
+   * 回退本身也是一次真实写入，因此**同样记进文件日志**：这样"撤销回退"仍然可做
+   * （挑一个更晚的检查点即可），而不是变成一条不可逆的暗改。
+   */
+  const applyFileRewind = useCallback((conversationId: string, plan: FileRewindPlan): Promise<string> => applyFileRewindPlan({
+    plan,
+    approve: requestWorkspaceWriteApproval,
+    recordFileChange: createWorkspaceFileRecorder(workspaceFileJournalStorage, conversationId),
+  }), [requestWorkspaceWriteApproval]);
+
   const restoreCheckpoint = useCallback((id: string): void => {
     const checkpoint = checkpoints.find((item) => item.id === id); if (!checkpoint) return;
     const now = Date.now(); const branch = { ...checkpoint.conversation, id: nextId('conversation'), title: `${checkpoint.conversation.title.slice(0, 58)} · 检查点`, createdAt: now, updatedAt: now };
@@ -323,7 +552,7 @@ export function useDirectConversations(): DirectConversations {
   }, [checkpoints, update]);
   const exportActive = useCallback((format: 'markdown' | 'json'): string | undefined => !activeConversation ? undefined : format === 'markdown' ? conversationMarkdown(activeConversation) : conversationJson(activeConversation), [activeConversation]);
 
-  const send = useCallback(async (selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch = false, researchMode?: Last30DaysMode | 'hybrid' | 'searxng-local', attachments: readonly DirectChatAttachmentContext[] = [], useWorkspaceTools = false): Promise<boolean> => {
+  const send = useCallback(async (selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch = false, researchMode?: Last30DaysMode | 'hybrid' | 'searxng-local', attachments: readonly DirectChatAttachmentContext[] = [], useWorkspaceTools = false, useBrowserTools = false): Promise<boolean> => {
     const text = prompt.trim(); if (!text || streaming) return false;
     const now = Date.now(); const existing = activeConversation?.selection.providerId === selection.providerId && activeConversation.projectId === projectId ? activeConversation : undefined;
     const providerTraceId = createProviderTraceId();
@@ -429,35 +658,63 @@ export function useDirectConversations(): DirectConversations {
     let reasoning = '';
     // 本轮工具调用痕迹。写进会话活动里，让用户看得见 Agent 到底动了什么文件。
     let toolActivities: readonly DirectConversationActivity[] = [];
+    /** 回合被中断但已执行过的工具调用次数；> 0 时消息必须保留。 */
+    let interruptedToolCalls = 0;
+    let agentTurnFailure: AgentTurnFailure | undefined;
+    // 浏览器工具只有在本轮被要求、且真实后端确实启用时才注入。
+    // 后端没开却注入工具清单，模型会调用它们然后拿到一串"不可用"——
+    // 与其让它把回合浪费在注定失败的调用上，不如根本不告诉它有这些工具。
+    const browserToolsEnabled = shouldInjectBrowserTools(useBrowserTools, browserBackend);
+    const agentTurnEnabled = useWorkspaceTools || browserToolsEnabled;
     let streamRefreshTimer: number | undefined;
     let providerStartedAt = Date.now();
     let firstByteAt: number | undefined;
+    // 这两个函数定义在 try **之外**：catch 分支也要用它们把"已执行工具"的痕迹渲染出来。
+    // 定义在 try 里的话 catch 拿不到（块级作用域），就只能走"删掉消息"那条路——
+    // 而那正是本项缺陷。
+    const refreshStream = (): void => {
+      const startedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
+      const streamed = streamingAssistantMessage(streamingMessageId, output, now, selection.model, reasoning);
+      // 每轮最多留 4 条活动，工具痕迹多了就把最早的挤掉，避免单条消息无限膨胀。
+      const activities = toolActivities.length ? [...(streamed.activities ?? []), ...toolActivities].slice(-4) : streamed.activities;
+      update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: mergeStreamingAssistantMessage(conversation.messages, { ...streamed, ...(activities ? { activities } : {}) }), updatedAt: Date.now() })), 'stream');
+      const endedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
+      recordSessionPerformance({ kind: 'stream-refresh', elapsedMs: endedAt - startedAt, conversationCount: conversations.length, messageCount: Math.min(MAX_MESSAGES, (base.messages.length + 2)), renderedMessageCount: Math.min(60, base.messages.length + 2) });
+    };
+    const scheduleStreamRefresh = (): void => {
+      if (streamRefreshTimer !== undefined) return;
+      streamRefreshTimer = window.setTimeout(() => { streamRefreshTimer = undefined; refreshStream(); }, 50);
+    };
     try {
-      const refreshStream = () => {
-        const startedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
-        const streamed = streamingAssistantMessage(streamingMessageId, output, now, selection.model, reasoning);
-        // 每轮最多留 4 条活动，工具痕迹多了就把最早的挤掉，避免单条消息无限膨胀。
-        const activities = toolActivities.length ? [...(streamed.activities ?? []), ...toolActivities].slice(-4) : streamed.activities;
-        update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: mergeStreamingAssistantMessage(conversation.messages, { ...streamed, ...(activities ? { activities } : {}) }), updatedAt: Date.now() })), 'stream');
-        const endedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
-        recordSessionPerformance({ kind: 'stream-refresh', elapsedMs: endedAt - startedAt, conversationCount: conversations.length, messageCount: Math.min(MAX_MESSAGES, (base.messages.length + 2)), renderedMessageCount: Math.min(60, base.messages.length + 2) });
-      };
-      const scheduleStreamRefresh = (): void => {
-        if (streamRefreshTimer !== undefined) return;
-        streamRefreshTimer = window.setTimeout(() => { streamRefreshTimer = undefined; refreshStream(); }, 50);
-      };
       providerStartedAt = Date.now();
       const onText = (chunk: string): void => { firstByteAt ??= Date.now(); output += chunk; scheduleStreamRefresh(); };
       const onReasoning = (chunk: string): void => { firstByteAt ??= Date.now(); reasoning += chunk; scheduleStreamRefresh(); };
       let completionModel: string | undefined;
-      if (useWorkspaceTools) {
+      if (agentTurnEnabled) {
+        // 把当前模型告诉执行器：已知不吃图片的模型会把截图降级成文本，
+        // 而不是把图发出去让上游 404 打掉整个回合。
+        const browserExecutor = browserToolsEnabled
+          ? createBrowserToolExecutor(undefined, { providerId: selection.providerId, ...(selection.model ? { model: selection.model } : {}) })
+          : undefined;
+        const executeTool = (name: string, args: string): Promise<AgentToolExecution> => {
+          if (isBrowserToolName(name)) {
+            // 名字是浏览器工具但本轮没启用：**如实拒绝**，绝不落到工作区工具上
+            // （那会拿一个浏览器工具名去执行文件操作，语义完全错位）。
+            return browserExecutor
+              ? browserExecutor.execute(name, args)
+              : Promise.resolve(`浏览器工具本轮未启用（${name}）。请先开启浏览器后端，或改用工作区文件工具。`);
+          }
+          // 第四个参数是文件变更录制器：写入**成功之后**才回调，把 before/after 记进
+          // 该会话的日志，供日后"回退对话同时还原文件"使用。缺席时行为与接入前逐字节相同。
+          return executeWorkspaceTool(name, args, requestWorkspaceWriteApproval, createWorkspaceFileRecorder(workspaceFileJournalStorage, conversationId));
+        };
         const turn = await runAgentTurn({
           client: directProviderClient,
           providerId: selection.providerId,
           ...(selection.model ? { model: selection.model } : {}),
           messages: messagesForProvider,
-          tools: WORKSPACE_TOOLS,
-          execute: (name, args) => executeWorkspaceTool(name, args, requestWorkspaceWriteApproval),
+          tools: browserToolsEnabled ? [...WORKSPACE_TOOLS, ...browserAgentTools()] : WORKSPACE_TOOLS,
+          execute: executeTool,
           onText,
           onReasoning,
           onToolResult: (call, result) => {
@@ -468,25 +725,43 @@ export function useDirectConversations(): DirectConversations {
         // 达到轮次上限时模型还在要工具，回答必然不完整：如实写进正文，而不是让用户以为这就是最终答复。
         if (turn.stoppedByRoundLimit) output += `\n\n（已执行 ${turn.executedCalls} 次工具调用并达到本回合 ${turn.rounds} 轮上限；模型仍在请求工具，以上回答可能不完整。）`;
         completionModel = turn.model;
+        // 回合被模型失败中断：已经执行过的工具**不会**被撤销，所以必须把这件事说出来。
+        if (turn.failure) {
+          agentTurnFailure = turn.failure;
+          interruptedToolCalls = turn.executedCalls;
+          output += interruptedTurnNote(turn.executedCalls, turn.failure.error);
+        }
       } else {
         const completion = await directProviderClient.stream({ providerId: selection.providerId, model: selection.model, messages: messagesForProvider, onText, onReasoning });
         completionModel = completion.model;
       }
-      recordProviderDiagnostic({ providerId: selection.providerId, model: completionModel ?? selection.model, stage: 'chat', outcome: 'succeeded', startedAt: providerStartedAt, firstByteAt, outputCharacters: output.length, conversationId, includedImages: images.length > 0, traceId: providerTraceId });
+      recordProviderDiagnostic({ providerId: selection.providerId, model: completionModel ?? selection.model, stage: 'chat', outcome: agentTurnFailure ? 'failed' : 'succeeded', startedAt: providerStartedAt, ...(agentTurnFailure ? { error: agentTurnFailure.error } : { firstByteAt }), outputCharacters: output.length, conversationId, includedImages: images.length > 0, traceId: providerTraceId });
       if (streamRefreshTimer !== undefined) { window.clearTimeout(streamRefreshTimer); streamRefreshTimer = undefined; refreshStream(); }
       // Agent 回合的最后一次刷新可能已经随防抖计时器跑掉了，而之后的轮次上限提示还没渲染；
       // 普通聊天则保持原样：模型一个字都没回时不硬塞一条占位消息。
-      else if (useWorkspaceTools) refreshStream();
-      update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== streamingMessageId ? message : { ...message, ...(completionModel ? { model: completionModel } : {}) }), updatedAt: Date.now() })));
-      return true;
+      else if (agentTurnEnabled) refreshStream();
+      // 中断的回合：消息**保留**（工具痕迹挂在上面），并把"已完成的部分"标记进消息 ——
+      // 让界面能显示"操作已完成、后续回答失败"，而不是把记录抹掉。
+      update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== streamingMessageId ? message : { ...message, ...(completionModel ? { model: completionModel } : {}), ...(interruptedToolCalls > 0 ? { interrupted: { executedToolCalls: interruptedToolCalls } } : {}) }), updatedAt: Date.now() })));
+      if (agentTurnFailure) setError(streamErrorText(agentTurnFailure.error));
+      return agentTurnFailure === undefined;
     } catch (nextError: unknown) {
       recordProviderDiagnostic({ providerId: selection.providerId, model: selection.model, stage: 'chat', outcome: 'failed', startedAt: providerStartedAt, error: nextError, conversationId, includedImages: images.length > 0, traceId: providerTraceId });
       if (streamRefreshTimer !== undefined) window.clearTimeout(streamRefreshTimer);
       setError(streamErrorText(nextError));
+      // 已经执行过工具 ⇒ 工作区真的被改了，而工具痕迹正挂在这条流式消息上。
+      // 删掉消息等于告诉用户"什么都没发生"：用户会重试并重复改动工作区，
+      // 事后排查也失去了唯一依据。所以这时**保留**消息，只补一句说明。
+      if (toolActivities.length > 0) {
+        output += interruptedTurnNote(toolActivities.length, nextError);
+        refreshStream();
+        update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.map((message) => message.id !== streamingMessageId ? message : { ...message, interrupted: { executedToolCalls: toolActivities.length } }), updatedAt: Date.now() })));
+        return false;
+      }
       update((current) => current.map((conversation) => conversation.id !== conversationId ? conversation : ({ ...conversation, messages: conversation.messages.filter((message) => message.id !== streamingMessageId), updatedAt: Date.now() })));
       return false;
     } finally { setStreaming(false); }
-  }, [activeConversation, streaming, update, requestWorkspaceWriteApproval]);
+  }, [activeConversation, streaming, update, requestWorkspaceWriteApproval, browserBackend]);
 
-  return { conversations, activeConversation, streaming, searching, error, checkpoints, pendingWorkspaceWrite, resolveWorkspaceWrite, create, select, clearSelection, rename, remove, createCheckpoint, branchFromMessage, restoreCheckpoint, exportActive, send };
+  return { conversations, activeConversation, streaming, searching, error, checkpoints, pendingWorkspaceWrite, unsavedChanges, browserBackend, setBrowserBackendEnabled, resolveWorkspaceWrite, create, select, clearSelection, rename, remove, createCheckpoint, branchFromMessage, restoreCheckpoint, previewFileRewind, applyFileRewind, runs, exportActive, send };
 }

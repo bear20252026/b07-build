@@ -25,6 +25,7 @@ mod hybrid_search;
 #[cfg(not(mobile))]
 mod last30days;
 mod mcp_app_host;
+mod plugin_reference;
 mod mcp_process;
 #[cfg(not(mobile))]
 mod project_memory;
@@ -362,6 +363,8 @@ pub fn run() {
             extension_host_process::extension_host_stop,
             extension_host_process::extension_host_status,
             browser_tools::browser_backend_status,
+            browser_tools::browser_sessions_list,
+            plugin_reference::plugin_reference_catalog,
             browser_tools::browser_backend_set_enabled,
             browser_tools::browser_backend_set_port,
             browser_tools::browser_tool_call,

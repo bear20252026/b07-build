@@ -47,6 +47,7 @@ export {
   createUnavailableBrowserToolHandler,
   type BrowserToolCall,
   type BrowserToolCallResult,
+  type BrowserToolContent,
   type BrowserToolExecutor,
   type BrowserToolExecutorOptions,
   type BrowserToolHandler,

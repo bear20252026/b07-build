@@ -477,6 +477,44 @@ fn validate_messages(messages: &[DirectProviderMessage]) -> Result<(), &'static 
     Ok(())
 }
 
+/// 把文本与图片编成 provider 要的 `content` 形状。
+///
+/// 无图片时退回**纯字符串**（多数 provider 对纯文本消息更宽容，也省一层解析）。
+///
+/// 抽成一处实现是有原因的：此前 `payload_for` 对 `role == "tool"` **提前返回**并只带
+/// `message.content`，`message.images` 被直接丢掉 —— 于是校验允许 tool 消息带图片、
+/// 序列化却永远不带上它们。截图因此到不了模型，只能在文本里描述一句"图未附上"。
+/// 现在两个分支共用本函数，"文本 + 图片"只有一处落点。
+fn content_with_images(
+    protocol: DirectProviderProtocol,
+    text: &str,
+    images: &[DirectProviderImage],
+) -> serde_json::Value {
+    if images.is_empty() {
+        return serde_json::json!(text);
+    }
+    let mut content = vec![serde_json::json!({ "type": "text", "text": text })];
+    match protocol {
+        DirectProviderProtocol::OpenaiCompatible => {
+            content.extend(images.iter().map(|image| {
+                serde_json::json!({
+                    "type": "image_url",
+                    "image_url": { "url": format!("data:{};base64,{}", image.media_type, image.base64_data) }
+                })
+            }));
+        }
+        DirectProviderProtocol::AnthropicCompatible => {
+            content.extend(images.iter().map(|image| {
+                serde_json::json!({
+                    "type": "image",
+                    "source": { "type": "base64", "media_type": image.media_type, "data": image.base64_data }
+                })
+            }));
+        }
+    }
+    serde_json::json!(content)
+}
+
 fn payload_for(
     session: &DirectProviderSession,
     model: &str,
@@ -485,29 +523,18 @@ fn payload_for(
 ) -> serde_json::Value {
     let messages = messages.iter().map(|message| {
         // 工具结果必须带上 call id，否则上游无法把它对回某一次调用。
+        // 图片同样要带上：截图就是从这里进模型的。
         if message.role == "tool" {
             return serde_json::json!({
                 "role": "tool",
                 "tool_call_id": message.tool_call_id,
-                "content": message.content
+                "content": content_with_images(session.protocol, &message.content, &message.images)
             });
         }
-        let base = if message.images.is_empty() {
-            serde_json::json!({ "role": message.role, "content": message.content })
-        } else {
-            match session.protocol {
-                DirectProviderProtocol::OpenaiCompatible => {
-                    let mut content = vec![serde_json::json!({ "type": "text", "text": message.content })];
-                    content.extend(message.images.iter().map(|image| serde_json::json!({ "type": "image_url", "image_url": { "url": format!("data:{};base64,{}", image.media_type, image.base64_data) } })));
-                    serde_json::json!({ "role": message.role, "content": content })
-                }
-                DirectProviderProtocol::AnthropicCompatible => {
-                    let mut content = vec![serde_json::json!({ "type": "text", "text": message.content })];
-                    content.extend(message.images.iter().map(|image| serde_json::json!({ "type": "image", "source": { "type": "base64", "media_type": image.media_type, "data": image.base64_data } })));
-                    serde_json::json!({ "role": message.role, "content": content })
-                }
-            }
-        };
+        let base = serde_json::json!({
+            "role": message.role,
+            "content": content_with_images(session.protocol, &message.content, &message.images)
+        });
         // 把上一轮 assistant 的调用原样带回，模型才知道自己已经问过什么。
         match (&message.tool_calls, message.role.as_str()) {
             (Some(calls), "assistant") => {
@@ -1416,6 +1443,87 @@ mod tests {
                 .pointer("/messages/0/content/1/image_url/url")
                 .and_then(|value| value.as_str()),
             Some("data:image/png;base64,aGVsbG8=")
+        );
+    }
+
+    #[test]
+    fn 工具结果里的图片不会被丢弃() {
+        // 本项缺陷：`payload_for` 对 role=tool **提前返回**并只带 content，
+        // `message.images` 被丢掉 —— 校验允许 tool 消息带图片、序列化却从不带上，
+        // 于是截图永远到不了模型。
+        let session = super::DirectProviderSession {
+            provider_id: "provider".to_owned(),
+            protocol: DirectProviderProtocol::OpenaiCompatible,
+            base_url: "https://example.test/v1".to_owned(),
+            model: "model".to_owned(),
+            api_key: "key".to_owned(),
+        };
+        let messages = vec![super::DirectProviderMessage {
+            role: "tool".to_owned(),
+            content: "已捕获截图".to_owned(),
+            tool_call_id: Some("call-1".to_owned()),
+            images: vec![DirectProviderImage {
+                media_type: "image/png".to_owned(),
+                base64_data: "aGVsbG8=".to_owned(),
+            }],
+            ..Default::default()
+        }];
+        let payload = super::payload_for(&session, "model", &messages, &[]);
+        assert_eq!(
+            payload.pointer("/messages/0/tool_call_id").and_then(|value| value.as_str()),
+            Some("call-1")
+        );
+        assert_eq!(
+            payload.pointer("/messages/0/content/0/text").and_then(|value| value.as_str()),
+            Some("已捕获截图")
+        );
+        assert_eq!(
+            payload.pointer("/messages/0/content/1/image_url/url").and_then(|value| value.as_str()),
+            Some("data:image/png;base64,aGVsbG8=")
+        );
+    }
+
+    #[test]
+    fn 工具结果无图片时仍是纯字符串content() {
+        // 无图片时不得凭空变成数组：多数 provider 对纯文本消息更宽容。
+        let session = super::DirectProviderSession {
+            provider_id: "provider".to_owned(),
+            protocol: DirectProviderProtocol::OpenaiCompatible,
+            base_url: "https://example.test/v1".to_owned(),
+            model: "model".to_owned(),
+            api_key: "key".to_owned(),
+        };
+        let messages = vec![super::DirectProviderMessage {
+            role: "tool".to_owned(),
+            content: "文件已写入".to_owned(),
+            tool_call_id: Some("call-2".to_owned()),
+            ..Default::default()
+        }];
+        let payload = super::payload_for(&session, "model", &messages, &[]);
+        assert_eq!(
+            payload.pointer("/messages/0/content").and_then(|value| value.as_str()),
+            Some("文件已写入")
+        );
+    }
+
+    #[test]
+    fn 用户消息无图片时也退回纯字符串() {
+        let session = super::DirectProviderSession {
+            provider_id: "provider".to_owned(),
+            protocol: DirectProviderProtocol::OpenaiCompatible,
+            base_url: "https://example.test/v1".to_owned(),
+            model: "model".to_owned(),
+            api_key: "key".to_owned(),
+        };
+        let messages = vec![super::DirectProviderMessage {
+            role: "user".to_owned(),
+            content: "纯文本".to_owned(),
+            ..Default::default()
+        }];
+        let payload = super::payload_for(&session, "model", &messages, &[]);
+        assert_eq!(
+            payload.pointer("/messages/0/content").and_then(|value| value.as_str()),
+            Some("纯文本")
         );
     }
 

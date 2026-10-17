@@ -23,13 +23,33 @@
 
 use serde_json::{json, Map, Value};
 
-/// 一条待发出的 CDP 步骤（方法名 + 参数）。
+/// 一条待发出的 CDP 步骤（方法名 + 参数 + 可选的后置动作）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct CdpStep {
     /// CDP 方法名。
     pub method: String,
     /// 方法参数；无参数时为 `None`。
     pub params: Option<Value>,
+    /// 这一步**之后**要做的动作，且依赖这一步的返回值。
+    ///
+    /// 为什么需要它：有些工具的语义不是"发一条命令"，而是"发一条命令，**再按它的结果**做点什么"。
+    /// `click` 就是典型 —— 先用 JS 算出元素中心坐标，再在该坐标派发鼠标事件。
+    /// 只发前半段的话，工具名叫 click 却没有点击发生，而调用方看到的是"成功"。
+    /// 把后半段表达在计划里，而不是让执行层去猜方法名的含义。
+    pub then: Option<StepFollowUp>,
+}
+
+/// 依赖上一步返回值的后置动作（闭集）。
+#[derive(Debug, Clone, PartialEq)]
+pub enum StepFollowUp {
+    /// 上一步返回的必须是**真值**；否则整个工具调用失败。
+    ///
+    /// 用于 `type` / `fill_form`：它们的定位脚本在找不到元素时返回 `false`。
+    /// 忽略这个 `false` 继续往下走，会把文本输进当时恰好获得焦点的**别的**输入框 ——
+    /// 一个既难发现又已经产生副作用的错误。
+    RequireTruthy,
+    /// 把上一步返回的 `{x, y}` 当作视口坐标，派发一次左键点击。
+    ClickAtReturnedPoint,
 }
 
 impl CdpStep {
@@ -37,7 +57,14 @@ impl CdpStep {
         Self {
             method: method.to_string(),
             params,
+            then: None,
         }
+    }
+
+    /// 给这一步挂一个后置动作。
+    fn then(mut self, follow_up: StepFollowUp) -> Self {
+        self.then = Some(follow_up);
+        self
     }
 }
 
@@ -46,6 +73,14 @@ impl CdpStep {
 pub enum ToolMapOutcome {
     /// 成功映射为若干 CDP 步骤（有序，须按序发出）。
     Steps(Vec<CdpStep>),
+    /// 该工具由原生侧**本地处理**，不产出 CDP 步骤。
+    ///
+    /// 会话生命周期工具（`create_session` / `list_sessions` / `close_session`）管理的
+    /// 正是"连接"本身，没法发给连接去执行。它们必须是**显式的一类**，而不是
+    /// "空步骤列表"——空列表会让调用方以为"成功执行了 0 步"，把一个静默空操作
+    /// 当成成功。同理，它们也不该在映射层要求任何参数：映射层要的参数会变成
+    /// 事实上的公开契约，而公开契约里并没有那些字段。
+    Local,
     /// 映射失败，带稳定原因。
     Unmappable(ToolMapFailure),
 }
@@ -200,9 +235,8 @@ pub fn map_tool_call(canonical_name: &str, raw_params: Option<&Value>) -> ToolMa
     };
 
     let result = match suffix {
-        "create_session" => map_create_session(&params),
-        "list_sessions" => Ok(vec![CdpStep::new("Target.getTargets", None)]),
-        "close_session" => map_close_session(&params),
+        // 会话生命周期：本地处理，不映射为 CDP 步骤（见 `ToolMapOutcome::Local`）。
+        "create_session" | "list_sessions" | "close_session" => return ToolMapOutcome::Local,
         "snapshot" => map_snapshot(&params),
         "take_screenshot" => map_take_screenshot(),
         "navigate" => map_navigate(&params),
@@ -220,36 +254,6 @@ pub fn map_tool_call(canonical_name: &str, raw_params: Option<&Value>) -> ToolMa
         Ok(steps) => ToolMapOutcome::Steps(steps),
         Err(failure) => ToolMapOutcome::Unmappable(failure),
     }
-}
-
-/// `create_session`：启用必要域并报告浏览器版本，作为会话建立的三步前导。
-///
-/// 为什么是三步：`Page.enable` 让后续 `Page.*` 事件开始推送（不 enable 收不到），
-/// `Network.enable` 让 `wait_for` 的 URL 形态判定有事件可依赖，`Browser.getVersion`
-/// 给调用方一个可记入审计的握手凭据。
-fn map_create_session(params: &Map<String, Value>) -> Result<Vec<CdpStep>, ToolMapFailure> {
-    // profileName 在 CDP 侧由启动参数决定（`--user-data-dir`），无法在会话内切换；
-    // 接受但只做保留，不静默忽略成一个看起来生效的假象——见下方注释。
-    let _profile = optional_string(params, "profileName")?;
-    Ok(vec![
-        CdpStep::new("Page.enable", None),
-        CdpStep::new("Network.enable", None),
-        CdpStep::new("Browser.getVersion", None),
-    ])
-}
-
-/// `close_session`：`Target.closeTarget` 需要目标 id。
-///
-/// b07 的 `sessionId` 是会话标识而非 CDP targetId；两者的绑定由 tokio 层维护
-/// （一个会话对应一个已连接目标），因此这里只表达"要关一个目标"，id 由调用方
-/// 在发出前填入。返回一个占位步骤并让调用方补 id 会让契约含糊，故直接要求
-/// `targetId` 参数——缺它即 `MissingParameter`。
-fn map_close_session(params: &Map<String, Value>) -> Result<Vec<CdpStep>, ToolMapFailure> {
-    let target_id = string_param(params, "targetId")?;
-    Ok(vec![CdpStep::new(
-        "Target.closeTarget",
-        Some(json!({ "targetId": target_id })),
-    )])
 }
 
 /// `snapshot`：取页面结构 + 可见文本。
@@ -322,7 +326,8 @@ fn map_click(params: &Map<String, Value>) -> Result<Vec<CdpStep>, ToolMapFailure
         return Ok(vec![CdpStep::new(
             "Runtime.evaluate",
             Some(json!({ "expression": expression, "returnByValue": true })),
-        )]);
+        )
+        .then(StepFollowUp::ClickAtReturnedPoint)]);
     }
     if let Some(text) = text {
         let expression = format!(
@@ -332,7 +337,8 @@ fn map_click(params: &Map<String, Value>) -> Result<Vec<CdpStep>, ToolMapFailure
         return Ok(vec![CdpStep::new(
             "Runtime.evaluate",
             Some(json!({ "expression": expression, "returnByValue": true })),
-        )]);
+        )
+        .then(StepFollowUp::ClickAtReturnedPoint)]);
     }
     match (x, y) {
         (Some(x), Some(y)) => Ok(vec![
@@ -365,10 +371,15 @@ fn map_type(params: &Map<String, Value>) -> Result<Vec<CdpStep>, ToolMapFailure>
             "(() => {{ const el = document.querySelector({sel}); if (!el) return false; el.focus(); return true; }})()",
             sel = serde_json::to_string(&selector).unwrap_or_else(|_| "null".to_string())
         );
-        steps.push(CdpStep::new(
-            "Runtime.evaluate",
-            Some(json!({ "expression": expression, "returnByValue": true })),
-        ));
+        // 定位脚本找不到元素时返回 false。忽略它继续 insertText 会把文本
+        // 输进当时恰好有焦点的**别的**输入框。
+        steps.push(
+            CdpStep::new(
+                "Runtime.evaluate",
+                Some(json!({ "expression": expression, "returnByValue": true })),
+            )
+            .then(StepFollowUp::RequireTruthy),
+        );
     }
     steps.push(CdpStep::new(
         "Input.insertText",
@@ -423,10 +434,14 @@ fn map_fill_form(params: &Map<String, Value>) -> Result<Vec<CdpStep>, ToolMapFai
             sel = serde_json::to_string(selector).unwrap_or_else(|_| "null".to_string()),
             v = serde_json::to_string(&value).unwrap_or_else(|_| "\"\"".to_string())
         );
-        steps.push(CdpStep::new(
-            "Runtime.evaluate",
-            Some(json!({ "expression": expression, "returnByValue": true })),
-        ));
+        // 与 type 同理：字段不存在时必须失败，而不是"成功填了 0 个字段"。
+        steps.push(
+            CdpStep::new(
+                "Runtime.evaluate",
+                Some(json!({ "expression": expression, "returnByValue": true })),
+            )
+            .then(StepFollowUp::RequireTruthy),
+        );
     }
     Ok(steps)
 }
@@ -601,63 +616,138 @@ mod tests {
 
     #[test]
     fn 无参数工具接受缺失与null() {
+        // take_screenshot 是真正"无参数且产出步骤"的工具。
         for raw in [None, Some(json!(null))] {
-            match map_tool_call("mcp__browser__list_sessions", raw.as_ref()) {
-                ToolMapOutcome::Steps(steps) => assert_eq!(steps[0].method, "Target.getTargets"),
+            match map_tool_call("mcp__browser__take_screenshot", raw.as_ref()) {
+                ToolMapOutcome::Steps(steps) => {
+                    assert_eq!(steps[0].method, "Page.captureScreenshot")
+                }
                 other => panic!("应映射成功，实际：{other:?}"),
             }
         }
     }
 
     #[test]
-    fn 建会话给出三步前导() {
-        match map_tool_call("mcp__browser__create_session", Some(&json!({}))) {
-            ToolMapOutcome::Steps(steps) => {
-                let methods: Vec<_> = steps.iter().map(|s| s.method.as_str()).collect();
-                assert_eq!(
-                    methods,
-                    vec!["Page.enable", "Network.enable", "Browser.getVersion"]
-                );
-            }
-            other => panic!("应映射成功，实际：{other:?}"),
+    fn 会话生命周期工具判为本地处理而非步骤() {
+        // 这三个工具管理的正是"连接"本身，没法发给连接执行。
+        // 必须是显式的一类，不能是"空步骤列表"——那会把静默空操作当成成功。
+        for name in ["create_session", "list_sessions", "close_session"] {
+            let outcome = map_tool_call(&format!("mcp__browser__{name}"), Some(&json!({})));
+            assert_eq!(outcome, ToolMapOutcome::Local, "{name} 应判为本地处理");
         }
     }
 
     #[test]
-    fn 建会话接受profileName但不改步骤() {
-        match map_tool_call(
-            "mcp__browser__create_session",
-            Some(&json!({"profileName":"work"})),
-        ) {
-            ToolMapOutcome::Steps(steps) => assert_eq!(steps.len(), 3),
-            other => panic!("应映射成功，实际：{other:?}"),
-        }
-    }
-
-    #[test]
-    fn 关会话缺targetId被拒() {
+    fn 关会话只带公开声明的session_id即可不再要求target_id() {
+        // 这是 P1 缺陷的回归钉：公开契约只声明 sessionId，映射层却要求 targetId，
+        // 于是**按公开契约构造的正常关闭请求**在映射处就被拒了。
         let outcome = map_tool_call(
             "mcp__browser__close_session",
             Some(&json!({"sessionId":"s"})),
         );
-        assert_eq!(
-            outcome,
-            ToolMapOutcome::Unmappable(ToolMapFailure::MissingParameter("targetId"))
-        );
+        assert_eq!(outcome, ToolMapOutcome::Local);
     }
 
     #[test]
-    fn 关会话给targetId可映射() {
+    fn 本地工具即使完全不带参数也不会被映射层拒绝() {
+        // 映射层不该对本地工具的参数提任何要求：它要的参数会变成事实上的公开契约。
+        let outcome = map_tool_call("mcp__browser__close_session", None);
+        assert_eq!(outcome, ToolMapOutcome::Local);
+    }
+
+    /// 取某个工具映射出的第一步（便于断言后置动作）。
+    fn first_step(name: &str, params: Value) -> CdpStep {
+        match map_tool_call(name, Some(&params)) {
+            ToolMapOutcome::Steps(steps) => steps.into_iter().next().expect("应至少一步"),
+            other => panic!("应映射成功，实际：{other:?}"),
+        }
+    }
+
+    #[test]
+    fn click按选择器定位时挂上点击后置动作() {
+        // 只算坐标不点击 = 工具名叫 click 却没有点击发生，而调用方看到"成功"。
+        let step = first_step(
+            "mcp__browser__click",
+            json!({ "sessionId": "s", "selector": "#submit" }),
+        );
+        assert_eq!(step.method, "Runtime.evaluate");
+        assert_eq!(step.then, Some(StepFollowUp::ClickAtReturnedPoint));
+    }
+
+    #[test]
+    fn click按文本定位时同样挂上点击后置动作() {
+        let step = first_step(
+            "mcp__browser__click",
+            json!({ "sessionId": "s", "text": "提交" }),
+        );
+        assert_eq!(step.then, Some(StepFollowUp::ClickAtReturnedPoint));
+    }
+
+    #[test]
+    fn click按坐标时直接发鼠标事件且不挂后置动作() {
+        // 坐标分支自己就发 Input.dispatchMouseEvent，不需要再点一次（那会变成双击）。
         match map_tool_call(
-            "mcp__browser__close_session",
-            Some(&json!({"targetId":"T1"})),
+            "mcp__browser__click",
+            Some(&json!({ "sessionId": "s", "x": 10, "y": 20 })),
         ) {
             ToolMapOutcome::Steps(steps) => {
-                assert_eq!(steps[0].method, "Target.closeTarget");
-                assert_eq!(steps[0].params.as_ref().unwrap()["targetId"], json!("T1"));
+                assert_eq!(steps[0].method, "Input.dispatchMouseEvent");
+                assert_eq!(steps[0].then, None);
+                // 按下与抬起都要有，只发一个会让页面停在"按住"状态。
+                let types: Vec<_> = steps
+                    .iter()
+                    .filter_map(|step| step.params.as_ref()?.get("type")?.as_str())
+                    .collect();
+                assert!(types.contains(&"mousePressed"), "缺少按下：{types:?}");
+                assert!(types.contains(&"mouseReleased"), "缺少抬起：{types:?}");
             }
             other => panic!("应映射成功，实际：{other:?}"),
         }
+    }
+
+    #[test]
+    fn type的定位步骤要求真值() {
+        // 定位脚本找不到元素时返回 false；忽略它继续 insertText 会把文本
+        // 输进当时恰好有焦点的**别的**输入框。
+        let step = first_step(
+            "mcp__browser__type",
+            json!({ "sessionId": "s", "selector": "#name", "text": "hi" }),
+        );
+        assert_eq!(step.method, "Runtime.evaluate");
+        assert_eq!(step.then, Some(StepFollowUp::RequireTruthy));
+    }
+
+    #[test]
+    fn fill_form的每个字段步骤都要求真值() {
+        match map_tool_call(
+            "mcp__browser__fill_form",
+            Some(&json!({ "sessionId": "s", "fields": [
+                { "selector": "#a", "value": "1" },
+                { "selector": "#b", "value": "2" }
+            ] })),
+        ) {
+            ToolMapOutcome::Steps(steps) => {
+                let evaluates: Vec<_> = steps
+                    .iter()
+                    .filter(|step| step.method == "Runtime.evaluate")
+                    .collect();
+                assert_eq!(evaluates.len(), 2);
+                for step in evaluates {
+                    assert_eq!(step.then, Some(StepFollowUp::RequireTruthy));
+                }
+            }
+            other => panic!("应映射成功，实际：{other:?}"),
+        }
+    }
+
+    #[test]
+    fn 不依赖返回值的步骤不挂后置动作() {
+        // navigate 只是发一条命令，没有"再按结果做点什么"的语义。
+        let step = first_step(
+            "mcp__browser__navigate",
+            json!({ "sessionId": "s", "url": "https://e.com" }),
+        );
+        assert_eq!(step.then, None);
     }
 
     #[test]
@@ -985,6 +1075,8 @@ mod tests {
             );
             match outcome {
                 ToolMapOutcome::Steps(_) => {}
+                // 会话生命周期工具在本地处理，给全参数也仍判 Local —— 这是预期结果。
+                ToolMapOutcome::Local => {}
                 ToolMapOutcome::Unmappable(failure) => {
                     panic!("{name} 在给全参数下应可映射，实际拒绝：{}", failure.code());
                 }

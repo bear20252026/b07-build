@@ -1,5 +1,5 @@
 import type { Translation } from '../../i18n/catalog';
-import type { WorkbenchControlPlaneDiagnostics } from '../../runtime/task-client';
+import type { WorkbenchControlPlaneDiagnostics } from '../../runtime/task-types';
 
 interface ControlPlaneDiagnosticsBoardProps {
   report?: WorkbenchControlPlaneDiagnostics;
