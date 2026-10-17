@@ -118,6 +118,55 @@ workbench 拿不到这两样，也拿不到"用户消息里有哪些引用"—�
 
 ---
 
+## 3.5 遗留面清点：`localServiceReady` 到底关掉了什么
+
+`localServiceReady` 是硬编码 `false` 且无 setter 的开关。它的影响面不是"几个面板"，
+而是**整个数据层的一半**。下面按传输方式把 `apps/workbench/src/runtime/*-client.ts`
+全部归类（共 20 个）。
+
+### 走 HTTP 的（后端 `apps/runtime-gateway` 已删 → **全部不可用**）：7 个
+
+| 客户端 | 撑起的功能 |
+| --- | --- |
+| `task-client`（**26 处 `fetch`**） | **任务执行**、运行记录、检查点、产出账本、组件锁、控制面诊断 |
+| `knowledge-client` | 知识库检索 |
+| `knowledge-workspace-client` | 知识工作区 |
+| `agency-role-client` | 预置角色目录 |
+| `extension-client` | 扩展中心 |
+| `api-usage-client` | 用量账本 |
+| `mimo-tts-client` | 语音预览（`/api/companion/tts/preview`） |
+
+### 走 Tauri 的（**能用**）：12 个
+
+`desktop-diagnostics`、`direct-provider`、`extension-host`、`external-url`、
+`github-collaboration`、`hybrid-search`、`last30days`、`project-memory`、
+`searxng-local`、`terminal`、`web-search`、`workspace-file-rewind`
+
+### 纯类型：1 个
+
+`project-client`（只有 interface，没有传输）
+
+---
+
+### 最重的一条：**任务执行整体是禁用的**
+
+```ts
+// App.tsx
+const [localServiceReady] = useState(false);           // 永远 false
+const taskExecution = useTaskExecution(localServiceReady, { … });
+
+// use-task-execution.ts:103
+if (!localServiceReady) { /* 直接返回 */ }
+```
+
+也就是说：**提交任务 → 运行 → 产出账本 / 检查点 / 交付物** 这条主链路，
+在删掉 gateway 之后就没有后端了。这不是"某个面板灰了"，是**产品的主功能之一停摆**。
+
+对话与工具调用走的是另一条路（`use-direct-conversations` + Tauri 命令），所以还能用 ——
+这也是为什么"看起来还在工作"：能聊天、能改文件、能开浏览器，但不能"提交一个任务让它跑完"。
+
+---
+
 ## 4. 四个选项
 
 | 选项 | 代价 | 解锁 | 风险 |
