@@ -3,6 +3,7 @@
     "strict": true,
     "noImplicitAny": true,
     "noUnusedLocals": true,
+    "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "target": "ES2022",
@@ -18,6 +19,7 @@
     "packages/*/test/**/*.ts",
     "packages/*/browser/**/*.ts",
     "apps/*/src/**/*.ts",
+    "apps/*/src/**/*.tsx",
     "tools/**/*.ts"
   ]
 }

@@ -218,7 +218,7 @@ export function App() {
     resumeFailed: messages.task.error.resume,
     approvalFailed: messages.task.error.approve,
   }, localTaskClient);
-  const { snapshot, events, trajectory, workspaceArtifacts, checkpoints, taskFiles, deliveries, pending, deliveryPending, error: serviceError } = taskExecution;
+  const { snapshot, events, trajectory, workspaceArtifacts, taskFiles, deliveries, pending, deliveryPending, error: serviceError } = taskExecution;
   const projectWorkspace = useProjectWorkspace(activePage, localServiceErrorText, localProjectClient);
   const providerControl = useProviderControlPlane();
   const directConversations = useDirectConversations();
