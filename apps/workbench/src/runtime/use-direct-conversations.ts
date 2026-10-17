@@ -13,7 +13,10 @@ import { conversationStore } from './conversation-store';
 import { historyCharBudgetFor } from './context-budget';
 import { runAgentTurn, type AgentToolExecution, type AgentTurnFailure } from './agent-tool-loop';
 import { executeWorkspaceTool, WORKSPACE_TOOLS, type WorkspaceWriteApprovalRequest } from './workspace-tools';
+import { invoke } from '@tauri-apps/api/core';
 import { createLocalStorageWorkspaceFileJournalStorage, createWorkspaceFileRecorder, readWorkspaceFileJournal } from './workspace-file-journal';
+import { applyFileRewindPlan, createTauriWorkspaceFileStateReader, createWebCryptoContentHasher, previewWorkspaceFileRewind } from './workspace-file-rewind-client';
+import type { FileRewindPlan } from './workspace-file-rewind-contract';
 import { browserAgentTools, createBrowserToolExecutor, isBrowserToolName } from './browser-agent-tools';
 import { readBrowserBackendStatus, setBrowserBackendEnabled as setNativeBrowserBackendEnabled, type BrowserBackendStatus } from './cdp-browser-tool-handler';
 import { buildWorkspaceIndex, projectMapContextText, readWorkspaceProjectMap, workspaceIndexErrorText } from './workspace-index';
@@ -309,6 +312,17 @@ export interface DirectConversations {
   createCheckpoint(label: string): void;
   branchFromMessage(messageId: string): void;
   restoreCheckpoint(id: string): void;
+  /**
+   * 预览"把工作区文件回退到该检查点"会做什么。**只读**：不写文件、不领票据。
+   *
+   * 回退是破坏性动作，必须先能看清"会动哪些、哪些被拦下"，再决定要不要落盘。
+   */
+  previewFileRewind(checkpointId: string): Promise<FileRewindPlan>;
+  /**
+   * 落盘一次文件回退。逐文件确认走与普通补丁**相同**的审批门。
+   * 返回值可直接展示给用户。
+   */
+  applyFileRewind(conversationId: string, plan: FileRewindPlan): Promise<string>;
   exportActive(format: 'markdown' | 'json'): string | undefined;
   /** `useWorkspaceTools` 开启后本轮进入 Agent 回合：模型可以调用工作区文件工具，最多 6 轮。 */
   send(selection: DirectConversationSelection, prompt: string, projectId?: string, useWebSearch?: boolean, researchMode?: Last30DaysMode | 'hybrid' | 'searxng-local', attachments?: readonly DirectChatAttachmentContext[], useWorkspaceTools?: boolean, useBrowserTools?: boolean): Promise<boolean>;
@@ -487,6 +501,39 @@ export function useDirectConversations(): DirectConversations {
     if (!branch) return;
     update((current) => [branch, ...current]); setActiveId(branch.id);
   }, [activeConversation, update]);
+  /**
+   * 预览文件回退。**只读**，但会真的读盘（要算当前摘要做 CAS 比对）。
+   *
+   * `fromSequence` 用检查点记录的位置：只回退该检查点**之后**的改动。
+   * 不传它会退掉整份日志 —— 那是"回到会话开始"，与"回到这个检查点"不是一回事。
+   */
+  const previewFileRewind = useCallback(async (checkpointId: string): Promise<FileRewindPlan> => {
+    const checkpoint = checkpoints.find((item) => item.id === checkpointId);
+    if (!checkpoint) throw new Error('找不到该检查点，可能已被删除。');
+    return previewWorkspaceFileRewind({
+      storage: workspaceFileJournalStorage,
+      conversationId: checkpoint.conversationId,
+      reader: createTauriWorkspaceFileStateReader(invoke),
+      hasher: createWebCryptoContentHasher(),
+      fromSequence: checkpoint.fileChangeSequence,
+    });
+  }, [checkpoints]);
+
+  /**
+   * 落盘一次文件回退。
+   *
+   * 逐文件确认走的是与普通补丁同一个审批门（`requestWorkspaceWriteApproval`）——
+   * 回退是破坏性动作，不能有"不用确认"的旁路。
+   *
+   * 回退本身也是一次真实写入，因此**同样记进文件日志**：这样"撤销回退"仍然可做
+   * （挑一个更晚的检查点即可），而不是变成一条不可逆的暗改。
+   */
+  const applyFileRewind = useCallback((conversationId: string, plan: FileRewindPlan): Promise<string> => applyFileRewindPlan({
+    plan,
+    approve: requestWorkspaceWriteApproval,
+    recordFileChange: createWorkspaceFileRecorder(workspaceFileJournalStorage, conversationId),
+  }), [requestWorkspaceWriteApproval]);
+
   const restoreCheckpoint = useCallback((id: string): void => {
     const checkpoint = checkpoints.find((item) => item.id === id); if (!checkpoint) return;
     const now = Date.now(); const branch = { ...checkpoint.conversation, id: nextId('conversation'), title: `${checkpoint.conversation.title.slice(0, 58)} · 检查点`, createdAt: now, updatedAt: now };
@@ -705,5 +752,5 @@ export function useDirectConversations(): DirectConversations {
     } finally { setStreaming(false); }
   }, [activeConversation, streaming, update, requestWorkspaceWriteApproval, browserBackend]);
 
-  return { conversations, activeConversation, streaming, searching, error, checkpoints, pendingWorkspaceWrite, unsavedChanges, browserBackend, setBrowserBackendEnabled, resolveWorkspaceWrite, create, select, clearSelection, rename, remove, createCheckpoint, branchFromMessage, restoreCheckpoint, exportActive, send };
+  return { conversations, activeConversation, streaming, searching, error, checkpoints, pendingWorkspaceWrite, unsavedChanges, browserBackend, setBrowserBackendEnabled, resolveWorkspaceWrite, create, select, clearSelection, rename, remove, createCheckpoint, branchFromMessage, restoreCheckpoint, previewFileRewind, applyFileRewind, exportActive, send };
 }

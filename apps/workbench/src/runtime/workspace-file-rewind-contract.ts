@@ -132,6 +132,17 @@ export interface FileRewindOperation {
   readonly nextSha256: string | null;
   /** 涉及这条路径的工具名（同一路径可能被多次写入），已排序。 */
   readonly toolNames: readonly string[];
+  /**
+   * 规划时磁盘上的内容（`null` = 不存在）。
+   *
+   * 只给**审批界面**用：用户要在确认框里看到"这次会丢掉什么"。没有它就只能把
+   * 原文当空串展示，而"改动前是空的"与"其实有内容"在界面上长得一样 ——
+   * 那会让确认框变成走过场。
+   *
+   * 规划时已经读过一次，这里顺手带上，不在审批前再读一遍：再读会引入
+   * "规划看到的"与"审批看到的"不一致的窗口。
+   */
+  readonly currentContent: string | null;
 }
 
 /** 一个可安全回退的文件（聚合了该路径上的全部操作）。 */

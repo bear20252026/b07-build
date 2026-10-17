@@ -7,6 +7,7 @@ import {
   createTauriWorkspaceFileStateReader,
   createWebCryptoContentHasher,
   planToPatchOperations,
+  applyFileRewindPlan,
   previewWorkspaceFileRewind,
 } from '../src/runtime/workspace-file-rewind-client.js';
 import {
@@ -298,4 +299,105 @@ test('够不到检查点位置时阻断而不是少退', async () => {
   assert.equal(plan.canApply, false);
   assert.equal(plan.unsafeFiles[0]?.reason, FILE_REWIND_JOURNAL_INCOMPLETE_CODE);
   assert.deepEqual(plan.operations, []);
+});
+
+// ---------------------------------------------------------------------------
+// 落盘：必须走与普通补丁**同一条**审批 + stage + commit 路径。
+//
+// 回退是破坏性动作，另起一套的后果不是"多写代码"，而是审批语义分叉 ——
+// 某天两边在"拒绝时是否整批放弃""留痕是否只记真正落盘的"上走偏，
+// 就留下一条绕过确认的写入路径，而两条路各自的测试都还是绿的。
+// ---------------------------------------------------------------------------
+
+const rewindInvokeCalls: { readonly cmd: string; readonly args: Record<string, unknown> }[] = [];
+(globalThis as unknown as { window: unknown }).window = {
+  __TAURI_INTERNALS__: {
+    invoke: async (cmd: string, args: Record<string, unknown>) => {
+      rewindInvokeCalls.push({ cmd, args });
+      if (cmd === 'workspace_stage_patch_batch') return 'token-1';
+      if (cmd === 'workspace_commit_patch') {
+        const staged = (rewindInvokeCalls.filter((call) => call.cmd === 'workspace_stage_patch_batch').at(-1)?.args.request as { operations: { kind: string; path: string }[] }).operations;
+        return {
+          applied: staged.map((operation) => ({ kind: operation.kind, path: operation.path, byteSize: 3 })),
+          rolledBack: [],
+          rollbackErrors: [],
+        };
+      }
+      throw `unexpected-command:${cmd}`;
+    },
+  },
+};
+
+/** 造一份"可回退"的计划：a.md 从 v2 回到 v1。 */
+async function applicablePlan() {
+  return previewWorkspaceFileRewind({
+    storage: threeChanges(),
+    conversationId: 'conv',
+    reader: readerFrom({ 'a.md': 'v2', 'b.md': 'b1' }),
+    hasher: fakeHasher,
+    fromSequence: 2,
+  });
+}
+
+test('无事可做时不调用原生也不打扰用户', async () => {
+  rewindInvokeCalls.length = 0;
+  const plan = await previewWorkspaceFileRewind({
+    storage: threeChanges(), conversationId: 'conv', reader: readerFrom({ 'a.md': 'v2', 'b.md': 'b1' }), hasher: fakeHasher, fromSequence: 9,
+  });
+  const message = await applyFileRewindPlan({ plan, approve: async () => true });
+  assert.match(message, /无需改动/);
+  assert.deepEqual(rewindInvokeCalls, [], '无事可做时不该碰原生');
+});
+
+test('计划被阻断时整次放弃且不调用原生', async () => {
+  rewindInvokeCalls.length = 0;
+  const blocked = await previewWorkspaceFileRewind({
+    storage: threeChanges(), conversationId: 'conv',
+    // 磁盘与记录对不上 = 外部改动 → 阻断。
+    reader: readerFrom({ 'a.md': '被外部改过', 'b.md': 'b1' }),
+    hasher: fakeHasher, fromSequence: 2,
+  });
+  assert.equal(blocked.canApply, false);
+  const message = await applyFileRewindPlan({ plan: blocked, approve: async () => true });
+  assert.match(message, /整次阻断/);
+  assert.deepEqual(rewindInvokeCalls, [], '阻断时不该碰原生');
+});
+
+test('可回退时逐文件审批后 stage+commit', async () => {
+  rewindInvokeCalls.length = 0;
+  const approvals: string[] = [];
+  const message = await applyFileRewindPlan({
+    plan: await applicablePlan(),
+    approve: async (request) => { approvals.push(request.path); return true; },
+  });
+  assert.match(message, /已回退 2 个文件操作/);
+  // 每个文件都问过一次。
+  assert.deepEqual(approvals.sort(), ['a.md', 'b.md']);
+  assert.deepEqual(rewindInvokeCalls.map((call) => call.cmd), ['workspace_stage_patch_batch', 'workspace_commit_patch']);
+});
+
+test('审批被拒时绝不 stage', async () => {
+  rewindInvokeCalls.length = 0;
+  const message = await applyFileRewindPlan({
+    plan: await applicablePlan(),
+    // 第一个文件就拒绝。
+    approve: async () => false,
+  });
+  assert.match(message, /用户拒绝对/);
+  assert.match(message, /整批补丁不会写入/);
+  assert.deepEqual(rewindInvokeCalls, [], '拒绝后不得触碰原生写入');
+});
+
+test('审批请求带上会丢掉的内容而不是空串', async () => {
+  // 确认框要让用户看到"这次会丢掉什么"。previous 为空串时，界面会把
+  // "改动前是空的"与"其实有内容"显示成一样 —— 确认框就成了走过场。
+  rewindInvokeCalls.length = 0;
+  const seen: { path: string; previous: string; next: string }[] = [];
+  await applyFileRewindPlan({
+    plan: await applicablePlan(),
+    approve: async (request) => { seen.push({ path: request.path, previous: request.previous, next: request.next }); return true; },
+  });
+  const a = seen.find((item) => item.path === 'a.md');
+  assert.equal(a?.previous, 'v2', '应展示磁盘上将被覆盖的内容');
+  assert.equal(a?.next, 'v1', '应展示要写回的内容');
 });

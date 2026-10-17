@@ -245,6 +245,7 @@ export async function buildWorkspaceFileRewindPlan(input: FileRewindPlanInput): 
       nextContent: target.content,
       nextSha256: target.exists ? target.sha256 : null,
       toolNames: [...safe.toolNames].sort(),
+      currentContent: initial.exists ? initial.content : null,
     });
   }
 

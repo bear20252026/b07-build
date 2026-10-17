@@ -28,6 +28,9 @@ import {
   type FileRewindUnsafeFile,
   recordsAfterSequence,
 } from './workspace-file-rewind-contract.js';
+import { applyPreparedPatchBatch } from './workspace-tools.js';
+import type { WorkspaceWriteApprover } from './workspace-tools.js';
+import type { WorkspaceFileChangeRecorder } from './workspace-file-journal.js';
 import { buildWorkspaceFileRewindPlan } from './workspace-file-rewind.js';
 import {
   readWorkspaceFileJournal,
@@ -175,4 +178,51 @@ export function createWebCryptoContentHasher(): ContentHasher {
       return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
     },
   };
+}
+
+/**
+ * 落盘一次文件回退。
+ *
+ * 走的是与普通补丁**完全相同**的路径（`applyPreparedPatchBatch`：逐文件确认 →
+ * stage → commit → 为真正落盘的留痕）。回退是破坏性动作，绝不能有"不用确认"的旁路。
+ *
+ * 返回可直接展示给用户的一句话；调用方不要自己拼。
+ */
+export async function applyFileRewindPlan(input: {
+  readonly plan: FileRewindPlan;
+  readonly approve: WorkspaceWriteApprover;
+  readonly recordFileChange?: WorkspaceFileChangeRecorder;
+}): Promise<string> {
+  if (input.plan.nothingToDo) return '工作区已经处于该检查点的状态，无需改动。';
+  if (!input.plan.canApply) {
+    // 计划被阻断时不要"尽力而为"地退一部分：只退一半会让工作区停在一个
+    // 从未存在过的中间状态。把原因原样转告。
+    const reasons = input.plan.unsafeFiles.map((file) => `${file.path}：${file.message ?? file.reason}`);
+    return ['无法回退（整次阻断，未改动任何文件）：', ...reasons.map((line) => `- ${line}`)].join('\n');
+  }
+  const prepared = input.plan.operations.map((operation) => ({
+    operation: toPatchOperation(operation),
+    displayPath: operation.path,
+    // 审批界面要看到"会丢掉什么"，故 previous 用规划时读到的当前内容。
+    previous: operation.currentContent ?? '',
+    next: operation.nextContent ?? '',
+    // 回退的期望值来自记录，不做宽松匹配：对不上就是外部改动，已在规划阶段阻断。
+    lenient: false,
+  }));
+  const outcome = await applyPreparedPatchBatch({
+    prepared,
+    approve: input.approve,
+    recordFileChange: input.recordFileChange,
+    toolName: 'workspace_rewind_files',
+  });
+  if (!outcome.ok) return outcome.message;
+  const applied = outcome.result.applied;
+  const lines = [`已回退 ${applied.length} 个文件操作：`];
+  for (const item of applied) {
+    const verb = item.kind === 'delete' ? '删除' : '还原';
+    lines.push(`- ${verb} ${item.path}`);
+  }
+  if (outcome.result.rolledBack.length) lines.push(`- 提交过程中失败的操作已回滚：${outcome.result.rolledBack.join('、')}`);
+  if (outcome.result.rollbackErrors.length) lines.push(`- ⚠ 以下文件回滚失败，需要人工检查：${outcome.result.rollbackErrors.join('、')}`);
+  return lines.join('\n');
 }

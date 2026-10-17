@@ -307,6 +307,111 @@ function patchNativeErrorText(error: unknown): string {
  * 只有 commit 阶段的磁盘错误才可能造成部分应用，原生侧会回滚已应用部分
  * 并如实返回 rolledBack / rollbackErrors，这里原样转告。
  */
+/** 一个已备好的原生操作 + 审批与留痕需要的两侧内容。 */
+export interface PreparedPatchOperation {
+  readonly operation: WorkspacePatchOperation;
+  /** 审批界面上显示的名字（move 时是 `源 → 目标`）。 */
+  readonly displayPath: string;
+  /** 改动前的内容；新建时为空串。 */
+  readonly previous: string;
+  /** 改动后的内容；删除时为空串。 */
+  readonly next: string;
+  readonly lenient: boolean;
+}
+
+/** 应用结果：成功时带回原生提交结果与"宽松命中"的路径；失败时带回可直接回给模型的话。 */
+export type PreparedPatchOutcome =
+  | { readonly ok: true; readonly result: WorkspacePatchCommitResult; readonly lenientPaths: readonly string[] }
+  | { readonly ok: false; readonly message: string };
+
+/**
+ * 审批 → stage → commit → 为**真正落盘**的操作留痕。
+ *
+ * ## 为什么必须抽出来共用
+ *
+ * 回退（`workspace-file-rewind`）和普通补丁（`workspace_patch_file`）都是**破坏性写入**，
+ * 必须走同一条路：逐文件人工确认 → 一张整批票据绑定全部摘要 → commit 原子消耗并复核磁盘前提。
+ *
+ * 另起一套的后果不是"多写点代码"，而是**审批语义分叉**：某一天两边在
+ * "拒绝时是否整批放弃""留痕是否只记真正落盘的"上走偏，就会留下一条绕过确认的写入路径。
+ * 这类分叉很难被测出来 —— 两条路各自都有自己的测试，且都通过。
+ *
+ * ## 两个不能改的纪律
+ *
+ * - **审批在前、写入在后**：中途拒绝时什么都没写，包括此前已确认的文件。
+ * - **只为 `result.applied` 留痕**：被回滚的操作没有改变磁盘，给它留痕会让回退
+ *   去"还原"一个从未存在过的状态。
+ */
+export async function applyPreparedPatchBatch(input: {
+  readonly prepared: readonly PreparedPatchOperation[];
+  /** 必需。调用方负责在拿不到审批入口时**先**拒绝，不要走到这里。 */
+  readonly approve: WorkspaceWriteApprover;
+  readonly recordFileChange?: WorkspaceFileChangeRecorder;
+  /** 留痕时记下的工具名（回退记自己的名字，而不是伪装成普通补丁）。 */
+  readonly toolName: string;
+}): Promise<PreparedPatchOutcome> {
+  const lenientPaths: string[] = [];
+  for (const item of input.prepared) {
+    if (item.lenient) lenientPaths.push(item.displayPath);
+    // 审批请求带真实操作类型：文案与实际授权的操作必须一致（R1 审计 03）。
+    const approved = await input.approve({
+      path: item.displayPath,
+      previous: item.previous,
+      next: item.next,
+      kind: item.operation.kind === 'update' ? (item.operation.movePath ? 'move' : 'update') : item.operation.kind,
+      ...(item.operation.movePath ? { movePath: item.operation.movePath } : {}),
+    });
+    if (!approved) {
+      return {
+        ok: false,
+        message: [
+          `用户拒绝对 ${item.displayPath} 的修改；整批补丁不会写入（审批在前、写入在后），包括之前已确认的文件。`,
+          '请如实转告用户，并且不要再换别的方式尝试写入被拒绝的文件。',
+        ].join('\n'),
+      };
+    }
+  }
+
+  // 全部批准后才到原生层：一张整批票据绑定全部操作的摘要，commit 原子消耗并复核磁盘前提。
+  let result: WorkspacePatchCommitResult;
+  try {
+    const token = await invoke<string>('workspace_stage_patch_batch', { request: { operations: input.prepared.map((item) => item.operation) } });
+    result = await invoke<WorkspacePatchCommitResult>('workspace_commit_patch', { token });
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      message: [
+        `补丁落盘失败：${patchNativeErrorText(error)}`,
+        '尚未写入任何内容（写入前的原生复核失败），或失败部分已被原生回滚。请重新读取相关文件、重新生成补丁后再试。',
+      ].join('\n'),
+    };
+  }
+
+  const preparedByPath = new Map(input.prepared.map((item) => [item.operation.path, item]));
+  for (const item of result.applied) {
+    const entry = preparedByPath.get(item.path);
+    if (!entry) continue;
+    if (item.kind === 'delete') {
+      input.recordFileChange?.({ path: item.path, toolName: input.toolName, beforeContent: entry.previous, afterContent: null });
+      continue;
+    }
+    if (item.kind === 'add') {
+      input.recordFileChange?.({ path: item.path, toolName: input.toolName, beforeContent: null, afterContent: entry.next });
+      continue;
+    }
+    if (entry.operation.movePath) {
+      // 移动 = 源路径的旧内容消失 + 目标路径出现新内容，故拆成两条记录。
+      // 只记源路径会让回退把文件还原到源路径，而目标路径上那份副本留在原地。
+      input.recordFileChange?.({ path: item.path, toolName: input.toolName, beforeContent: entry.previous, afterContent: null });
+      input.recordFileChange?.({ path: entry.operation.movePath, toolName: input.toolName, beforeContent: null, afterContent: entry.next });
+      continue;
+    }
+    input.recordFileChange?.({ path: item.path, toolName: input.toolName, beforeContent: entry.previous, afterContent: entry.next });
+  }
+
+  return { ok: true, result, lenientPaths };
+}
+
 async function patchFile(
   args: Record<string, unknown>,
   approve: WorkspaceWriteApprover | undefined,
@@ -355,8 +460,7 @@ async function patchFile(
     return ['补丁被整体拒绝（整批校验不通过，未做任何修改）：', ...rejectionLines, '请移除或修正这些段落后重新提交完整补丁。'].join('\n');
   }
 
-  interface PreparedOperation { readonly operation: WorkspacePatchOperation; readonly displayPath: string; readonly previous: string; readonly next: string; readonly lenient: boolean }
-  const prepared: PreparedOperation[] = [];
+  const prepared: PreparedPatchOperation[] = [];
   for (const operation of plan.operations) {
     if (operation.kind === 'add') {
       prepared.push({ operation: { kind: 'add', path: operation.path, nextContent: operation.contents, nextSha256: await sha256Hex(operation.contents) }, displayPath: operation.path, previous: '', next: operation.contents, lenient: false });
@@ -403,54 +507,10 @@ async function patchFile(
     return ['补丁没有任何可执行的更新（所有段都与现状一致）。', ...rejectionLines].join('\n');
   }
 
-  const lenientPaths: string[] = [];
-  for (const item of prepared) {
-    if (item.lenient) lenientPaths.push(item.displayPath);
-    // 审批请求带真实操作类型：文案与实际授权的操作必须一致（R1 审计 03）。
-    if (!await approve({ path: item.displayPath, previous: item.previous, next: item.next, kind: item.operation.kind === 'update' ? (item.operation.movePath ? 'move' : 'update') : item.operation.kind, ...(item.operation.movePath ? { movePath: item.operation.movePath } : {}) })) {
-      return [
-        `用户拒绝对 ${item.displayPath} 的修改；整批补丁不会写入（审批在前、写入在后），包括之前已确认的文件。`,
-        '请如实转告用户，并且不要再换别的方式尝试写入被拒绝的文件。',
-      ].join('\n');
-    }
-  }
-
-  // 全部批准后才到原生层：一张整批票据绑定全部操作的摘要，commit 原子消耗并复核磁盘前提。
-  let result: WorkspacePatchCommitResult;
-  try {
-    const token = await invoke<string>('workspace_stage_patch_batch', { request: { operations: prepared.map((item) => item.operation) } });
-    result = await invoke<WorkspacePatchCommitResult>('workspace_commit_patch', { token });
-  } catch (error: unknown) {
-    return [
-      `补丁落盘失败：${patchNativeErrorText(error)}`,
-      '尚未写入任何内容（写入前的原生复核失败），或失败部分已被原生回滚。请重新读取相关文件、重新生成补丁后再试。',
-    ].join('\n');
-  }
-
-  // 只为**真正落盘**的操作留痕（`result.applied`）：被回滚的操作没有改变磁盘，
-  // 给它们留痕会让回退去"还原"一个从未存在过的状态。
-  const preparedByPath = new Map(prepared.map((item) => [item.operation.path, item]));
-  const toolName = 'workspace_patch_file';
-  for (const item of result.applied) {
-    const entry = preparedByPath.get(item.path);
-    if (!entry) continue;
-    if (item.kind === 'delete') {
-      recordFileChange?.({ path: item.path, toolName, beforeContent: entry.previous, afterContent: null });
-      continue;
-    }
-    if (item.kind === 'add') {
-      recordFileChange?.({ path: item.path, toolName, beforeContent: null, afterContent: entry.next });
-      continue;
-    }
-    if (entry.operation.movePath) {
-      // 移动 = 源路径的旧内容消失 + 目标路径出现新内容，故拆成两条记录。
-      // 只记源路径会让回退把文件还原到源路径，而目标路径上那份副本留在原地。
-      recordFileChange?.({ path: item.path, toolName, beforeContent: entry.previous, afterContent: null });
-      recordFileChange?.({ path: entry.operation.movePath, toolName, beforeContent: null, afterContent: entry.next });
-      continue;
-    }
-    recordFileChange?.({ path: item.path, toolName, beforeContent: entry.previous, afterContent: entry.next });
-  }
+  // 审批 + 落盘 + 留痕：与文件回退共用同一条路径（见 applyPreparedPatchBatch 的注释）。
+  const outcome = await applyPreparedPatchBatch({ prepared, approve, recordFileChange, toolName: 'workspace_patch_file' });
+  if (!outcome.ok) return outcome.message;
+  const { result, lenientPaths } = outcome;
 
   const lines: string[] = [];
   lines.push(`已应用 ${result.applied.length} 个文件操作：`);  for (const item of result.applied) {
