@@ -50,3 +50,12 @@ export {
 } from './journal.js';
 
 export { describeEffects, prepareWorkflowRun, type PreparedWorkflowRun } from './prepare.js';
+
+export {
+  WORKFLOW_CLI_DIAGNOSTICS,
+  WORKFLOW_CLI_OK,
+  WORKFLOW_CLI_USAGE,
+  runWorkflowScriptCli,
+  type WorkflowScriptCliDependencies,
+  type WorkflowScriptCliIo,
+} from './cli.js';
