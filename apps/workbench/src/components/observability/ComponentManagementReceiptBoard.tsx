@@ -1,5 +1,5 @@
 import type { Translation } from '../../i18n/catalog';
-import type { WorkbenchComponentManagementReport } from '../../runtime/task-client';
+import type { WorkbenchComponentManagementReport } from '../../runtime/task-types';
 
 interface ComponentManagementReceiptBoardProps {
   report?: WorkbenchComponentManagementReport;

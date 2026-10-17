@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { WorkbenchTaskFile, WorkbenchTaskFilePreview } from '../../runtime/task-client';
+import type { WorkbenchTaskFile, WorkbenchTaskFilePreview } from '../../runtime/task-types';
 import type { AssistantArtifactEntry } from '../../runtime/assistant-artifact-ledger';
 import { projectArtifactRailEntries, projectArtifactRailTree, type ArtifactRailEntry, type ArtifactRailTreeNode } from './artifact-extension-projection';
 

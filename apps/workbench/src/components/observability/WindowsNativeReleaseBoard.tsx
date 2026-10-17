@@ -1,5 +1,5 @@
 import type { Translation } from '../../i18n/catalog';
-import type { WorkbenchWindowsNativeReleaseReport } from '../../runtime/task-client';
+import type { WorkbenchWindowsNativeReleaseReport } from '../../runtime/task-types';
 
 interface WindowsNativeReleaseBoardProps {
   report?: WorkbenchWindowsNativeReleaseReport;

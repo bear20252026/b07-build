@@ -17,7 +17,6 @@ import { useZcodeSession } from './runtime/zcode/use-zcode-session';
 import { useLocale } from './i18n/LocaleProvider';
 import type { Translation } from './i18n/catalog';
 import {
-  HttpWorkbenchTaskClient,
   type WorkbenchAuthorityMode,
   type WorkbenchComponentLockReport,
   type WorkbenchComponentManagementReport,
@@ -26,7 +25,7 @@ import {
   type WorkbenchNativeHostAuthenticationReport,
   type WorkbenchWindowsNativeReleaseReport,
   type WorkbenchSecurityPostureReport,
-} from './runtime/task-client';
+} from './runtime/task-types';
 import { createProjectClient } from './runtime/project-client';
 import { useProjectWorkspace } from './runtime/use-project-workspace';
 import { useProviderControlPlane } from './runtime/use-provider-control-plane';
@@ -44,12 +43,11 @@ import { assistantArtifactFileName, loadAssistantArtifacts, persistAssistantArti
 import type { DirectConversationMessage } from './runtime/use-direct-conversations';
 import { nativePlatformClient, type NativeRuntimePlatform } from './runtime/native-platform';
 
-const localTaskClient = new HttpWorkbenchTaskClient();
 const localProjectClient = createProjectClient();
 const ControlPlaneDiagnosticsBoard = lazy(async () => ({ default: (await import('./components/observability/ControlPlaneDiagnosticsBoard')).ControlPlaneDiagnosticsBoard }));
 const ComponentLockBoard = lazy(async () => ({ default: (await import('./components/observability/ComponentLockBoard')).ComponentLockBoard }));
 const ComponentManagementReceiptBoard = lazy(async () => ({ default: (await import('./components/observability/ComponentManagementReceiptBoard')).ComponentManagementReceiptBoard }));
-const ExtensionCenter = lazy(async () => ({ default: (await import('./components/observability/ExtensionCenter')).ExtensionCenter }));
+const InstalledPluginCatalogCard = lazy(async () => ({ default: (await import('./components/observability/InstalledPluginCatalogCard')).InstalledPluginCatalogCard }));
 const LocalModelHealthBoard = lazy(async () => ({ default: (await import('./components/observability/LocalModelHealthBoard')).LocalModelHealthBoard }));
 const ApiUsageAuditPage = lazy(async () => ({ default: (await import('./components/observability/ApiUsageBoards')).ApiUsageAuditPage }));
 const ApiUsageSummaryCard = lazy(async () => ({ default: (await import('./components/observability/ApiUsageBoards')).ApiUsageSummaryCard }));
@@ -109,20 +107,20 @@ export function App() {
   const [activePage, setActivePage] = useState<WorkbenchPage>('workspace');
   const [nativeRuntimePlatform, setNativeRuntimePlatform] = useState<NativeRuntimePlatform>('web');
   const [localServiceReady] = useState(false);
-  const [localModels, setLocalModels] = useState<readonly WorkbenchLocalModelHealth[]>();
-  const [localModelError, setLocalModelError] = useState<string>();
-  const [controlPlaneDiagnostics, setControlPlaneDiagnostics] = useState<WorkbenchControlPlaneDiagnostics>();
-  const [controlPlaneDiagnosticError, setControlPlaneDiagnosticError] = useState<string>();
-  const [securityPostureAudit, setSecurityPostureAudit] = useState<WorkbenchSecurityPostureReport>();
-  const [securityPostureAuditError, setSecurityPostureAuditError] = useState<string>();
-  const [componentLockReport, setComponentLockReport] = useState<WorkbenchComponentLockReport>();
-  const [componentLockReportError, setComponentLockReportError] = useState<string>();
-  const [componentManagementReport, setComponentManagementReport] = useState<WorkbenchComponentManagementReport>();
-  const [componentManagementReportError, setComponentManagementReportError] = useState<string>();
-  const [nativeHostAuthenticationReport, setNativeHostAuthenticationReport] = useState<WorkbenchNativeHostAuthenticationReport>();
-  const [nativeHostAuthenticationReportError, setNativeHostAuthenticationReportError] = useState<string>();
-  const [windowsNativeReleaseReport, setWindowsNativeReleaseReport] = useState<WorkbenchWindowsNativeReleaseReport>();
-  const [windowsNativeReleaseReportError, setWindowsNativeReleaseReportError] = useState<string>();
+  const [localModels] = useState<readonly WorkbenchLocalModelHealth[]>();
+  const [localModelError] = useState<string>();
+  const [controlPlaneDiagnostics] = useState<WorkbenchControlPlaneDiagnostics>();
+  const [controlPlaneDiagnosticError] = useState<string>();
+  const [securityPostureAudit] = useState<WorkbenchSecurityPostureReport>();
+  const [securityPostureAuditError] = useState<string>();
+  const [componentLockReport] = useState<WorkbenchComponentLockReport>();
+  const [componentLockReportError] = useState<string>();
+  const [componentManagementReport] = useState<WorkbenchComponentManagementReport>();
+  const [componentManagementReportError] = useState<string>();
+  const [nativeHostAuthenticationReport] = useState<WorkbenchNativeHostAuthenticationReport>();
+  const [nativeHostAuthenticationReportError] = useState<string>();
+  const [windowsNativeReleaseReport] = useState<WorkbenchWindowsNativeReleaseReport>();
+  const [windowsNativeReleaseReportError] = useState<string>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [draft, setDraft] = useState('');
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
@@ -225,26 +223,7 @@ export function App() {
   const isSettings = workbenchSurface === 'settings';
   const commandCatalog = createWorkbenchCommandCatalog({ hasActiveTask: false });
 
-  useEffect(() => {
-    if (!localServiceReady || activePage !== 'capabilities') return;
-    let disposed = false;
-    void localTaskClient.localModelHealth().then((models) => { if (!disposed) setLocalModels(models); }).catch((error: unknown) => { if (!disposed) setLocalModelError(localServiceErrorText(error)); });
-    void localTaskClient.controlPlaneDiagnostics().then((report) => { if (!disposed) setControlPlaneDiagnostics(report); }).catch((error: unknown) => { if (!disposed) setControlPlaneDiagnosticError(localServiceErrorText(error)); });
-    return () => { disposed = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localServiceReady, activePage]);
 
-  useEffect(() => {
-    if (!localServiceReady || activePage !== 'security') return;
-    let disposed = false;
-    void localTaskClient.securityPostureAudit().then((report) => { if (!disposed) setSecurityPostureAudit(report); }).catch((error: unknown) => { if (!disposed) setSecurityPostureAuditError(localServiceErrorText(error)); });
-    void localTaskClient.componentLockReport().then((report) => { if (!disposed) setComponentLockReport(report); }).catch((error: unknown) => { if (!disposed) setComponentLockReportError(localServiceErrorText(error)); });
-    void localTaskClient.componentManagementReport().then((report) => { if (!disposed) setComponentManagementReport(report); }).catch((error: unknown) => { if (!disposed) setComponentManagementReportError(localServiceErrorText(error)); });
-    void localTaskClient.nativeHostAuthenticationReport().then((report) => { if (!disposed) setNativeHostAuthenticationReport(report); }).catch((error: unknown) => { if (!disposed) setNativeHostAuthenticationReportError(localServiceErrorText(error)); });
-    void localTaskClient.windowsNativeReleaseReport().then((report) => { if (!disposed) setWindowsNativeReleaseReport(report); }).catch((error: unknown) => { if (!disposed) setWindowsNativeReleaseReportError(localServiceErrorText(error)); });
-    return () => { disposed = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localServiceReady, activePage]);
 
   useEffect(() => {
     if (activePage !== 'connections') return;
@@ -350,7 +329,7 @@ export function App() {
     {activePage === 'terminal-coding' && <TerminalCodingPage workspace={workspaceFilePreferences} />}
     {activePage === 'operations' && <section className="page-stack"><div className="page-heading"><span>RUN RECORDS</span><h1>运行记录</h1><p>检查点、产出账本与只读轨迹；它们可解释运行，但不能重放副作用。</p></div><ApiUsageSummaryCard localServiceReady={localServiceReady} onOpen={() => setActivePage('api-usage')} /><RunWorkspaceBoard runs={directConversations.runs} onOpen={(conversationId) => { directConversations.select(conversationId); setActivePage('workspace'); }} /></section>}
     {activePage === 'api-usage' && <ApiUsageAuditPage localServiceReady={localServiceReady} onBack={() => setActivePage('operations')} />}
-    {activePage === 'capabilities' && <section className="page-stack"><div className="page-heading"><span>EXTENSIONS & CAPABILITIES</span><h1>扩展与能力</h1><p>按需读取扩展、本地模型与控制面摘要；此页不会启动模型、修改 Provider 或读取密钥。</p></div><CompanionSummaryCard preferences={companionPreferences} onOpen={() => setActivePage('companion')} /><CompanionStudioSummary preferences={companionStudioPreferences} onOpen={(section) => setActivePage(`companion-${section}` as WorkbenchPage)} /><BrowserSessionSummaryCard backend={directConversations.browserBackend} onOpen={() => setActivePage('browser-sessions')} /><section className="browser-session-summary-card" aria-label="MCP 应用挂载摘要"><div className="browser-session-summary-header"><div><span className="panel-eyebrow">MCP APPS HOST</span><h2>MCP 应用挂载</h2><p>挂载已准入的交互式 MCP 应用：官方 ext-apps 桥 + 沙箱 iframe + 工具授权网关（风险分级、人工裁决、并发与超时、审计轨迹）。真实 MCP 连接接入前，工具调用将以 unavailable 明确失败。</p></div><button title="进入 MCP 应用挂载页，填写服务器与 manifest 后把应用渲染进沙箱宿主。" onClick={() => setActivePage('mcp-apps')} type="button">挂载 MCP 应用 →</button></div></section><section className="agency-role-entry"><div><span className="panel-eyebrow">LICENSED ROLE CATALOG</span><h2>预置专业角色</h2><p>浏览带 MIT 归因的专业角色，并仅在你明确操作后将某个角色添加为待审查的 Skill Pack 候选。</p></div><button title="进入三级角色目录，查看来源、版权、角色原文和候选添加动作。" onClick={() => setActivePage('agency-roles')} type="button">浏览角色目录 →</button></section><KnowledgeImportPanel localServiceReady={localServiceReady} /><ExtensionCenter /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /></section>}
+    {activePage === 'capabilities' && <section className="page-stack"><div className="page-heading"><span>EXTENSIONS & CAPABILITIES</span><h1>扩展与能力</h1><p>按需读取扩展、本地模型与控制面摘要；此页不会启动模型、修改 Provider 或读取密钥。</p></div><CompanionSummaryCard preferences={companionPreferences} onOpen={() => setActivePage('companion')} /><CompanionStudioSummary preferences={companionStudioPreferences} onOpen={(section) => setActivePage(`companion-${section}` as WorkbenchPage)} /><BrowserSessionSummaryCard backend={directConversations.browserBackend} onOpen={() => setActivePage('browser-sessions')} /><section className="browser-session-summary-card" aria-label="MCP 应用挂载摘要"><div className="browser-session-summary-header"><div><span className="panel-eyebrow">MCP APPS HOST</span><h2>MCP 应用挂载</h2><p>挂载已准入的交互式 MCP 应用：官方 ext-apps 桥 + 沙箱 iframe + 工具授权网关（风险分级、人工裁决、并发与超时、审计轨迹）。真实 MCP 连接接入前，工具调用将以 unavailable 明确失败。</p></div><button title="进入 MCP 应用挂载页，填写服务器与 manifest 后把应用渲染进沙箱宿主。" onClick={() => setActivePage('mcp-apps')} type="button">挂载 MCP 应用 →</button></div></section><section className="agency-role-entry"><div><span className="panel-eyebrow">LICENSED ROLE CATALOG</span><h2>预置专业角色</h2><p>浏览带 MIT 归因的专业角色，并仅在你明确操作后将某个角色添加为待审查的 Skill Pack 候选。</p></div><button title="进入三级角色目录，查看来源、版权、角色原文和候选添加动作。" onClick={() => setActivePage('agency-roles')} type="button">浏览角色目录 →</button></section><KnowledgeImportPanel localServiceReady={localServiceReady} /><InstalledPluginCatalogCard /><LocalModelHealthBoard error={localModelError} messages={messages} models={localModels} /><ControlPlaneDiagnosticsBoard error={controlPlaneDiagnosticError} messages={messages} report={controlPlaneDiagnostics} /></section>}
     {activePage === 'agency-roles' && <AgencyRoleCatalogPage onBack={() => setActivePage('capabilities')} />}
     {activePage === 'browser-sessions' && <BrowserSessionControlPage onBack={() => setActivePage('capabilities')} backend={directConversations.browserBackend} onToggleBackend={directConversations.setBrowserBackendEnabled} />}
     {activePage === 'mcp-apps' && <section className="page-stack"><div className="page-heading"><span>MCP APPS</span><h1>MCP 应用挂载</h1><p>把已准入的交互式应用渲染进沙箱宿主；工具调用经宿主侧授权网关（风险分级 + 人工裁决 + 并发/超时 + 审计）。真实 MCP 连接接入前，工具调用将以 unavailable 明确失败。</p></div><McpAppPanel /></section>}
