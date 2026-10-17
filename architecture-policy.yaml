@@ -105,6 +105,18 @@ modules:
       - packages/workflow-script/src/index.ts
     owner: runtime
 
+  # 插件 @ 引用：严格解析 / 会话内冻结目录 / 只含标识符的能力提示。
+  # requires 为空是刻意的 —— 纯包：不读插件存储、不查 MCP 连接、不做 IO。
+  # 目录入参刻意用**结构化类型**而不是 import agent-runtime 的 InstalledPluginRecord，
+  # 适配由调用方做；代价是这里没有那条依赖边，收益是本包能被完整单测。
+  - id: plugin-reference
+    roots: [packages/plugin-reference/src]
+    managed: true
+    requires: []
+    publicEntrypoints:
+      - packages/plugin-reference/src/index.ts
+    owner: runtime
+
   # 桌面宿主是 Rust/Tauri 控制面，没有 TS 源码面；登记以便依赖图完整。
   - id: desktop-shell
     roots: [apps/desktop-shell/src-tauri]
