@@ -27,7 +27,8 @@
     "android:init": "npm exec --workspace=@awo/desktop-shell -- tauri android init --ci",
     "android:build:apk": "npm exec --workspace=@awo/desktop-shell -- tauri android build --apk --target aarch64",
     "android:build:aab": "npm exec --workspace=@awo/desktop-shell -- tauri android build --aab",
-    "performance:check": "npm run build --workspace=@awo/workbench && node tools/performance-budget.mjs"
+    "performance:check": "npm run build --workspace=@awo/workbench && node tools/performance-budget.mjs",
+    "agency:catalog": "node --import tsx tools/generate-agency-role-catalog.mjs && node --import tsx tools/emit-workbench-agency-catalog.ts"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
