@@ -93,6 +93,18 @@ modules:
       - packages/agent-runtime/src/index.ts
     owner: runtime
 
+  # 动态工作流脚本：facade / 静态站点收集 / journal 重放。
+  # requires 为空是刻意的 —— 它是**纯包**：不派活、不跑命令、不落盘，也没有 b07 内部依赖。
+  # 唯一的外部依赖是 typescript（编译器 API），用于对着 facade 做类型检查。
+  # 保持纯粹才能被完整地单测：一旦它开始做 IO，"续跑不重跑"就没法用纯函数钉住了。
+  - id: workflow-script
+    roots: [packages/workflow-script/src]
+    managed: true
+    requires: []
+    publicEntrypoints:
+      - packages/workflow-script/src/index.ts
+    owner: runtime
+
   # 桌面宿主是 Rust/Tauri 控制面，没有 TS 源码面；登记以便依赖图完整。
   - id: desktop-shell
     roots: [apps/desktop-shell/src-tauri]
