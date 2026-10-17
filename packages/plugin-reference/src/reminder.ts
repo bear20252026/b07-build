@@ -187,11 +187,16 @@ export function buildPluginReferenceReminderBody(
       continue;
     }
 
+    let droppedHere = 0;
     const capabilities = resolveCapabilities(entry, input.liveMcpServers, () => {
+      droppedHere += 1;
       droppedIdentifiers += 1;
     });
     if (capabilities.mcpServers.length === 0) {
-      skipped.push({ pluginId, reason: 'no_live_capabilities' });
+      // 原因必须说准：声明过能力但**全部**因字符集非法被丢弃，与"根本没有可用能力"
+      // 是两件事。报成后者会让人去查 MCP 连接状态，而真正的问题是那些标识符
+      // 根本不允许写进上下文。
+      skipped.push({ pluginId, reason: droppedHere > 0 ? 'invalid_identifier' : 'no_live_capabilities' });
       continue;
     }
 

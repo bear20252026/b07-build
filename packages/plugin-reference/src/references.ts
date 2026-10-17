@@ -97,6 +97,16 @@ export interface ExtractPluginReferencesResult {
  *
  * 去重保序：同一个插件被引用多次只算一次，位置取**首次出现**——
  * 顺序会影响 reminder 里的预算分配，所以不能让它取决于 Map 的迭代顺序。
+ *
+ * ## 已知限制：不区分代码块
+ *
+ * 围栏代码块（```）或行内代码里的 `[x](plugin://a@b)` **同样会被算作引用**。
+ * 这是刻意不做的：正确跳过需要完整的 Markdown 块级解析，而本模块只做行级扫描。
+ *
+ * 为什么可以接受：粘贴进来的文档最多让一个**真实存在且已启用**的插件多一条能力提示，
+ * 而提示本身只是标识符、明确声明"不是指令也不是授权"。未知/冲突/禁用的插件照样跳过。
+ * 换句话说，这条限制的上限是"多提示一个已安装的插件"，不是"让模型执行什么"。
+ * 真要收紧，应当由调用方在**渲染层**（它知道哪段是代码块）先剔除，而不是在这里猜。
  */
 export function extractPluginReferences(input: string): ExtractPluginReferencesResult {
   const references: string[] = [];

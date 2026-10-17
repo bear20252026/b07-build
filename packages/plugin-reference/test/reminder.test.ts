@@ -236,3 +236,26 @@ test('没有目录时全部按unknown跳过', () => {
   assert.equal(result.body, null);
   assert.equal(result.diagnostics.skipped[0]?.reason, 'unknown');
 });
+
+test('全部标识符非法时报invalid_identifier而不是no_live_capabilities', () => {
+  // 两种原因的排查方向完全不同：前者要去看标识符为什么非法（可能被注入了控制字符），
+  // 后者要去看 MCP 连没连上。报错报错原因会把人带到错的方向。
+  const result = buildPluginReferenceReminderBody({
+    references: ['alpha@official'],
+    catalog: catalogOf(source('alpha@official', true, ['bad srv', 'also\tbad'])),
+    liveMcpServers: [live('bad srv'), live('also\tbad')],
+  });
+  assert.equal(result.body, null);
+  assert.equal(result.diagnostics.skipped[0]?.reason, 'invalid_identifier');
+  assert.equal(result.diagnostics.droppedIdentifiers, 2);
+});
+
+test('确实没有声明能力时仍报no_live_capabilities', () => {
+  const result = buildPluginReferenceReminderBody({
+    references: ['alpha@official'],
+    catalog: catalogOf(source('alpha@official', true, [])),
+    liveMcpServers: [live('alpha:srv')],
+  });
+  assert.equal(result.diagnostics.skipped[0]?.reason, 'no_live_capabilities');
+  assert.equal(result.diagnostics.droppedIdentifiers, 0);
+});

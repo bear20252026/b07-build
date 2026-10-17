@@ -120,11 +120,34 @@ function facadeOwnerOf(declaration: ts.Declaration): string | undefined {
 /**
  * 被调用的表达式是不是 facade 的成员？
  *
- * 走**类型**而不是走语法：`const w = world; w.run(...)` 这种别名也要认出来，
- * 而只看语法文本会漏掉它 —— 漏掉的后果是那条命令不进站点表，于是既不在确认清单里、
- * 也不进 journal，续跑时会**重跑**。
+ * ## 必须走**类型**，不能只看语法文本
+ *
+ * 只看名字会漏掉三种写法，而漏掉的后果完全一样：那条命令不进站点表 → 既不在确认清单里、
+ * 也不进 journal → 续跑时**重跑**一次真实副作用。
+ *
+ *     const w = world;        w.run(...)        // 接收者别名
+ *     const { run } = world;  run(...)          // 方法解构
+ *     const run = world.run;  run(...)          // 方法赋值
+ *
+ * 实测前两种写法在"按名字解析"的实现下**都收集不到站点**（第三种同理）。
+ * 所以这里解析**调用签名**：变量、解构、直接成员访问得到的都是同一个函数类型，
+ * 而那个类型的签名声明始终指向 facade 里的那一处。
  */
 function facadeMemberOf(checker: ts.TypeChecker, expression: ts.Expression): FacadeMember | undefined {
+  // ① 调用签名：覆盖别名 / 解构 / 赋值 —— 它们保留类型，只丢了名字。
+  const type = checker.getTypeAtLocation(expression);
+  for (const signature of type.getCallSignatures()) {
+    const declaration = signature.getDeclaration();
+    if (!declaration || !isFacadeDeclaration(declaration)) continue;
+    const owner = facadeOwnerOf(declaration);
+    if (!owner) continue;
+    // 成员名取**声明上的名字**，而不是调用处的文本：解构后调用处可能叫 `run2`。
+    const member =
+      declaration.name && ts.isIdentifier(declaration.name) ? declaration.name.text : undefined;
+    if (member) return { owner, member };
+  }
+
+  // ② 符号：签名拿不到时（例如某种未预料的形态）退回按名字解析，不要直接放弃。
   const nameNode = ts.isPropertyAccessExpression(expression) ? expression.name : expression;
   const symbol = checker.getSymbolAtLocation(nameNode);
   if (!symbol) return undefined;

@@ -152,3 +152,11 @@ test('同一条消息里的多个引用按出现顺序', () => {
 test('空输入没有引用', () => {
   assert.deepEqual(extractPluginReferences(''), { references: [], truncatedCount: 0, invalidCount: 0 });
 });
+
+test('代码块里的链接也算引用（已知限制，写清楚）', () => {
+  // 正确跳过需要完整的 Markdown 块级解析，本模块只做行级扫描。
+  // 可接受的理由：上限是"多提示一个已启用插件"，不是"让模型执行什么"。
+  // 这条测试把行为钉住，免得后人以为它"应该"被跳过而当成 bug 修一半。
+  const result = extractPluginReferences('```\n[x](plugin://a@b)\n```');
+  assert.deepEqual(result.references, ['a@b']);
+});

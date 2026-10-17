@@ -153,3 +153,73 @@ await Promise.all([a.ask('一'), b.ask('二')]);
 `);
   assert.deepEqual(table.sites.map((site) => site.id), ['actor#1', 'actor#2', 'ask#1', 'ask#2']);
 });
+
+// ---------------------------------------------------------------------------
+// 别名与解构：**这些写法以前会整体漏掉站点**。
+//
+// 漏掉的后果与"没写这条命令"看起来一样，但实际完全不同：命令照跑，
+// 却不在确认清单里、不进 journal（续跑会**重跑**）、也不计入额度。
+// 只在真跑一次副作用时才会发现 —— 而那时已经晚了。
+// ---------------------------------------------------------------------------
+
+test('方法解构后调用仍被识别', () => {
+  const table = sitesOf(`
+const { run } = world;
+await run('git', ['status']);
+`);
+  assert.deepEqual(table.sites.map((site) => `${site.id}:${site.label}`), ['world-run#1:git']);
+});
+
+test('方法赋值后改名调用仍被识别', () => {
+  // 成员名取**声明上的名字**，不是调用处的文本：这里调用处叫 r2，但它是 world.run。
+  const table = sitesOf(`
+const r2 = world.run;
+await r2('git', ['status']);
+`);
+  assert.deepEqual(table.sites.map((site) => site.id), ['world-run#1']);
+});
+
+test('files的方法解构后仍被识别为读工作区', () => {
+  const table = sitesOf(`
+const { read } = files;
+await read('a.md');
+`);
+  assert.deepEqual(table.sites.map((site) => `${site.id}:${site.kind}`), ['world-read#1:world-read']);
+});
+
+test('ask解构后仍被识别为派活', () => {
+  const table = sitesOf(`
+const a = agent('x');
+const { ask } = a;
+await ask('干活');
+`);
+  assert.deepEqual(table.sites.map((site) => site.kind), ['actor', 'ask']);
+});
+
+test('方括号访问也被识别', () => {
+  const table = sitesOf(`
+await world['run']('git', ['status']);
+`);
+  assert.deepEqual(table.sites.map((site) => site.id), ['world-run#1']);
+});
+
+test('脚本自己定义的函数不会被误判成效应站点', () => {
+  // 反过来漏判（把普通函数当成效应）同样有害：确认清单会充满噪音，用户就不再细看。
+  const table = sitesOf(`
+function helper(value: string) { return value; }
+helper('a');
+const world2 = { run: (cmd: string) => cmd };
+world2.run('git');
+`);
+  assert.deepEqual(table.sites, []);
+});
+
+test('解构出来的命令仍需是字面量', () => {
+  // 换一种写法不该绕过"命令必须是字面量"这条规则。
+  const table = sitesOf(`
+const { run } = world;
+await run(someCommand);
+`);
+  assert.equal(table.diagnostics.length, 1);
+  assert.equal(table.diagnostics[0]?.code, NON_LITERAL_COMMAND_CODE);
+});
