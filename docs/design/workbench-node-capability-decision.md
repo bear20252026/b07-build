@@ -34,6 +34,47 @@ b07 现在有**两个互不相通的世界**。所有"功能写好了但用不�
 **即使允许，它也没法依赖** —— 那 18k 行里有 `node:fs`、SQLite、`child_process`，
 渲染进程跑不了。策略只是把这件事显式化了。
 
+## 2.5 为什么会变成这样（历史，git 可查）
+
+这不是一开始就设计成两套。**是删掉中间那一层之后留下来的。**
+
+| 时间 | 提交 | 发生了什么 |
+| --- | --- | --- |
+| 2026-08-19 | `7fee29b` | 首个提交。同时有 `apps/workbench`（界面）与 `packages/agent-runtime`（Node 运行时），**外加 `apps/runtime-gateway`** —— 一个本地 HTTP 服务，把 agent-runtime 的能力开成 25+ 条 `/api/*` 路由 |
+| 2026-08-22 | `93f30f2` | "replace gateway with direct desktop providers"：应用改成直接调桌面 provider，不再绕 gateway |
+| **2026-08-26** | **`f2a0d18`** | **"remove gateway runtime and fixed loopback proxy"：整个 `apps/runtime-gateway` 被删，85 个文件、7,012 行** |
+| 之后 | — | `agent-runtime` 留着，但它的宿主没了；界面里那些 `/api/*` 客户端也留着，但它们的服务端没了 |
+
+### 删完之后留下的两样东西
+
+**一、`agent-runtime` 成了孤儿。** 它原本是被 gateway 调用的库；gateway 没了，就没人调它了。
+
+**二、一批界面面板被永久禁用。** `App.tsx` 里：
+
+```ts
+const [localServiceReady] = useState(false);   // 只取值，不取 setter
+```
+
+`localServiceReady` 是**硬编码 false 且没有 setter** —— 永远不可能变成 true。
+而 `.tsx` 里引用它的地方有 **73 处**：浏览会话控制、扩展中心、预置角色目录等面板的按钮
+全部 `disabled`，请求全部被跳过。它们不是"报错"，是**永远停在"未就绪"状态**。
+
+这是一个"临时禁用"变成"永久禁用"的例子：删 gateway 时把开关关掉是合理的，
+但没有任何机制提醒"这个开关再也不会被打开"。
+
+### 对决策的影响
+
+**这直接否掉了选项 C（起 Node sidecar）。**
+
+8 月 26 日删掉 gateway 是一个**有意的决定**（提交标题写着 remove gateway runtime
+**and fixed loopback proxy** —— 后者是安全考虑：固定回环端口）。现在为了复用 agent-runtime
+再把一个本地 Node 服务加回来，等于把当时有意删掉的东西装回去，连同一个被明确移除的
+固定回环端口一起。
+
+所以真正的问题不是"要不要开个门"，而是：**那 1.8 万行还要不要；如果要，应该以什么形态进应用。**
+
+---
+
 ### 概念上的两套实现
 
 | 概念 | `agent-runtime` | `workbench/src/runtime` |
