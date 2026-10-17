@@ -11,7 +11,7 @@ import { branchConversation, checkpointConversation, conversationJson, conversat
 import { recordSessionPerformance } from './session-performance-ledger';
 import { conversationStore } from './conversation-store';
 import { historyCharBudgetFor } from './context-budget';
-import { runAgentTurn, type AgentTurnFailure } from './agent-tool-loop';
+import { runAgentTurn, type AgentToolExecution, type AgentTurnFailure } from './agent-tool-loop';
 import { executeWorkspaceTool, WORKSPACE_TOOLS, type WorkspaceWriteApprovalRequest } from './workspace-tools';
 import { createLocalStorageWorkspaceFileJournalStorage, createWorkspaceFileRecorder } from './workspace-file-journal';
 import { browserAgentTools, createBrowserToolExecutor, isBrowserToolName } from './browser-agent-tools';
@@ -630,8 +630,12 @@ export function useDirectConversations(): DirectConversations {
       const onReasoning = (chunk: string): void => { firstByteAt ??= Date.now(); reasoning += chunk; scheduleStreamRefresh(); };
       let completionModel: string | undefined;
       if (agentTurnEnabled) {
-        const browserExecutor = browserToolsEnabled ? createBrowserToolExecutor() : undefined;
-        const executeTool = (name: string, args: string): Promise<string> => {
+        // 把当前模型告诉执行器：已知不吃图片的模型会把截图降级成文本，
+        // 而不是把图发出去让上游 404 打掉整个回合。
+        const browserExecutor = browserToolsEnabled
+          ? createBrowserToolExecutor(undefined, { providerId: selection.providerId, ...(selection.model ? { model: selection.model } : {}) })
+          : undefined;
+        const executeTool = (name: string, args: string): Promise<AgentToolExecution> => {
           if (isBrowserToolName(name)) {
             // 名字是浏览器工具但本轮没启用：**如实拒绝**，绝不落到工作区工具上
             // （那会拿一个浏览器工具名去执行文件操作，语义完全错位）。

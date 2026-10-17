@@ -10,21 +10,24 @@
 // 本模块补上中间那段：把公开声明翻译成模型能看到的工具清单，把模型发起的调用
 // 路由到处理器，再把结果收敛成一段文本。
 //
-// ## 为什么结果要收敛成文本
+// ## 结果里的图片怎么走
 //
-// `runAgentTurn` 的 `execute` 契约是返回**文本**（工具结果以 `role: "tool"` 回填）。
-// 图片块（截图）因此不能原样进上下文：
-// - 直接把 base64 塞进文本会让一次截图吃掉几十万字符的窗口；
-// - 工具结果目前也没有多模态通道（`DirectProviderMessage.images` 只用于用户消息）。
+// 图片走**多模态通道**：`AgentToolResult.images` → `role: "tool"` 消息的 `images`
+// → 原生 `payload_for` 编成 `image_url` 内容块。截图因此是真的到了模型眼前，
+// 而不是只给它一句描述。
 //
-// 所以截图被折叠成一句**如实**的描述（类型与体积），并明确告知模型"图本身没有附上"。
-// 这不是把图片当文本截断——那条路会产出损坏的半个 base64；这里根本不传数据。
-// 让模型看见图片需要多模态的工具结果通道，属于后续工作（见交接说明）。
+// 唯一的例外是**已知不接受图片输入的模型**（见 `model-image-input.ts`）：
+// 那种情况下图片会被换成一句如实的文本说明（含类型与体积，并明说"图未附上"），
+// 以免整回合被上游 404 打掉。这与 ZCode 的 `unsupportedInputMediaText` 同一思路。
+//
+// 注意这里**从不**把 base64 塞进文本：那条路会产出损坏的半个 base64。
 
 import { BROWSER_TOOL_SPECS } from '@awo/capability-placeholder/browser-tools';
 import type { BrowserToolCallResult, BrowserToolHandler } from '@awo/capability-placeholder/browser-handlers';
 import { createCdpBrowserToolHandler } from './cdp-browser-tool-handler';
-import type { DirectProviderTool } from './direct-provider-client';
+import { unsupportedImageInputText } from './model-image-input';
+import type { AgentToolResult } from './agent-tool-loop';
+import type { DirectProviderImage, DirectProviderTool } from './direct-provider-client';
 
 /** 浏览器工具的 canonical 名前缀（`mcp__browser__`）。 */
 export const BROWSER_TOOL_NAME_PREFIX = 'mcp__browser__';
@@ -56,37 +59,75 @@ export function browserAgentTools(): readonly DirectProviderTool[] {
   }));
 }
 
+/** 原生允许的图片 MIME（与 `direct_provider.rs` 的校验保持一致）。 */
+const SENDABLE_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp'];
+
 /**
- * 把工具结果收敛成一段文本。
+ * 这个图片块能不能作为图片发出去。
  *
- * 文本块原样拼接；图片块折叠成描述（**不传 base64**）。未知块跳过而不是编造。
+ * 与原生校验同口径。**在这里先判一次**是有意的：原生校验失败会抛错并打掉整个回合，
+ * 而一次截图不值得让整回合失败 —— 判不过就降级成文本说明。
  */
-export function browserToolResultText(result: BrowserToolCallResult): string {
+function isSendableImage(data: string, mimeType: string): boolean {
+  return SENDABLE_IMAGE_TYPES.includes(mimeType.toLowerCase()) && /^[A-Za-z0-9+/=]+$/.test(data);
+}
+
+/** 图片降级成文本时的说明。 */
+function imageTextPlaceholder(dataLength: number, mimeType: string, reason: string): string {
+  return `[已捕获截图（${mimeType}，base64 ${dataLength} 字符）。${reason}]`;
+}
+
+/**
+ * 把工具结果转成 Agent 回合的返回值：文本 +（模型接受时的）图片。
+ *
+ * 图片走 `images` 而不是塞进文本：塞进文本会让一次截图吃掉几十万字符的窗口，
+ * 而截断它产出的是**不可解码的半个 base64**。两条路都不是"把结果交给模型"。
+ */
+export function browserToolResult(
+  result: BrowserToolCallResult,
+  imageInput: { readonly providerId: string; readonly model?: string },
+): AgentToolResult {
   const parts: string[] = [];
+  const images: DirectProviderImage[] = [];
   for (const block of result.content) {
-    if (block.type === 'text' && typeof block.text === 'string') {
-      parts.push(block.text);
+    if (block.type === 'text') {
+      if (typeof block.text === 'string') parts.push(block.text);
       continue;
     }
-    if (block.type === 'image') {
-      const bytes = typeof block.data === 'string' ? block.data.length : 0;
-      parts.push(
-        `[已捕获截图（${block.mimeType ?? 'image/png'}，base64 ${bytes} 字符）。` +
-          '图本身未附在工具结果里——当前工具结果没有多模态通道。' +
-          '需要页面内容请改用 snapshot。]',
-      );
+    if (block.type !== 'image') continue;
+    const data = typeof block.data === 'string' ? block.data : '';
+    if (!data) continue;
+    const mimeType = typeof block.mimeType === 'string' && block.mimeType ? block.mimeType : 'image/png';
+    if (!isSendableImage(data, mimeType)) {
+      parts.push(imageTextPlaceholder(data.length, mimeType, '该图片格式或内容无法作为图片发出，已改为文本说明。'));
+      continue;
     }
+    // 已知不吃图片的模型：换成文本，而不是把图发出去让上游 404 打掉整回合。
+    const downgraded = unsupportedImageInputText(
+      imageInput.providerId,
+      imageInput.model,
+      imageTextPlaceholder(data.length, mimeType, '当前模型不接受图片输入，故未附图片；需要页面内容可改用 snapshot。'),
+    );
+    if (downgraded) {
+      parts.push(downgraded);
+      continue;
+    }
+    images.push({ mediaType: mimeType, base64Data: data });
+    parts.push(`[已附上截图（${mimeType}）。]`);
   }
   const text = parts.join('\n');
   if (result.isError) {
-    return `${result.errorCode ? `[${result.errorCode}] ` : ''}${text || '浏览器工具调用失败（后端未给出原因）。'}`;
+    return { text: `${result.errorCode ? `[${result.errorCode}] ` : ''}${text || '浏览器工具调用失败（后端未给出原因）。'}` };
   }
-  return text || '浏览器工具调用成功，但没有返回内容。';
+  return {
+    text: text || '浏览器工具调用成功，但没有返回内容。',
+    ...(images.length ? { images } : {}),
+  };
 }
 
 /** 浏览器工具的执行器：把一次调用交给真实后端。 */
 export interface BrowserToolExecutor {
-  execute(name: string, rawArguments: string): Promise<string>;
+  execute(name: string, rawArguments: string): Promise<AgentToolResult>;
 }
 
 /**
@@ -97,26 +138,27 @@ export interface BrowserToolExecutor {
  */
 export function createBrowserToolExecutor(
   handler: BrowserToolHandler = createCdpBrowserToolHandler(),
+  imageInput: { readonly providerId: string; readonly model?: string } = { providerId: '' },
 ): BrowserToolExecutor {
   return {
-    async execute(name: string, rawArguments: string): Promise<string> {
+    async execute(name: string, rawArguments: string): Promise<AgentToolResult> {
       let parsed: unknown;
       const trimmed = rawArguments.trim();
       if (trimmed) {
         try {
           parsed = JSON.parse(trimmed);
         } catch {
-          return `工具参数不是合法 JSON，未执行任何浏览器命令：${rawArguments.slice(0, 200)}`;
+          return { text: `工具参数不是合法 JSON，未执行任何浏览器命令：${rawArguments.slice(0, 200)}` };
         }
       }
       try {
         const result = await handler.call({ toolName: name, arguments: parsed });
-        return browserToolResultText(result);
+        return browserToolResult(result, imageInput);
       } catch (error: unknown) {
         // 处理器契约是"失败返回结果而不是抛出"，真抛了说明契约被违反；
         // 但**不能**让异常冒泡到 Agent 回合——那会丢掉整回合的执行痕迹。
         const message = error instanceof Error ? error.message : String(error ?? '');
-        return `浏览器工具调用抛出异常，未完成：${message || '（无描述）'}`;
+        return { text: `浏览器工具调用抛出异常，未完成：${message || '（无描述）'}` };
       }
     },
   };

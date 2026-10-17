@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { HttpBrowserSessionClient, type WorkbenchBrowserSession, type WorkbenchBrowserSessionEvent } from '../../runtime/browser-session-client';
+import type { BrowserBackendStatus } from '../../runtime/cdp-browser-tool-handler';
+import { BrowserBackendCard } from './BrowserBackendCard';
 
 const client = new HttpBrowserSessionClient();
 const OPERATOR_ID = 'local.operator';
@@ -44,7 +46,14 @@ export function BrowserSessionSummaryCard({ localServiceReady, onOpen }: { local
   </section>;
 }
 
-export function BrowserSessionControlPage({ localServiceReady, onBack }: { localServiceReady: boolean; onBack: () => void }) {
+export function BrowserSessionControlPage({ localServiceReady, onBack, backend, onToggleBackend }: {
+  localServiceReady: boolean;
+  onBack: () => void;
+  /** 浏览器**执行后端**的状态；与下面的授权账本是两回事。 */
+  readonly backend?: BrowserBackendStatus;
+  /** 开关执行后端；返回被断开的会话数。 */
+  readonly onToggleBackend: (enabled: boolean) => Promise<number>;
+}) {
   const { sessions, error, pending, refresh, setError, setPending, setSessions } = useBrowserSessions(localServiceReady);
   const [targetUrl, setTargetUrl] = useState('');
   const [reason, setReason] = useState('');
@@ -74,7 +83,7 @@ export function BrowserSessionControlPage({ localServiceReady, onBack }: { local
     void client.transition(selected.sessionId, action, { by: OPERATOR_ID, reason: `${action} from Workbench` }).then((next) => { reload(next.sessionId); openAudit(next.sessionId); }).catch((nextError: unknown) => { setError(nextError instanceof Error ? nextError.message : '浏览会话状态未更新。'); setPending(false); });
   };
 
-  return <section className="page-stack browser-session-control-page"><div className="page-heading browser-session-page-heading"><div><span>CAPABILITIES / BROWSER CONTROL</span><h1>浏览会话控制</h1><p>三级控制页。会话只保存公网 HTTPS 主机与哈希化范围；没有完整 URL、页面内容、cookie、密码、API key 或浏览器/桌面执行能力。</p></div><div><button title="返回二级扩展与能力页面。" onClick={onBack} type="button">← 返回扩展与能力</button><button title="重新读取本机 本机能力服务 的脱敏会话和状态；不会启动浏览器或访问网页。" disabled={!localServiceReady || pending} onClick={refresh} type="button">{pending ? '读取中…' : '刷新'}</button></div></div>
+  return <section className="page-stack browser-session-control-page"><BrowserBackendCard backend={backend} onToggle={onToggleBackend} /><div className="page-heading browser-session-page-heading"><div><span>CAPABILITIES / BROWSER CONTROL</span><h1>浏览会话控制</h1><p>三级控制页。会话只保存公网 HTTPS 主机与哈希化范围；没有完整 URL、页面内容、cookie、密码、API key 或浏览器/桌面执行能力。</p></div><div><button title="返回二级扩展与能力页面。" onClick={onBack} type="button">← 返回扩展与能力</button><button title="重新读取本机 本机能力服务 的脱敏会话和状态；不会启动浏览器或访问网页。" disabled={!localServiceReady || pending} onClick={refresh} type="button">{pending ? '读取中…' : '刷新'}</button></div></div>
     {!localServiceReady && <p className="browser-session-inline-note">请先附着本机 本机能力服务 后使用浏览会话控制面。</p>}
     {localServiceReady && <><section className="browser-session-create"><div><span className="panel-eyebrow">EXPLICIT REQUEST</span><h2>请求一个受控浏览会话</h2><p>此操作仅创建本机审计记录。即使随后授权，也不会自动启动浏览器、读取网页或执行页面动作。</p></div><label>公网 HTTPS 目标<input aria-label="浏览会话目标 HTTPS 地址" autoComplete="off" inputMode="url" onChange={(event) => setTargetUrl(event.target.value)} placeholder="https://docs.example.com" value={targetUrl} /></label><label>原因（可选）<input aria-label="浏览会话创建原因" maxLength={500} onChange={(event) => setReason(event.target.value)} placeholder="例如：仅审查公开文档的会话范围" value={reason} /></label><button className="browser-session-create-button" disabled={!targetUrl.trim() || pending} onClick={create} title="明确创建一个仅记录的浏览会话请求；不会打开或控制浏览器。" type="button">{pending ? '提交中…' : '创建请求'}</button></section>
       <section className="browser-session-ledger"><div className="browser-session-ledger-heading"><div><span className="panel-eyebrow">REDACTED LEDGER</span><h2>本机浏览会话</h2><p>选择会话后查看审计；按钮只会发送明确的状态意图，不包含网页操作。</p></div><span>{sessions.length} 条</span></div>{sessions.length === 0 ? <p className="browser-session-empty">尚无浏览会话。请先显式创建一条只记录状态的请求。</p> : <div className="browser-session-list">{sessions.map((item) => <button aria-pressed={item.sessionId === selectedSessionId} className={`browser-session-item status-${item.status}${item.sessionId === selectedSessionId ? ' selected' : ''}`} key={item.sessionId} onClick={() => openAudit(item.sessionId)} title="查看该会话的脱敏状态和审计事件；不会发起网页访问。" type="button"><span className="browser-session-item-status">{statusLabel(item.status)}</span><strong>{item.targetHost}</strong><small>r{item.revision} · {formatTime(item.updatedAt)} · 执行关闭</small></button>)}</div>}</section>

@@ -658,6 +658,19 @@ async fn execute_steps(
                 ),
             ));
         }
+        // 还有一类"成功响应里的失败"：`Page.navigate` 对**没导航成**的地址
+        // （连不上、域名解析不了等）返回的是**成功响应 + `errorText`**（net:: 码），
+        // 而不是 CDP 错误。只看 `CommandOutcome` 会把一次**没发生**的导航报成成功。
+        //
+        // 这条由真实浏览器端到端验证钉住（`real_browser_e2e.rs` 里用"没人监听的
+        // 本地端口"触发）。假端点抓不到它：它按我们的理解回话，永远不会自己冒出
+        // 一个 `errorText`。
+        if let Some(rejected) = rejected_action_text(&value) {
+            return Err(BrowserToolCallResult::err(
+                "browser_action_rejected",
+                format!("CDP 方法 {} 被拒绝：{rejected}", step.method),
+            ));
+        }
         // 后置动作：依赖这一步的返回值。
         if let Some(follow_up) = step.then.as_ref() {
             if let Err(failure) = apply_follow_up(session, step, follow_up, &value).await {
@@ -669,9 +682,22 @@ async fn execute_steps(
     Ok(collected)
 }
 
+/// 从一条**成功响应**里取出"这个动作其实被拒绝了"的原因。
+///
+/// CDP 里有两类"成功响应里的失败"：
+/// - `Runtime.evaluate` 的 `exceptionDetails`（页面脚本抛异常）；
+/// - `Page.navigate` 的 `errorText`（连接被拒、域名解析失败等 net:: 错误）。
+///
+/// 抽成纯函数是为了可测：真实取值需要活浏览器，而这条判定必须有牙齿。
+fn rejected_action_text(value: &Value) -> Option<&str> {
+    value
+        .get("errorText")
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+}
+
 /// 从 `Runtime.evaluate` 的 `exceptionDetails` 里取出可读原因。
-fn exception_text(details: &Value) -> String {
-    if let Some(exception) = details.get("exception") {
+fn exception_text(details: &Value) -> String {    if let Some(exception) = details.get("exception") {
         if let Some(description) = exception.get("description").and_then(Value::as_str) {
             return description.to_string();
         }
@@ -1649,6 +1675,23 @@ mod tests {
         assert_eq!(render_steps(&steps, &[]), "[Page.navigate]");
         // 四：占位文案只在**一条步骤都没有**时出现（空串在 UI 上看起来像失败）。
         assert_eq!(render_steps(&[], &[]), "（无返回内容）");
+    }
+
+    #[test]
+    fn 动作被拒绝时能从成功响应里认出来() {
+        // `Page.navigate` 把"被拒绝"报在结果里的 errorText，而不是 CDP 错误。
+        // 只判 CommandOutcome 会把一次没发生的导航报成成功。
+        assert_eq!(
+            rejected_action_text(&serde_json::json!({ "errorText": "net::ERR_ABORTED" })),
+            Some("net::ERR_ABORTED")
+        );
+        // 正常导航的结果里没有 errorText。
+        assert_eq!(rejected_action_text(&serde_json::json!({ "frameId": "F1" })), None);
+        // 空串不算拒绝（有些实现会带一个空的 errorText）。
+        assert_eq!(rejected_action_text(&serde_json::json!({ "errorText": "   " })), None);
+        assert_eq!(rejected_action_text(&serde_json::json!({})), None);
+        // 形状不符按"没有拒绝"处理：不能因为字段类型不对就把正常导航判成失败。
+        assert_eq!(rejected_action_text(&serde_json::json!({ "errorText": 42 })), None);
     }
 
     #[test]

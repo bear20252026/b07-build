@@ -204,3 +204,97 @@ test('中断时仍如实触发onToolResult以留下收据', async () => {
   });
   assert.deepEqual(receipts, ['call-1']);
 });
+
+// ---------------------------------------------------------------------------
+// 工具结果的多模态通道：图片必须与文本一起回填到**同一条** tool 消息上。
+// 拆成两条会让上游对不回 call id；塞进文本则会让一次截图吃掉几十万字符的窗口。
+// ---------------------------------------------------------------------------
+
+const screenshotCall: DirectProviderToolCall = { id: 'shot-1', name: 'mcp__browser__take_screenshot', arguments: '{}' };
+
+test('execute返回图片时工具消息带上images', async () => {
+  const client = fakeClient([
+    { text: '我看一眼页面。', toolCalls: [screenshotCall] },
+    { text: '看到了。', toolCalls: [] },
+  ]);
+  const result = await runAgentTurn({
+    client,
+    providerId: 'p',
+    messages: baseMessages,
+    tools: [],
+    execute: async () => ({ text: '已捕获截图', images: [{ mediaType: 'image/png', base64Data: 'AAAA' }] }),
+    onText: () => undefined,
+  });
+  const toolMessage = result.messages.find((message) => message.role === 'tool');
+  assert.ok(toolMessage, '应有 tool 消息');
+  assert.equal(toolMessage.content, '已捕获截图');
+  assert.deepEqual(toolMessage.images, [{ mediaType: 'image/png', base64Data: 'AAAA' }]);
+  assert.equal(toolMessage.toolCallId, 'shot-1');
+});
+
+test('execute返回字符串时工具消息不带images', async () => {
+  const client = fakeClient([
+    { text: '读一下。', toolCalls: [readCall] },
+    { text: '读完了。', toolCalls: [] },
+  ]);
+  const result = await runAgentTurn({
+    client,
+    providerId: 'p',
+    messages: baseMessages,
+    tools: [],
+    execute: async () => '文件内容',
+    onText: () => undefined,
+  });
+  const toolMessage = result.messages.find((message) => message.role === 'tool');
+  assert.ok(toolMessage);
+  assert.equal(toolMessage.images, undefined);
+});
+
+test('图片回填后第二轮请求能看到它', async () => {
+  // 只有真的进了下一轮请求，模型才可能"看见"图。
+  const client = fakeClient([
+    { text: '先截图。', toolCalls: [screenshotCall] },
+    { text: '看到了。', toolCalls: [] },
+  ]);
+  await runAgentTurn({
+    client,
+    providerId: 'p',
+    messages: baseMessages,
+    tools: [],
+    execute: async () => ({ text: '已捕获截图', images: [{ mediaType: 'image/png', base64Data: 'BBBB' }] }),
+    onText: () => undefined,
+  });
+  const secondRequest = client.seen[1] ?? [];
+  const toolMessage = secondRequest.find((message) => message.role === 'tool');
+  assert.deepEqual(toolMessage?.images, [{ mediaType: 'image/png', base64Data: 'BBBB' }]);
+});
+
+test('空images数组不产生images字段', async () => {
+  const client = fakeClient([
+    { text: '读一下。', toolCalls: [readCall] },
+    { text: '读完了。', toolCalls: [] },
+  ]);
+  const result = await runAgentTurn({
+    client,
+    providerId: 'p',
+    messages: baseMessages,
+    tools: [],
+    execute: async () => ({ text: '内容', images: [] }),
+    onText: () => undefined,
+  });
+  assert.equal(result.messages.find((message) => message.role === 'tool')?.images, undefined);
+});
+
+test('带图片的中断回合仍保留图片收据', async () => {
+  const client = failingClient([{ text: '截图。', toolCalls: [screenshotCall] }], 2, new Error('boom'));
+  const result = await runAgentTurn({
+    client,
+    providerId: 'p',
+    messages: baseMessages,
+    tools: [],
+    execute: async () => ({ text: '已捕获截图', images: [{ mediaType: 'image/png', base64Data: 'CCCC' }] }),
+    onText: () => undefined,
+  });
+  assert.equal(result.failure?.round, 2);
+  assert.deepEqual(result.messages.find((message) => message.role === 'tool')?.images, [{ mediaType: 'image/png', base64Data: 'CCCC' }]);
+});
