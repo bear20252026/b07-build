@@ -362,6 +362,7 @@ pub fn run() {
             extension_host_process::extension_host_stop,
             extension_host_process::extension_host_status,
             browser_tools::browser_backend_status,
+            browser_tools::browser_sessions_list,
             browser_tools::browser_backend_set_enabled,
             browser_tools::browser_backend_set_port,
             browser_tools::browser_tool_call,

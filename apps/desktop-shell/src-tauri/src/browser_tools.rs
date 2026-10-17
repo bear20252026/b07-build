@@ -1293,6 +1293,96 @@ pub fn browser_backend_status(
     })
 }
 
+/// 一条**活动**浏览会话的对外视图。
+///
+/// 只给标识符与状态，不含页面内容 —— 这个面板回答的是"现在开着哪些会话"，
+/// 不是"页面里有什么"。
+#[derive(Debug, Clone, Serialize)]
+pub struct BrowserSessionSummary {
+    /// 会话 id（工具面里用的那个）。
+    pub session_id: String,
+    /// 已配对的目标（tab）id。**在途会话取不到** —— 那段时间它被从表里取出去执行命令了。
+    pub target_id: Option<String>,
+    /// `active` / `inflight` / `closing`。
+    ///
+    /// 三种必须分开：`active` 能正常用；`inflight` 正在执行命令，此时点关闭是
+    /// "延迟关闭"而不是失败；`closing` 已被请求关闭，跑完就消失。
+    pub status: String,
+}
+
+/// 把三份状态合成对外视图。**纯函数**，故可单测 —— 命令本身只负责加锁取值。
+///
+/// `active` 是 `(session_id, target_id)`；`inflight` 是"正在执行命令、已从表里取出"的 id；
+/// `closing` 是"已请求关闭"的 id。
+fn summarize_sessions(
+    active: &[(String, String)],
+    inflight: &HashSet<String>,
+    closing: &HashSet<String>,
+) -> Vec<BrowserSessionSummary> {
+    let mut summaries: Vec<BrowserSessionSummary> = Vec::new();
+    let mut known: HashSet<&str> = HashSet::new();
+    for (session_id, target_id) in active {
+        known.insert(session_id.as_str());
+        summaries.push(BrowserSessionSummary {
+            session_id: session_id.clone(),
+            target_id: Some(target_id.clone()),
+            status: if closing.contains(session_id) { "closing" } else { "active" }.to_owned(),
+        });
+    }
+    // 在途会话不在 `active` 里（被取出去执行命令了），但**确实存在**。
+    // 漏掉它们会让界面在"有会话正在跑"的那一刻显示"没有会话"——
+    // 而那正是用户最需要看到真实状态的时刻。
+    let mut inflight_ids: Vec<&String> = inflight.iter().collect();
+    inflight_ids.sort();
+    for session_id in inflight_ids {
+        if known.contains(session_id.as_str()) {
+            continue;
+        }
+        summaries.push(BrowserSessionSummary {
+            session_id: session_id.clone(),
+            target_id: None,
+            status: "inflight".to_owned(),
+        });
+    }
+    summaries.sort_by(|left, right| left.session_id.cmp(&right.session_id));
+    summaries
+}
+
+/// 列出活动浏览会话（**给界面用的结构**）。
+///
+/// 与 `list_sessions` 工具的区别：那个返回给模型读的**文本**，这个返回给界面用的**结构**。
+/// 两者读同一份状态，所以不会出现"工具说有三个、界面说没有"。
+#[tauri::command]
+pub fn browser_sessions_list(
+    state: tauri::State<'_, BrowserToolState>,
+) -> Result<Vec<BrowserSessionSummary>, &'static str> {
+    let closing = state
+        .closing
+        .lock()
+        .map(|set| set.clone())
+        .unwrap_or_default();
+
+    let active: Vec<(String, String)> = {
+        let sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "browser-backend-state-unavailable")?;
+        sessions
+            .iter()
+            .map(|(session_id, session)| (session_id.clone(), session.target_id.clone()))
+            .collect()
+        // 锁在这里释放：下面要读 inflight，不持有两把锁可以避开锁序问题。
+    };
+
+    let inflight = state
+        .inflight
+        .lock()
+        .map(|set| set.clone())
+        .unwrap_or_default();
+
+    Ok(summarize_sessions(&active, &inflight, &closing))
+}
+
 /// 启用 / 关闭真实后端。关闭会断开全部会话。
 #[tauri::command]
 pub fn browser_backend_set_enabled(
@@ -1675,6 +1765,43 @@ mod tests {
         assert_eq!(render_steps(&steps, &[]), "[Page.navigate]");
         // 四：占位文案只在**一条步骤都没有**时出现（空串在 UI 上看起来像失败）。
         assert_eq!(render_steps(&[], &[]), "（无返回内容）");
+    }
+
+    #[test]
+    fn 会话摘要区分可用与正在关闭() {
+        let active = vec![
+            ("s2".to_owned(), "tab-2".to_owned()),
+            ("s1".to_owned(), "tab-1".to_owned()),
+        ];
+        let closing: std::collections::HashSet<String> = ["s2".to_owned()].into_iter().collect();
+        let summaries = summarize_sessions(&active, &std::collections::HashSet::new(), &closing);
+        // 按会话 id 排序，界面顺序稳定。
+        assert_eq!(summaries.iter().map(|item| item.session_id.as_str()).collect::<Vec<_>>(), vec!["s1", "s2"]);
+        assert_eq!(summaries[0].status, "active");
+        assert_eq!(summaries[0].target_id.as_deref(), Some("tab-1"));
+        // 已请求关闭的会话仍在表里，但状态必须是 closing —— 否则用户会以为它还能用。
+        assert_eq!(summaries[1].status, "closing");
+    }
+
+    #[test]
+    fn 在途会话也要列出来且没有目标() {
+        // 在途会话被从 sessions 表里取出去执行命令了。若因为它"不在表里"就不列，
+        // 界面会在"有会话正在跑"的那一刻显示"没有会话"—— 那是最容易误判的时刻。
+        let inflight: std::collections::HashSet<String> = ["s9".to_owned()].into_iter().collect();
+        let summaries = summarize_sessions(&[], &inflight, &std::collections::HashSet::new());
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].status, "inflight");
+        // 目标在取出期间读不到，如实给 None，而不是编一个。
+        assert_eq!(summaries[0].target_id, None);
+    }
+
+    #[test]
+    fn 同时在表里与在途时不重复列出() {
+        let active = vec![("s1".to_owned(), "tab-1".to_owned())];
+        let inflight: std::collections::HashSet<String> = ["s1".to_owned()].into_iter().collect();
+        let summaries = summarize_sessions(&active, &inflight, &std::collections::HashSet::new());
+        assert_eq!(summaries.len(), 1, "同一条会话不该出现两次");
+        assert_eq!(summaries[0].status, "active");
     }
 
     #[test]
