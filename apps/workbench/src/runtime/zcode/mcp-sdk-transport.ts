@@ -37,6 +37,9 @@ export class McpWireSdkTransport implements Transport {
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
+    // 底层传输若需要先建立连接（`McpStdioTransport` 要 spawn 进程），必须在订阅之前做。
+    // 顺序错了会订阅到一个还没起来的进程：事件永远不来，表现为"握手超时"。
+    await this.wire.start?.();
     this.unsubscribe = this.wire.subscribe({
       onLine: (line) => {
         let parsed: unknown;

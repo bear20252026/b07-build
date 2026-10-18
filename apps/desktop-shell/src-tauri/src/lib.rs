@@ -25,6 +25,7 @@ mod hybrid_search;
 #[cfg(not(mobile))]
 mod last30days;
 mod mcp_app_host;
+mod mcp_server_config;
 mod plugin_reference;
 mod mcp_process;
 #[cfg(not(mobile))]
@@ -364,6 +365,9 @@ pub fn run() {
             extension_host_process::extension_host_status,
             browser_tools::browser_backend_status,
             browser_tools::browser_sessions_list,
+            mcp_server_config::mcp_server_config_list,
+            mcp_server_config::mcp_server_config_save,
+            mcp_server_config::mcp_server_config_remove,
             plugin_reference::plugin_reference_catalog,
             browser_tools::browser_backend_set_enabled,
             browser_tools::browser_backend_set_port,

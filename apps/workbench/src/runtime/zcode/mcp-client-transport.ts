@@ -18,6 +18,14 @@ export interface McpWireTransportHandlers {
 }
 
 export interface McpWireTransport {
+  /**
+   * 建立底层连接（spawn 进程 / 打开管道）。
+   *
+   * **可选**：内存传输（loopback）不需要。但 `McpStdioTransport` 必须在
+   * `subscribe()` 之前 `start()`，否则会订阅到一个还没起的进程 —— 所以适配器
+   * （`McpWireSdkTransport`）在 `start()` 里会先调它。
+   */
+  start?(): Promise<void>;
   /** 发送一帧（不含换行；实现方负责补 LF 或 HTTP 体）。 */
   send(payload: string): Promise<void>;
   close(): Promise<void>;

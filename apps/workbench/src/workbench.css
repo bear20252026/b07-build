@@ -1576,3 +1576,25 @@ body:has(.workbench-shell.chat-home-surface.theme-dark) { background: #000; }
   .workbench-shell.chat-home-surface .task-composer { width: calc(100% - 28px); margin-bottom: 14px; }
   .chat-home--studio .chat-home-hero h1 { font-size: 30px; }
 }
+
+/* 插件目录 / MCP server 卡片共用的列表样式。
+   `.extension-status` 早就有，但 `.extension-list` / `.extension-item` 一直没定义 —— 
+   两张卡片都用了它们，之前渲染成默认项目符号列表。 */
+.extension-list { display: grid; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.extension-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-subtle); }
+.extension-item > div:first-child { display: grid; gap: 3px; min-width: 0; }
+.extension-item strong { color: var(--text-strong); font-size: 12px; }
+.extension-item code { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.extension-item small { color: var(--muted); font-size: 10px; line-height: 1.4; }
+.extension-item-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+.extension-item-actions button { padding: 4px 9px; color: var(--muted-strong); font-size: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.extension-item-actions button:disabled { opacity: 0.45; }
+
+/* MCP server 登记表单：单列，标签在上，输入占满。 */
+.extension-center-details { margin-top: 12px; }
+.extension-center-details summary { cursor: pointer; color: var(--muted-strong); font-size: 11px; }
+.mcp-server-form { display: grid; gap: 8px; margin-top: 10px; }
+.mcp-server-form label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; }
+.mcp-server-form input, .mcp-server-form textarea { padding: 7px 9px; color: var(--text-strong); font-family: inherit; font-size: 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); }
+.mcp-server-form textarea { min-height: 54px; resize: vertical; font-family: ui-monospace, monospace; }
+.mcp-server-form button { justify-self: start; padding: 6px 14px; color: var(--accent-strong); font-size: 11px; font-weight: 700; border: 1px solid var(--border); border-radius: 9px; background: var(--accent-soft); }
