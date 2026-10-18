@@ -276,3 +276,43 @@ grep -n "deno_core\|boa\|quickjs\|rusty_v8" apps/desktop-shell/src-tauri/Cargo.t
 > 顺带一个信号：`@awo/agent-runtime` 这个包名**没有任何人 import**。
 > 一个只被自己引用的包名，通常意味着它从来没被当作"对外提供的模块"对待过 ——
 > 与"应用零引用"是同一件事的两种表现。
+## 附：三边规模与可借清单（2026-10-17 实测）
+
+| | 自有代码 | 源码文件 | 仓库体积 | stars | 许可 |
+| --- | --- | --- | --- | --- | --- |
+| **b07（本仓）** | **92,876 行** | 573（ts 465 / tsx 54 / rs 54） | 83 MB | — | — |
+| **ZCode** | **678,445 行** | 3,069（ts 2,278 / tsx 791） | 93 MB | 7.9k | Apache-2.0 |
+| **dsh** | **~52 万行**（估） | — | 286 MB | 252k | MIT |
+
+数法：`git ls-files`（自动排除 node_modules）+ 逐文件数行，只取 `packages/*/src`、`apps/*/src`。
+dsh 无法本地数，用 ZCode 标定（678,445 行 / 74 MB TS ≈ 9,168 行每 MB），dsh 57.16 MB TS ≈ 52 万行。
+
+b07 是 ZCode 的 **1/7**，是 dsh 的 **1/5.6**。
+
+### 本仓模块分布：约 1/3 是零引用
+
+| 模块 | 行数 | 占比 | 状态 |
+| --- | --- | --- | --- |
+| `agent-runtime` | 25,620 | 27.6% | **零引用** |
+| `workbench` | 21,774 | 23.4% | 在用 |
+| `desktop-shell`（Rust） | 11,786 | 12.7% | 在用 |
+| `protocol` | 4,830 | 5.2% | 在用 |
+| `provider-sdk` | 2,636 | 2.8% | 在用 |
+| `knowledge-workflow` | 2,201 | 2.4% | 零引用（Node 侧） |
+| `workflow-script` | 1,611 | 1.7% | 零引用 |
+| `capability-placeholder` | 969 | 1.0% | 待查 |
+| `plugin-reference` | 947 | 1.0% | 零引用（Node 侧） |
+
+零引用合计 ≈ 30,300 行 ≈ **32.6%**。
+（另有 196,657 行 `.py` 属 `third_party/`：searxng-windows 352 文件、last30days-skill 305 文件，不算自有代码。）
+
+### 可借清单（按成本从低到高）
+
+| 级别 | 内容 | 代价 |
+| --- | --- | --- |
+| **A. 换依赖** | `@modelcontextprotocol/client` + `core` + `ext-apps@2.0.0`，替掉 683 行手写协议层 | 一天 |
+| **B. 借契约** | ZCode `packages/shared/src/mcp-apps/CONTRACT.md` + `contract.ts` + `hostContract.ts` | 半批 |
+| **C. 借设计** | ZCode ADR 0003（安装/来源独立建模 + 孤儿态）；dsh 市场索引 format-1 + `engines` 检查 | 半批 |
+| **D. 不能借** | dsh 的 Cordis 插件体系（52 万行，等于重写应用）；ZCode 的 Electron 外壳（本仓是 Tauri） | — |
+
+---
