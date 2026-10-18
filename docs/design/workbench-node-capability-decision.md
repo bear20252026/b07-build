@@ -167,6 +167,37 @@ if (!localServiceReady) { /* 直接返回 */ }
 
 ---
 
+## 3.6 MCP 连接：缺的那一层已经有了，但还差两个决定
+
+`plugin-reference` 的 reminder 要求"已连接且 provider 可见"，此前应用里没有任何东西
+记录这个状态。现在补上了：
+
+| 位置 | 内容 |
+| --- | --- |
+| `runtime/zcode/mcp-connection-registry.ts` | 连接注册表：连上、记状态、报工具数、能关掉 |
+| `McpConnectionRegistry#liveMcpServers()` | 正是 `plugin-reference` 需要的形状（server → 工具数） |
+
+底层件本来就在（`McpClientSession.connect/listTools`、`mcp-stdio-transport` 经 Tauri 起进程、
+`McpClientPool` 按租借管理），缺的只是"现在哪些连着"这一层。
+
+### 注册表刻意不做的事
+
+**它不决定 spawn 什么。** 会话由注入的 `createSession(serverId)` 造。起什么进程、带什么参数、
+信任不信任 —— 这些是安全决策，不该藏在一个注册表里。
+
+### 还差两个决定（都不是代码问题）
+
+1. **启动规格从哪来。** 插件只声明 `mcpApp.serverId`，没有 `command`/`args`。
+   `mcp-servers.sqlite` 里可能有 server 清单 —— 但那意味着"读插件账本就能拿到要执行的命令"。
+2. **信任谁。** 用插件声明的命令去 spawn 进程，等于**把"装了别人的插件"升级成"跑了别人的命令"**。
+   这和 hook 是同一类风险，应当走同一套信任门（`hook-trust` 那套：来源判定 + 准入过滤），
+   而不是让插件市场账本直接变成执行清单。
+
+在这两个决定定下来之前，注册表只能被喂一个"永远返回 undefined"的工厂 ——
+所以本批**没有**把它接进界面：接上去只会让每个插件都显示"无法连接（缺少启动规格）"，
+那不是信息，是噪音。
+
+---
 ## 4. 四个选项
 
 | 选项 | 代价 | 解锁 | 风险 |
