@@ -5,7 +5,7 @@ import test from 'node:test';
 import { ToolRegistry, type ToolDescriptor, mcpToolName, parseMcpToolName } from '@awo/protocol';
 import { McpClientPool } from '../src/runtime/zcode/mcp-client-pool';
 import { McpLoopbackTransport } from '../src/runtime/zcode/mcp-client-transport';
-import { encodeMcpFrame, parseMcpFrame, type McpJsonRpcRequest } from '../src/runtime/zcode/mcp-client-wire';
+
 import { McpAppMountController, createUnavailableMcpAppToolExecutor, defaultMcpAppRisk, resolveMcpAppToolRisk } from '../src/runtime/zcode/mcp-app-mount-controller';
 
 const server = { id: 'demo', declaredTools: [{ name: 'read_note' }, { name: 'write_note' }] };
@@ -180,20 +180,24 @@ test('挂载点通电：pool + descriptors 时缺省执行器直达真实会话'
   let failCall = false;
   serverEnd.subscribe({
     onLine: (line) => {
-      const message = parseMcpFrame(line);
-      if (!message || !('method' in message) || !('id' in message)) return;
-      const request = message as McpJsonRpcRequest;
+      // 会话协议由官方 SDK 承担，这里直接用 JSON 收发即可（不再需要手写的帧编解码）。
+      let request: { id?: string | number; method: string };
+      try {
+        request = JSON.parse(line) as { id?: string | number; method: string };
+      } catch {
+        return;
+      }
+      if (request.id === undefined) return;
+      const reply = (payload: unknown): void => void serverEnd.send(JSON.stringify(payload));
       if (request.method === 'initialize') {
-        void serverEnd.send(encodeMcpFrame({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2025-11-25', capabilities: {}, serverInfo: { name: 'fake', version: '1' } } }));
+        reply({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2025-06-18', capabilities: {}, serverInfo: { name: 'fake', version: '1' } } });
         return;
       }
       if (request.method === 'tools/call') {
-        void serverEnd.send(
-          encodeMcpFrame(
-            failCall
-              ? { jsonrpc: '2.0', id: request.id, error: { code: -32603, message: 'server boom' } }
-              : { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: 'from-real-server' }] } },
-          ),
+        reply(
+          failCall
+            ? { jsonrpc: '2.0', id: request.id, error: { code: -32603, message: 'server boom' } }
+            : { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: 'from-real-server' }] } },
         );
       }
     },

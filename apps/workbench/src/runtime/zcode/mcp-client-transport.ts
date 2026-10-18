@@ -1,10 +1,15 @@
 // 一个文件=一种作用：MCP 客户端传输抽象与调用结果类型。
 //
-// 传输只负责一行一帧地进出（与 ZCode `zcodeStdioTransport` 同构）；会话
-// 语义（握手/关联/超时）全在 mcp-client-session。真实 stdio/HTTP 传输在
-// P0-1b 由原生侧实现，此处只定义接缝——测试用内存传输注入。
+// 传输只负责一行一帧地进出；会话语义（握手/关联/超时/分帧）已交给官方 SDK
+// （见 `mcp-sdk-session.ts`），这里只保留**传输接缝**与调用结果形状。
+// 真实 stdio 传输由原生侧提供（`mcp-stdio-transport.ts`），测试用内存传输注入。
 
-import type { McpJsonRpcError } from './mcp-client-wire.js';
+/** JSON-RPC 错误体（协议层返回的错误，区别于工具自身的 `isError`）。 */
+export interface McpJsonRpcError {
+  code: number;
+  message: string;
+  data?: unknown;
+}
 
 export interface McpWireTransportHandlers {
   onLine(line: string): void;

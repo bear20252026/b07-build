@@ -1,4 +1,8 @@
 // 一个文件=一种作用：MCP 工具描述符归一化与连接池的验收测试。
+//
+// 会话协议已交给官方 SDK，所以这里的假服务器必须**真的会说 MCP**
+// （应答 `initialize`，可选应答 `tools/list`）——否则握手不会成功。
+// 这比原先"只要能解析 JSON-RPC 就行"的桩更严格，也更接近真实服务器。
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -11,8 +15,6 @@ import {
 } from '../src/runtime/zcode/mcp-tool-descriptor';
 import { McpClientPool, type McpPoolEntryKey } from '../src/runtime/zcode/mcp-client-pool';
 import { McpLoopbackTransport, type McpWireTransport } from '../src/runtime/zcode/mcp-client-transport';
-import { McpClientSession } from '../src/runtime/zcode/mcp-client-session';
-import { encodeMcpFrame, parseMcpFrame, type McpJsonRpcRequest } from '../src/runtime/zcode/mcp-client-wire';
 
 test('sanitizeMcpName：非法字符折叠单下划，空串兜底 unknown', () => {
   assert.equal(sanitizeMcpName('read_note'), 'read_note');
@@ -46,20 +48,41 @@ test('normalizeMcpToolDescriptors：批量归一化', () => {
 
 // ---- 连接池 ----
 
-/** 自动应答握手假服务器。 */
+interface JsonRpcRequest {
+  id?: string | number;
+  method: string;
+}
+
+/** 会说 MCP 的最小服务器：应答 initialize / tools/list，其余回 method not found。 */
 class HandshakeServer {
+  readonly methods: string[] = [];
+
   constructor(private readonly peer: McpWireTransport) {
     peer.subscribe({ onLine: (line) => void this.handle(line) });
   }
 
   private async handle(line: string): Promise<void> {
-    const message = parseMcpFrame(line);
-    if (!message || !('method' in message) || !('id' in message)) return;
-    const request = message as McpJsonRpcRequest;
-    if (request.method !== 'initialize') return;
-    await this.peer.send(
-      encodeMcpFrame({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2025-11-25', capabilities: {}, serverInfo: { name: 'srv', version: '1' } } }),
-    );
+    let request: JsonRpcRequest;
+    try {
+      request = JSON.parse(line) as JsonRpcRequest;
+    } catch {
+      return;
+    }
+    this.methods.push(request.method);
+    // 通知没有 id，不回。
+    if (request.id === undefined) return;
+    const reply = (payload: unknown): Promise<void> => this.peer.send(JSON.stringify(payload));
+    if (request.method === 'initialize') {
+      await reply({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'srv', version: '1' } } });
+      return;
+    }
+    if (request.method === 'tools/list') {
+      // SDK 会按 schema 校验响应：`inputSchema` 是必填的。
+      // （手写版没有这层校验，所以老桩能糊过去。）
+      await reply({ jsonrpc: '2.0', id: request.id, result: { tools: [{ name: 'greet', inputSchema: { type: 'object', properties: {} } }] } });
+      return;
+    }
+    await reply({ jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'method not found' } });
   }
 }
 
@@ -79,10 +102,12 @@ function poolPair(): { pool: McpClientPool; peers: McpLoopbackTransport[] } {
 
 const spec: McpPoolEntryKey = { serverId: 'demo', isolation: 'workspace' };
 
-test('池：acquire 完成握手；同 key 复用同一会话实例', async () => {
+test('池：acquire 完成握手，且拿到可用会话', async () => {
   const { pool } = poolPair();
   const first = await pool.acquire(spec);
-  assert.equal(first.session.sessionState, 'ready');
+  // 不再断言内部状态机（那是 SDK 的事），而是断言"真的能列工具"。
+  const tools = await first.session.listTools();
+  assert.deepEqual(tools.map((tool) => (tool as { name: string }).name), ['greet']);
   const second = await pool.acquire(spec);
   assert.equal(second.session, first.session, '复用同一会话');
   assert.equal(pool.activeConnections, 1);
@@ -127,14 +152,13 @@ test('池：隔离键不同 → 不同会话', async () => {
   await pool.close();
 });
 
-test('池：握手失败 → acquire 拒绝且不留下半死 entry', async () => {
+test('池：握手无应答 → acquire 在超时后拒绝且不留半死 entry', async () => {
+  // 这条守的是"服务器不应答时不能永久挂住"。SDK 的 connect 会一直等，
+  // 所以必须由 requestTimeoutMs 掐断。
   const pool = new McpClientPool({
-    createTransport: () => {
-      const [clientEnd] = McpLoopbackTransport.pair(); // 无对端应答：initialize 必然超时
-      return clientEnd;
-    },
+    createTransport: () => McpLoopbackTransport.pair()[0], // 对端不应答
     idleGraceMs: 30,
-    requestTimeoutMs: 40,
+    requestTimeoutMs: 60,
   });
   await assert.rejects(() => pool.acquire(spec));
   assert.equal(pool.activeConnections, 0, '半死 entry 被清除');
