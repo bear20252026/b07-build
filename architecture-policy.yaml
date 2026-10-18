@@ -80,7 +80,7 @@ modules:
   - id: workbench
     roots: [apps/workbench/src]
     managed: true
-    requires: [protocol, provider-sdk-browser, capability-placeholder]
+    requires: [protocol, provider-sdk-browser, capability-placeholder, plugin-reference]
     publicEntrypoints: []
     owner: workbench
 

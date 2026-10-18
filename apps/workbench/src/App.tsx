@@ -41,6 +41,9 @@ import { loadCompanionStudioPreferences, saveCompanionStudioPreferences, updateC
 import { loadWorkspaceFilePreferences, saveWorkspaceFilePreferences, type WorkspaceFilePreferencesV1 } from './runtime/workspace-file-contract';
 import { assistantArtifactFileName, loadAssistantArtifacts, persistAssistantArtifacts, type AssistantArtifactEntry, type AssistantArtifactTarget } from './runtime/assistant-artifact-ledger';
 import type { DirectConversationMessage } from './runtime/use-direct-conversations';
+import { loadInstalledPluginCatalog } from './runtime/plugin-reference-catalog';
+import { buildPluginReferenceContext, pluginReminderBlock } from './runtime/plugin-reference-context';
+import { mcpServerStatuses } from './runtime/mcp-servers-store';
 import { nativePlatformClient, type NativeRuntimePlatform } from './runtime/native-platform';
 
 const localProjectClient = createProjectClient();
@@ -92,6 +95,23 @@ function loadTaskModelSelection(): Readonly<{ providerId: string; model?: string
 
 function profileUi(messages: Translation): Record<AgentProfileId, { label: string; description: string }> {
   return messages.profile;
+}
+
+/**
+ * 本轮消息的插件能力提示（`[label](plugin://name@marketplace)` 引用 → 声明的能力）。
+ *
+ * **读不到插件目录不挡发送**：插件是增强，不是发送的前置条件。出错就当作没有提示，
+ * 而不是让用户因为一个可选的目录读失败而发不出消息。
+ */
+async function buildPluginReminderForTurn(text: string): Promise<string> {
+  try {
+    const installed = await loadInstalledPluginCatalog();
+    if (installed.length === 0) return '';
+    const context = buildPluginReferenceContext({ text, installed, servers: mcpServerStatuses() });
+    return pluginReminderBlock(context.reminderBody);
+  } catch {
+    return '';
+  }
 }
 
 function localServiceErrorText(error: unknown): string {
@@ -250,7 +270,8 @@ export function App() {
     setDirectSetupError(undefined);
     {
       const attachments = await readDirectChatAttachments(composerAttachments);
-      const sent = await directConversations.send(taskModelSelection, goal, projectWorkspace.selectedProjectId, webSearchEnabled && researchMode === 'web-search', webSearchEnabled && researchMode !== 'web-search' ? researchMode : undefined, attachments, workspaceToolsEnabled);
+      const pluginBlock = await buildPluginReminderForTurn(goal);
+      const sent = await directConversations.send(taskModelSelection, goal, projectWorkspace.selectedProjectId, webSearchEnabled && researchMode === 'web-search', webSearchEnabled && researchMode !== 'web-search' ? researchMode : undefined, attachments, workspaceToolsEnabled, undefined, pluginBlock);
       if (!sent) return;
       setActiveGoal(goal);
       setComposerAttachments([]);

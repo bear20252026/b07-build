@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import {
   loadMcpServerConfigs,
@@ -7,8 +7,8 @@ import {
   validateMcpServerDraft,
   type McpServerConfigEntry,
 } from '../../runtime/mcp-server-config';
-import { createMcpServerRegistry } from '../../runtime/mcp-server-connections';
-import type { McpConnectionRegistry, McpLiveServerSnapshot } from '../../runtime/zcode/mcp-connection-registry';
+import { currentMcpServerRegistry, replaceMcpServerRegistry } from '../../runtime/mcp-servers-store';
+import type { McpLiveServerSnapshot } from '../../runtime/zcode/mcp-connection-registry';
 
 /**
  * MCP server 登记与连接。
@@ -30,7 +30,6 @@ export function McpServersCard() {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState({ id: '', command: '', args: '', env: '', workingDirectory: '' });
-  const registry = useRef<McpConnectionRegistry | undefined>(undefined);
 
   const reload = useCallback((): void => {
     setError(undefined);
@@ -40,13 +39,10 @@ export function McpServersCard() {
   }, []);
   useEffect(() => { reload(); }, [reload]);
 
-  // 配置变化 → 重建注册表（旧的连接先关掉，避免留下孤儿进程）。
+  // 配置变化 → 重建进程级注册表（旧连接由 store 关掉），并清空本地状态快照。
   useEffect(() => {
-    const previous = registry.current;
-    registry.current = createMcpServerRegistry(configs ?? []);
+    replaceMcpServerRegistry(configs ?? []);
     setSnapshots({});
-    if (previous) void previous.closeAll();
-    return () => { void registry.current?.closeAll(); };
   }, [configs]);
 
   const parseLines = (text: string): string[] => text.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -81,10 +77,8 @@ export function McpServersCard() {
   };
 
   const onConnect = (id: string): void => {
-    const active = registry.current;
-    if (!active) return;
     setSnapshots((current) => ({ ...current, [id]: { serverId: id, state: 'connecting', toolNames: [] } }));
-    void active.connect(id).then((snapshot) => setSnapshots((current) => ({ ...current, [id]: snapshot })));
+    void currentMcpServerRegistry().connect(id).then((snapshot) => setSnapshots((current) => ({ ...current, [id]: snapshot })));
   };
 
   const statusText = (entry: McpServerConfigEntry): string => {
