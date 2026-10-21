@@ -22,7 +22,9 @@ class NodeStdioTransport implements McpWireTransport {
   private closed = false;
 
   constructor(private readonly child: ReturnType<typeof spawn>) {
-    const reader = createInterface({ input: child.stdout! });
+    // @types/node 26 里 stream.Readable 与 NodeJS.ReadableStream 的 asyncIterator 签名
+    // 互不兼容（本仓 TS 锁在 5.5.4，读不到更宽松的配对）：运行时正确，类型层在这里收敛一次。
+    const reader = createInterface({ input: child.stdout! as unknown as NodeJS.ReadableStream });
     reader.on('line', (line) => {
       for (const handler of [...this.handlers]) handler.onLine(line);
     });

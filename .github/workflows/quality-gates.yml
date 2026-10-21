@@ -39,14 +39,15 @@ jobs:
       - name: Check module boundaries
         run: npm run architecture:check
 
-      # tsconfig.base.json only includes packages/* and apps/*/src, and it has no JSX
-      # settings, so it silently skips every .tsx file in the workbench. Each app
-      # runs its own project here: the workbench owns its React surface, and the
-      # desktop shell owns its test directory.
+      # Each app owns a typecheck project. The root tsconfig.base.json covers the
+      # shared packages plus app sources; the workbench project additionally carries
+      # JSX and its whole test directory (fixtures there were previously checked by
+      # nothing, so contract drift only showed up at runtime), and the desktop shell
+      # owns its contract tests.
       - name: Check TypeScript types (shared packages and app sources)
         run: npm run typecheck
 
-      - name: Check TypeScript types (workbench React surface)
+      - name: Check TypeScript types (workbench React surface and tests)
         run: npm run typecheck --workspace=@awo/workbench
 
       - name: Check TypeScript types (desktop shell contract tests)

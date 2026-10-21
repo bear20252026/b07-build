@@ -37,7 +37,7 @@ test('模型要工具时执行并把结果以 tool 角色回填，再进入下�
     { text: '我先读一下。', toolCalls: [readCall] },
     { text: '读完了：文件内容。', toolCalls: [] },
   ]);
-  const executed: readonly { readonly name: string; readonly args: string }[] = [];
+  const executed: { readonly name: string; readonly args: string }[] = [];
   const result = await runAgentTurn({
     client,
     providerId: 'p',
