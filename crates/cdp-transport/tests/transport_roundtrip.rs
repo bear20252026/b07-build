@@ -299,7 +299,10 @@ async fn 命令id逐条递增且不重用() {
 }
 
 #[tokio::test]
-async fn 发送后服务端收到带sessionId的命令() {
+async fn 发送后服务端收到顶层sessionId的命令() {
+    // 扁平会话模型：`sessionId` 必须与 `id`、`method` **并列在顶层**。
+    // 本测试原先断言的是 `params.sessionId` —— 那恰好把错误格式固定成了通过条件。
+    // 现在两路都断言：顶层必须有，`params` 内必须没有。
     let (mut client, mut server) = connected_with_server().await;
     client.set_session_id(Some("SESSION-1".to_string()));
     assert_eq!(client.session_id(), Some("SESSION-1"));
@@ -312,17 +315,45 @@ async fn 发送后服务端收到带sessionId的命令() {
         .await
         .unwrap();
     let received = server.read_json().await.unwrap().unwrap();
-    assert_eq!(
-        received["params"]["sessionId"],
-        serde_json::json!("SESSION-1")
-    );
+    assert_eq!(received["sessionId"], serde_json::json!("SESSION-1"));
+    assert_eq!(received["method"], serde_json::json!("Runtime.evaluate"));
     assert_eq!(received["params"]["expression"], serde_json::json!("1+1"));
+    // 反向断言：只断言顶层存在的话，"两处都写"的实现也能通过。
+    assert!(
+        received["params"].get("sessionId").is_none(),
+        "sessionId 不得出现在 params 内，实际：{}",
+        received["params"]
+    );
 }
 
 #[tokio::test]
-async fn 带会话时非对象参数被拒绝() {
-    // 参数不是对象却要附加 sessionId：拒绝而不是把原参数塞进一个 `_params` 字段——
-    // 后者会发出一条语义不明的命令，对端可能接受并做出意外动作。
+async fn 无会话的命令不带sessionId且参数原样() {
+    // 无会话时不得凭空出现 `sessionId`（浏览器级命令）。
+    let (mut client, mut server) = connected_with_server().await;
+    let _ = client
+        .send("Page.navigate", Some(serde_json::json!({ "url": "about:blank" })), None)
+        .await
+        .unwrap();
+    let received = server.read_json().await.unwrap().unwrap();
+    assert!(received.get("sessionId").is_none());
+    assert_eq!(received["params"]["url"], serde_json::json!("about:blank"));
+}
+
+#[tokio::test]
+async fn 会话命令无参数时省略params() {
+    // 带会话但没有参数：顶层要有 sessionId，且**不应**发一个只有 sessionId 的 params。
+    let (mut client, mut server) = connected_with_server().await;
+    client.set_session_id(Some("S-7".to_string()));
+    let _ = client.send("Page.enable", None, None).await.unwrap();
+    let received = server.read_json().await.unwrap().unwrap();
+    assert_eq!(received["sessionId"], serde_json::json!("S-7"));
+    assert!(received.get("params").is_none(), "无参数时不应出现 params");
+}
+
+#[tokio::test]
+async fn 非对象参数被拒绝() {
+    // 参数不是对象：拒绝而不是发出去——对端可能接受一条语义不明的命令
+    // 并做出意外动作。这条校验与会话无关（CDP 的 params 本就是对象）。
     let (mut client, mut server) = connected_with_server().await;
     client.set_session_id(Some("SESSION-1".to_string()));
     let error = client

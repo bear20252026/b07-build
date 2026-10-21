@@ -1,5 +1,5 @@
 import type { Translation } from '../../i18n/catalog';
-import type { WorkbenchComponentLockReport } from '../../runtime/task-client';
+import type { WorkbenchComponentLockReport } from '../../runtime/task-types';
 
 interface ComponentLockBoardProps {
   report?: WorkbenchComponentLockReport;

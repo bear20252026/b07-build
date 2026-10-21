@@ -1,17 +1,14 @@
 import type { CompanionPreferencesV1 } from '../../runtime/companion-preferences';
 import { ProceduralCompanionStage } from './ProceduralCompanionStage';
 
-export function CompanionWindow({ localServiceReady, preferences, onOpenApi, onOpenControls }: {
-  localServiceReady: boolean;
+export function CompanionWindow({ preferences, onOpenApi, onOpenControls }: {
   preferences: CompanionPreferencesV1;
   onOpenApi(): void;
   onOpenControls(): void;
 }) {
   const voiceStatus = !preferences.voiceEnabled
     ? '语音输出关闭'
-    : localServiceReady
-      ? '等待一次明确试听'
-      : '需要先连接 MiMo TTS';
+    : '语音已开启 · 试听未接入';
   const visualStatus = !preferences.visualEnabled
     ? '角色呈现关闭'
     : preferences.visualMode === 'three-dimensional'

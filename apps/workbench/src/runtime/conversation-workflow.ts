@@ -6,8 +6,24 @@ export function branchConversation(source: DirectConversation, messageId: string
   return { ...source, id, title: `${source.title.slice(0, 58)} · 分支`, messages: source.messages.slice(0, index + 1), createdAt: now, updatedAt: now };
 }
 
-export function checkpointConversation(source: DirectConversation, id: string, label: string, now: number) {
-  return { schemaVersion: 1 as const, id, conversationId: source.id, label: label.trim().slice(0, 80) || `检查点 · ${source.messages.length} 条消息`, messageCount: source.messages.length, createdAt: now, conversation: source };
+/**
+ * 建一个检查点。
+ *
+ * `fileChangeSequence` 是**建检查点那一刻**文件日志的下一个序号：序号 >= 它的记录
+ * 发生在该检查点之后，回退时据此切片。没有它就只能"把整份日志都退了"，
+ * 而那意味着用户想回到中途某个检查点时，会把更早的改动也一起撤掉。
+ */
+export function checkpointConversation(source: DirectConversation, id: string, label: string, now: number, fileChangeSequence: number) {
+  return {
+    schemaVersion: 2 as const,
+    id,
+    conversationId: source.id,
+    label: label.trim().slice(0, 80) || `检查点 · ${source.messages.length} 条消息`,
+    messageCount: source.messages.length,
+    createdAt: now,
+    fileChangeSequence: Number.isSafeInteger(fileChangeSequence) && fileChangeSequence >= 1 ? fileChangeSequence : 1,
+    conversation: source,
+  };
 }
 
 export function conversationMarkdown(source: DirectConversation): string {

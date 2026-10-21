@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useEffect } from 'react';
-import type { WorkbenchProviderConnection, WorkbenchProviderConnectionProbe, WorkbenchProviderInference, WorkbenchProviderModelDiscovery } from './task-client';
+import type { WorkbenchProviderConnection, WorkbenchProviderConnectionProbe, WorkbenchProviderInference, WorkbenchProviderModelDiscovery } from './task-types';
 import { directProviderClient, type DirectProviderConnection, type DirectProviderProtocol } from './direct-provider-client';
 import { restoreDirectProviderAccounts, saveDirectProviderAccount } from './direct-provider-accounts';
 import { createProviderTraceId, recordProviderDiagnostic } from './provider-diagnostics';

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createModelDecisionReceipt } from '../src/components/workspace/model-decision-receipt.js';
+import type { WorkbenchProviderConnection } from '../src/runtime/task-types';
 
-const connection = { schemaVersion: 1, providerId: 'deepseek', displayName: 'DeepSeek', driverId: 'openai-compatible', defaultModel: 'deepseek-chat', credentialReference: 'env.deepseek-api-key', credentialAvailability: 'available' as const, profileStatus: 'active' as const, canReadSecret: false as const, canAutoConnect: false as const };
+const connection: WorkbenchProviderConnection = { schemaVersion: 1, providerId: 'deepseek', displayName: 'DeepSeek', driverId: 'openai-compatible', defaultModel: 'deepseek-chat', credentialReference: 'env.deepseek-api-key', credentialAvailability: 'available', profileStatus: 'active', canReadSecret: false, canAutoConnect: false };
 
 test('模型决策收据只记录显式选择与脱敏可用连接，不生成自动路由或密钥读取能力', () => {
   const receipt = createModelDecisionReceipt({ profileId: 'build', authorityMode: 'review', connections: [connection] });

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRealProgressStages } from '../src/components/observability/real-progress-projection.js';
+import type { ProviderDiagnosticEntry } from '../src/runtime/provider-diagnostics';
 
-const diagnostic = { schemaVersion: 1 as const, traceId: 'direct-test-1', at: 1, elapsedMs: 30, providerId: 'provider-1', displayName: '示例连接', protocol: 'openai-compatible' as const, baseUrl: 'https://api.example.test/v1', model: 'example-model', stage: 'probe' as const, outcome: 'succeeded' as const, includedImages: false, sharedNativeSession: true };
+const diagnostic: ProviderDiagnosticEntry = { schemaVersion: 1, traceId: 'direct-test-1', at: 1, elapsedMs: 30, providerId: 'provider-1', displayName: '示例连接', protocol: 'openai-compatible', baseUrl: 'https://api.example.test/v1', model: 'example-model', stage: 'probe', outcome: 'succeeded', includedImages: false, sharedNativeSession: true };
 
 test('真实阶段投影只依据已有回执、显式知识库索引和当前聊天状态，不产生计时步骤', () => {
   const stages = createRealProgressStages({ connectionCount: 1, diagnostics: [diagnostic], knowledge: [{ schemaVersion: 1 as const, id: 'knowledge-1', title: '显式资料', sourceKind: 'manual-text' as const, declaredBytes: 1, indexedAt: 1, termIndex: [], sourcePreview: '仅本地预览。' }], streaming: true, messageCount: 4 });

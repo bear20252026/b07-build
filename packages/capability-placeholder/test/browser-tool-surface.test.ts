@@ -183,3 +183,98 @@ test('可注入缝：注入真实处理器时能被调用并回传其结果', as
   assert.equal(result.isError, false);
   assert.equal(result.content[0]?.text, '页面标题：示例');
 });
+
+// ---------------------------------------------------------------------------
+// 跨层契约：声明里必须覆盖 Rust 侧**实际要求**的每个参数。
+//
+// 背景（已确认的缺陷）：`close_session` 的公开声明只要求 `sessionId`，而 Rust 映射层
+// 却要求 `targetId` —— 于是**按公开声明构造的正常关闭请求**在映射处被
+// `MissingParameter` 拒掉，永远走不到本地处理器。同类问题还有 `tabs` 的 close 分支。
+//
+// 下面这张表是 Rust 侧必填参数的**对照表**。它不是自动生成的：Rust 与 TS 之间没有
+// 共享 schema，所以任一侧改动都必须同步这里。对照的 Rust 测试是
+// `crates/cdp-client/src/tool_map.rs` 的
+// `关会话只带公开声明的session_id即可不再要求target_id` 与 `本地工具即使完全不带参数也不会被映射层拒绝`，
+// 以及 `apps/desktop-shell/src-tauri/src/browser_tools.rs` 的
+// `关闭会话只带sessionId即可成功（公开契约即可走通）`。
+// ---------------------------------------------------------------------------
+
+/**
+ * 取工具的短名（`mcp__browser__tabs` → `tabs`）。
+ *
+ * 对照表的键用短名：Rust 侧的映射表也是按短名分派的（见 `tool_map.rs` 的 `tool_suffix`）。
+ */
+function toolSuffix(name: string): string {
+  return parseMcpToolName(name)?.toolName ?? name;
+}
+
+/** Rust 侧在各工具上实际要求的参数（除 sessionId 外）。 */
+const RUST_REQUIRED_PARAMS: Readonly<Record<string, readonly string[]>> = {
+  // 会话生命周期工具在本地处理，不要求任何参数。
+  create_session: [],
+  list_sessions: [],
+  close_session: [],
+  snapshot: [],
+  take_screenshot: [],
+  navigate: ['url'],
+  click: [],
+  type: [],
+  fill_form: [],
+  press_key: [],
+  select_option: [],
+  wait_for: [],
+  // close 分支要求稳定 targetId；select 分支要求 index。
+  tabs: ['targetId', 'index'],
+};
+
+test('公开声明覆盖Rust侧要求的每个参数', () => {
+  for (const spec of BROWSER_TOOL_SPECS) {
+    const required = RUST_REQUIRED_PARAMS[toolSuffix(spec.name)];
+    assert.ok(required, `${spec.name} 未登记在对照表中`);
+    const declared = new Set(spec.parameters.map((parameter) => parameter.name));
+    for (const name of required) {
+      assert.ok(declared.has(name), `${spec.name} 的公开声明缺少 Rust 侧要求的参数：${name}`);
+    }
+  }
+});
+
+test('对照表覆盖全部13个工具（新增工具必须同步登记）', () => {
+  assert.equal(BROWSER_TOOL_SPECS.length, 13);
+  for (const spec of BROWSER_TOOL_SPECS) {
+    assert.ok(toolSuffix(spec.name) in RUST_REQUIRED_PARAMS, `${spec.name} 未登记在对照表中`);
+  }
+  assert.equal(Object.keys(RUST_REQUIRED_PARAMS).length, 13);
+});
+
+test('会话生命周期工具的公开声明只要求它们真正用到的参数', () => {
+  // 这三个工具由原生侧本地处理，只读 sessionId（create 还可选 profileName）。
+  // 声明里多要一个参数就会把正常请求挡在门外 —— 这正是 close_session 曾经的问题。
+  const expected: Readonly<Record<string, readonly string[]>> = {
+    createSession: ['profileName'],
+    listSessions: [],
+    closeSession: ['sessionId'],
+  };
+  for (const [name, parameters] of Object.entries(expected)) {
+    const spec = findBrowserToolSpec(BROWSER_TOOL_NAMES[name as 'createSession']);
+    assert.ok(spec, `${name} 应有声明`);
+    assert.deepEqual(spec.parameters.map((parameter) => parameter.name), parameters, name);
+  }
+});
+
+test('会话生命周期工具的公开声明里没有targetId', () => {
+  // targetId 是 CDP 的目标概念，不是会话概念。曾经映射层错把它当成必填，
+  // 于是公开声明里没有的字段成了事实上的必填项。
+  for (const name of ['createSession', 'listSessions', 'closeSession'] as const) {
+    const spec = findBrowserToolSpec(BROWSER_TOOL_NAMES[name]);
+    assert.ok(spec);
+    assert.equal(spec.parameters.some((parameter) => parameter.name === 'targetId'), false, name);
+  }
+});
+
+test('tabs的close分支要求的targetId已在声明中', () => {
+  const spec = findBrowserToolSpec(BROWSER_TOOL_NAMES.tabs);
+  assert.ok(spec);
+  const targetId = spec.parameters.find((parameter) => parameter.name === 'targetId');
+  assert.ok(targetId, 'tabs 必须声明 targetId —— Rust 的 close 分支要求它');
+  assert.equal(targetId.type, 'string');
+});
