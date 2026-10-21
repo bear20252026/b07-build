@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ToolRegistry, type ToolDescriptor, mcpToolName, parseMcpToolName } from '@awo/protocol';
+import { ToolRegistry, type ToolDescriptor } from '@awo/protocol';
 import { McpClientPool } from '../src/runtime/zcode/mcp-client-pool';
 import { McpLoopbackTransport } from '../src/runtime/zcode/mcp-client-transport';
 
@@ -91,7 +91,7 @@ test('人工裁决：拒绝 → 不执行；允许 → 执行并把结果交给�
   const denied = await controller.callTool('read_note', { id: 1 });
   assert.equal(denied.ok, false);
   if (!denied.ok) assert.equal(denied.reason, 'mcpapp-approval-denied');
-  assert.deepEqual(seen, [], '拒绝后不触达执行器');
+  assert.equal(seen.length, 0, '拒绝后不触达执行器');
 
   const approving = new McpAppMountController();
   approving.mount({
