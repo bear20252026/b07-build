@@ -41,9 +41,11 @@ import { loadCompanionStudioPreferences, saveCompanionStudioPreferences, updateC
 import { loadWorkspaceFilePreferences, saveWorkspaceFilePreferences, type WorkspaceFilePreferencesV1 } from './runtime/workspace-file-contract';
 import { assistantArtifactFileName, loadAssistantArtifacts, persistAssistantArtifacts, type AssistantArtifactEntry, type AssistantArtifactTarget } from './runtime/assistant-artifact-ledger';
 import type { DirectConversationMessage } from './runtime/use-direct-conversations';
-import { loadInstalledPluginCatalog } from './runtime/plugin-reference-catalog';
+import { loadInstalledPluginCatalog, type InstalledPluginCatalogEntry } from './runtime/plugin-reference-catalog';
 import { buildPluginReferenceContext, pluginReminderBlock } from './runtime/plugin-reference-context';
 import { mcpServerStatuses } from './runtime/mcp-servers-store';
+import { PluginMentionPicker, readPluginMentionQuery, type PluginMentionQuery } from './components/workspace/PluginMentionPicker';
+import { pluginMentionMarkup, type PluginMentionCandidate } from './runtime/plugin-mention-catalog';
 import { nativePlatformClient, type NativeRuntimePlatform } from './runtime/native-platform';
 
 const localProjectClient = createProjectClient();
@@ -145,6 +147,13 @@ export function App() {
   const [researchMode, setResearchMode] = useState<'web-search' | Last30DaysMode | 'hybrid' | 'searxng-local'>('web-search');
   const [composerCollapsed, setComposerCollapsed] = useState(false);
   const [composerAttachments, setComposerAttachments] = useState<readonly ComposerFileAttachment[]>([]);
+  // 输入框 ref：`@` 引用要按光标位置插入并恢复焦点，受控 textarea 不给 ref 就只能靠 document.querySelector。
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const [installedPlugins, setInstalledPlugins] = useState<readonly InstalledPluginCatalogEntry[]>();
+  const [pluginMention, setPluginMention] = useState<PluginMentionQuery>();
+  // picker 展开期间从输入框转发来的按键。picker 需要知道按的是哪一个键（↑ 与 Enter 不同），
+  // 所以传事件对象而不是计数器。
+  const [pluginMentionKey, setPluginMentionKey] = useState<{ readonly key: string; readonly seq: number }>();
   const [inspectorSurface, setInspectorSurface] = useState<'api' | 'artifacts' | 'companion' | 'workspace-files' | 'terminal-coding' | 'project-memory' | 'context-budget' | 'conversation-checkpoints' | 'usage-ledger' | 'session-performance' | 'real-progress' | 'local-knowledge' | 'github-collaboration' | 'zcode-session'>();
   const [, setActiveGoal] = useState<string>();
   const [activeProfile, setActiveProfile] = useState<AgentProfileId>('build');
@@ -233,6 +242,32 @@ export function App() {
   };
   const addComposerAttachments = (files: FileList | null): void => setComposerAttachments((current) => mergeComposerFileAttachments(current, files));
   const removeComposerAttachment = (id: string): void => setComposerAttachments((current) => current.filter((item) => item.descriptor.id !== id));
+
+  // `@` 引用：只在装了插件时才展开 picker。没装插件时 `@` 就是普通字符 ——
+  // 弹一个空列表只会让人以为功能坏了。
+  const pluginMentionAvailable = (installedPlugins?.length ?? 0) > 0;
+  const onComposerChange = (value: string): void => {
+    setDraft(value);
+    const cursor = composerRef.current?.selectionStart ?? value.length;
+    setPluginMention(pluginMentionAvailable ? readPluginMentionQuery(value, cursor) : undefined);
+  };
+  const insertPluginMention = (candidate: PluginMentionCandidate): void => {
+    const mention = pluginMention;
+    if (!mention) return;
+    // 整段替换 `@...`：留下的若是半个 `@fs`，解析侧会当成"意图命中但格式非法"。
+    const next = `${draft.slice(0, mention.start)}${pluginMentionMarkup(candidate)}${draft.slice(mention.end)}`;
+    setDraft(next);
+    setPluginMention(undefined);
+    // 光标落在插入标记之后，用户可以直接接着写。不恢复焦点的话，用户点完选项就丢焦点了。
+    const caret = mention.start + pluginMentionMarkup(candidate).length;
+    window.setTimeout(() => {
+      const target = composerRef.current;
+      if (!target) return;
+      target.focus();
+      target.setSelectionRange(caret, caret);
+    }, 0);
+  };
+  const closePluginMention = (): void => setPluginMention(undefined);
   const pageTitle: Record<WorkbenchPage, string> = { workspace: messages.task.title, projects: '项目', task: '当前任务', models: 'API 连接', connections: '已连接模型', operations: '运行记录', 'api-usage': 'API 使用审计', 'workspace-files': '工作区与文件', 'terminal-coding': '终端与编码', capabilities: '扩展与能力', 'agency-roles': '预置专业角色', 'browser-sessions': '浏览会话控制', 'mcp-apps': 'MCP 应用挂载', companion: 'Companion Agent', 'companion-service-sources': '服务来源', 'companion-body-modules': '机体模块', 'companion-character-models': '角色模型', 'companion-character-cards': 'AIRI 角色卡', 'companion-system': 'Companion 系统', security: '安全与系统' };
   const workbenchSurface = resolveWorkbenchSurface({ activePage, hasTaskSnapshot: false });
   const isTaskPage = workbenchSurface === 'task-page';
@@ -248,6 +283,18 @@ export function App() {
     void desktopDiagnosticsClient.read().then((snapshot) => { if (!disposed) setDesktopDiagnostics(snapshot); }).catch(() => { if (!disposed) setDesktopDiagnostics(undefined); });
     return () => { disposed = true; };
   }, [activePage, providerControl.connections.length]);
+
+  // 已安装插件目录：`@` 引用的候选来源。
+  //
+  // 与 `buildPluginReminderForTurn` 同一条纪律 —— **读不到不挡任何事**：目录读失败就当没装插件，
+  // picker 不出现，发送照常。插件是增强，不是发送的前置条件。
+  useEffect(() => {
+    let disposed = false;
+    void loadInstalledPluginCatalog()
+      .then((catalog) => { if (!disposed) setInstalledPlugins(catalog); })
+      .catch(() => { if (!disposed) setInstalledPlugins(undefined); });
+    return () => { disposed = true; };
+  }, []);
 
   const submitIntent = async (): Promise<void> => {
     const goal = draft.trim();
@@ -426,15 +473,34 @@ export function App() {
         {activePage === 'workspace' && <div className={`task-composer${composerCollapsed ? ' task-composer--collapsed' : ''}`}>
           {composerCollapsed ? <button className="composer-expand" onClick={() => setComposerCollapsed(false)} title="展开对话编辑器以输入任务。" type="button"><span aria-hidden="true">↑</span> 展开对话编辑器</button> : <>
             <ComposerAttachments attachments={composerAttachments.map((attachment) => attachment.descriptor)} onAdd={addComposerAttachments} onRemove={removeComposerAttachment} />
-            <textarea
-              aria-label={messages.task.goalAria}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') void submitIntent();
-              }}
-              placeholder={messages.task.goalPlaceholder}
-              value={draft}
-            />
+            <div className="composer-input-wrap">
+              <textarea
+                aria-label={messages.task.goalAria}
+                onChange={(event) => onComposerChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') void submitIntent();
+                  // picker 展开时把 Esc / ↑↓ / Enter 交给它。**不转发原生事件** ——
+                  // picker 管理的是自己的高亮下标，靠 dispatchEvent 传键不会更新它。
+                  if (!pluginMention) return;
+                  if (event.key === 'Escape') { event.preventDefault(); closePluginMention(); return; }
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter') {
+                    event.preventDefault();
+                    setPluginMentionKey((current) => ({ key: event.key, seq: (current?.seq ?? 0) + 1 }));
+                  }
+                }}
+                placeholder={messages.task.goalPlaceholder}
+                ref={composerRef}
+                value={draft}
+              />
+              {pluginMention && <PluginMentionPicker
+                forwardedKey={pluginMentionKey}
+                installed={installedPlugins ?? []}
+                onClose={closePluginMention}
+                onSelect={insertPluginMention}
+                query={pluginMention.query}
+                servers={mcpServerStatuses()}
+              />}
+            </div>
             <div className="composer-footer">
               <span className="composer-hint">{messages.task.composerHint} · 输入 <code>/github</code> 打开本地 GitHub 协作窗口。</span>
               <div className="composer-actions">

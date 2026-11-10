@@ -79,3 +79,23 @@
 5. `@` picker：列出"可用插件"（= 声明 ∩ 已配置 ∩ 已连接）
 
 预计 2–3 批。
+
+---
+
+## 落地状态（2026-10-18）
+
+1–4 已交付：`McpServersCard`（设置页登记 + 手动连接）、`plugin_reference_catalog`
+（Rust 读账本）、`buildPluginReferenceContext` 接进 `send()` 的 `pluginReminder` 入参。
+
+5（`@` picker）已交付，形态与这里原本的设想要有一处**刻意的差别**：
+
+- 不只列"可用插件"，而是**列全部已安装插件**，把不可用的按原因标注
+  （`no_declared_server` / `server_not_configured` / `not_connected` /
+  `no_visible_tools` / `invalid_identifier`）。
+- 理由：只列可用的会让用户把"装了但没连上"误读成"没装"。未就绪是**信息**，
+  隐藏它才是骗人。不可用的项不可选中，但看得见原因。
+- 候选与插入文本由 `runtime/plugin-mention-catalog.ts` 纯函数产出，
+  与 reminder 共用同一套交集语义，因此 picker 里显示"可用"的插件，
+  插进去一定真的会产生提示 —— 不会出现"选了但没生效"。
+
+相关文件：`runtime/plugin-mention-catalog.ts`、`components/workspace/PluginMentionPicker.tsx`。

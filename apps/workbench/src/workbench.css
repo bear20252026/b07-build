@@ -137,6 +137,21 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .task-composer { width: min(100% - 40px, 800px); margin: 0 auto 26px; padding: 14px; border: 1px solid var(--border-strong); border-radius: 24px; background: var(--panel); box-shadow: var(--shadow-float); }
 .task-composer textarea { width: 100%; min-height: 62px; padding: 8px 9px; color: var(--text-strong); resize: none; outline: 0; border: 0; background: transparent; line-height: 1.55; }
 .task-composer textarea::placeholder { color: var(--muted); }
+/* `@` 引用候选浮层：绝对定位在输入区下方，不参与文档流 —— 展开时不该把 composer 撑高。 */
+.composer-input-wrap { position: relative; }
+.plugin-mention-picker { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% - 12px); max-height: 264px; overflow-y: auto; padding: 6px; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow-float); }
+.plugin-mention-picker ul { margin: 0; padding: 0; list-style: none; }
+.plugin-mention-item { display: grid; gap: 2px; padding: 7px 9px; border-radius: 10px; cursor: pointer; }
+.plugin-mention-item.is-active { background: var(--panel-muted); }
+.plugin-mention-item.is-blocked { cursor: not-allowed; opacity: .62; }
+.plugin-mention-label { color: var(--text-strong); font-size: 12px; font-weight: 680; }
+.plugin-mention-id { color: var(--muted); font-size: 11px; }
+.plugin-mention-status { font-size: 11px; }
+.plugin-mention-status.ready { color: #1f7a3d; }
+.plugin-mention-status.blocked { color: #9a5b00; }
+.plugin-mention-empty { margin: 0; padding: 8px 9px; color: var(--muted); font-size: 12px; }
+.plugin-mention-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 9px 2px; color: var(--muted); font-size: 10px; }
+.plugin-mention-footer button { padding: 3px 8px; color: var(--muted-strong); font-size: 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); }
 .composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 4px 0; }
 .composer-hint { color: var(--muted); font-size: 11px; }
 .composer-actions { display: flex; align-items: center; gap: 8px; }
