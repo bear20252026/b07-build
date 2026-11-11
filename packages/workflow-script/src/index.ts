@@ -5,10 +5,11 @@
 // - `compile`：对着 facade 做类型检查，位置换算回作者坐标。
 // - `sites`：把脚本里的效应静态枚举成**稳定身份**的站点表。
 // - `journal`：续跑不重跑已做过的效应；额度在执行前判。
+// - `runner`：驱动层 —— 按站点身份跑效应、查 journal、判额度。不碰 IO。
 // - `prepare`：运行前必须知道的全部事情，一次问清。
 //
-// 不在这里做的事（也刻意不做）：派活、跑命令、落盘。那是驱动层的事，
-// 而驱动层需要真实 IO —— 本包保持纯粹，才能被完整地单测。
+// 不在这里做的事（也刻意不做）：派活、跑命令、落盘的**具体实现**。那是宿主的事，
+// 而宿主需要真实 IO —— 本包保持纯粹，才能被完整地单测。
 
 export { WORKFLOW_FACADE_DTS, WORKFLOW_FACADE_FILE_NAME } from './facade.js';
 
@@ -18,16 +19,22 @@ export {
   createWorkflowProgram,
   facadeDiagnostics,
   toAuthorLocation,
+  toAuthorOffset,
   type WorkflowDiagnostic,
   type WorkflowProgram,
 } from './compile.js';
 
 export {
   NON_LITERAL_COMMAND_CODE,
+  SITE_DISPATCH_FUNCTION_NAME,
   collectSites,
+  collectSiteSpans,
+  rewriteEffectCalls,
   type WorkflowSite,
   type WorkflowSiteDiagnostic,
   type WorkflowSiteKind,
+  type WorkflowSiteSpan,
+  type WorkflowSiteSpanTable,
   type WorkflowSiteTable,
 } from './sites.js';
 
@@ -50,6 +57,20 @@ export {
 } from './journal.js';
 
 export { describeEffects, prepareWorkflowRun, type PreparedWorkflowRun } from './prepare.js';
+
+export {
+  parseJournal,
+  runWorkflowScript,
+  transpileWorkflowScript,
+  type RunnerAskResult,
+  type RunnerDiagnostic,
+  type RunnerGrepMatch,
+  type RunnerSiteOutcome,
+  type RunnerWorldRunResult,
+  type WorkflowJournalStore,
+  type WorkflowRunOutcome,
+  type WorkflowRuntime,
+} from './runner.js';
 
 export {
   WORKFLOW_CLI_DIAGNOSTICS,

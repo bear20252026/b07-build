@@ -138,6 +138,17 @@ export function toAuthorLocation(sourceFile: ts.SourceFile, position: number): {
   return { line: Math.max(1, wrapped.line + 1 - PRELUDE_LINES), column: wrapped.character + 1 };
 }
 
+/**
+ * 把 wrapped 源码里的**偏移**换算成脚本原文的偏移。
+ *
+ * 与 `toAuthorLocation` 是同一件事的偏移版本：wrapped 只是在原文前面加了一行前缀，
+ * 所以两个坐标系的偏移量恰好相差一个前缀长度（前缀是纯 ASCII，不存在代理对问题）。
+ * 执行期要按偏移改写调用表达式（见 `sites.ts` 的 `rewriteEffectCalls`），需要这个换算。
+ */
+export function toAuthorOffset(position: number): number {
+  return position - SCRIPT_PRELUDE.length;
+}
+
 /** 把一条 TS 诊断换算成脚本原文坐标。 */
 function toScriptDiagnostic(sourceFile: ts.SourceFile, diagnostic: ts.Diagnostic): WorkflowDiagnostic {
   const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');

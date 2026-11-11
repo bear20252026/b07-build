@@ -31,7 +31,12 @@
 import * as ts from 'typescript';
 
 import { WORKFLOW_FACADE_FILE_NAME } from './facade.js';
-import { WORKFLOW_FUNCTION_NAME, toAuthorLocation, type WorkflowProgram } from './compile.js';
+import {
+  WORKFLOW_FUNCTION_NAME,
+  toAuthorLocation,
+  toAuthorOffset,
+  type WorkflowProgram,
+} from './compile.js';
 
 /** 站点的种类。 */
 export type WorkflowSiteKind = 'actor' | 'ask' | 'world-run' | 'world-read';
@@ -65,6 +70,38 @@ export interface WorkflowSiteDiagnostic {
 export interface WorkflowSiteTable {
   /** 按源码顺序排列的全部站点。 */
   readonly sites: readonly WorkflowSite[];
+  readonly diagnostics: readonly WorkflowSiteDiagnostic[];
+}
+
+/**
+ * 带**源码偏移**的站点。
+ *
+ * 执行期要按偏移把调用表达式改写成 `__site(...)`（见 `rewriteEffectCalls`），
+ * 所以除了对外的站点信息，还要知道它在源码里的确切位置。
+ */
+export interface WorkflowSiteSpan extends WorkflowSite {
+  /** 调用表达式在 **wrapped** 源码里的起始偏移（不含前导空白）。 */
+  readonly start: number;
+  /** 调用表达式在 wrapped 源码里的结束偏移（不含）。 */
+  readonly end: number;
+}
+
+/** 注入到脚本里的站点派发函数名。 */
+export const SITE_DISPATCH_FUNCTION_NAME = '__site';
+
+/**
+ * 需要运行期派发的站点种类。
+ *
+ * `actor` **不在其中**：它不产生外部副作用（真正的活在 `ask` 上），不进 journal
+ * 也不占额度（见 `journal.ts` 的 `usedEffects`）。更重要的是它在 facade 里是
+ * **同步**的（`declare function agent(...): Agent`），包成返回 Promise 的派发
+ * 会把 `const a = agent('甲'); a.ask('一')` 这种正常写法弄坏。
+ */
+const DISPATCHED_KINDS: ReadonlySet<WorkflowSiteKind> = new Set(['world-run', 'world-read', 'ask']);
+
+/** 收集结果（含偏移，供执行期改写用）。 */
+export interface WorkflowSiteSpanTable {
+  readonly sites: readonly WorkflowSiteSpan[];
   readonly diagnostics: readonly WorkflowSiteDiagnostic[];
 }
 
@@ -208,11 +245,27 @@ function labelFor(kind: WorkflowSiteKind, call: ts.CallExpression): string {
   }
 }
 
-/** 收集站点表。 */
+/** 收集站点表（对外形态，不含偏移）。 */
 export function collectSites(program: WorkflowProgram): WorkflowSiteTable {
+  const { sites, diagnostics } = collectSiteSpans(program);
+  return {
+    sites: sites.map(({ start: _start, end: _end, ...site }) => site),
+    diagnostics,
+  };
+}
+
+/** 收集站点表（含源码偏移，供执行期改写调用用）。 */
+export function collectSiteSpans(program: WorkflowProgram): WorkflowSiteSpanTable {
   const checker = program.program.getTypeChecker();
   /** 先收成"无名"的，排完序再编号 —— 编号顺序必须是**源码位置顺序**，见下方注释。 */
-  const collected: { kind: WorkflowSiteKind; line: number; column: number; end: number; label: string }[] = [];
+  const collected: {
+    kind: WorkflowSiteKind;
+    line: number;
+    column: number;
+    start: number;
+    end: number;
+    label: string;
+  }[] = [];
   const diagnostics: WorkflowSiteDiagnostic[] = [];
 
   const visit = (node: ts.Node): void => {
@@ -226,6 +279,7 @@ export function collectSites(program: WorkflowProgram): WorkflowSiteTable {
           kind,
           line: location.line,
           column: location.column,
+          start,
           end: node.getEnd(),
           label: labelFor(kind, node),
         });
@@ -263,12 +317,79 @@ export function collectSites(program: WorkflowProgram): WorkflowSiteTable {
     (left, right) => left.line - right.line || left.column - right.column || left.end - right.end,
   );
   const counters = new Map<WorkflowSiteKind, number>();
-  const sites: WorkflowSite[] = ordered.map((site) => {
+  const sites: WorkflowSiteSpan[] = ordered.map((site) => {
     const count = (counters.get(site.kind) ?? 0) + 1;
     counters.set(site.kind, count);
-    return { id: `${site.kind}#${count}`, kind: site.kind, line: site.line, column: site.column, label: site.label };
+    return {
+      id: `${site.kind}#${count}`,
+      kind: site.kind,
+      line: site.line,
+      column: site.column,
+      start: site.start,
+      end: site.end,
+      label: site.label,
+    };
   });
   diagnostics.sort((left, right) => left.line - right.line || left.column - right.column);
 
   return { sites, diagnostics };
+}
+
+/**
+ * 把效应调用改写成 `__site("<siteId>", () => <原调用>)`。
+ *
+ * ## 为什么必须在编译期做，而不是运行时按调用顺序计数
+ *
+ * 站点身份是**按源码顺序**编的号（`world-run#1`、`world-run#2`…），而运行时能观察
+ * 到的只有"这是第几次调用"。这两者在**循环**里必然错位：
+ *
+ *     for (const f of ['a', 'b']) await world.run('git', ['diff', f]);
+ *
+ * 源码里只有一个 `world-run` 站点，但运行时要跑两次。按调用计数会把第二次叫成
+ * `world-run#2` —— 站点表里根本没有这个条目，于是要么报"找不到站点"，要么更糟：
+ * 续跑时把两次执行记到不同键上，看起来"没复用"却其实重跑了。
+ *
+ * 改成编译期注入后，同一个源码站点的每次执行都带**同一个** siteId，attempt 由
+ * runner 按执行次数递增 —— 这正是 journal 键需要的形式。
+ *
+ * ## 实现：按偏移 splice，而不是打印 AST
+ *
+ * 站点区间要么不相交，要么嵌套（`agent(x).ask(y)` 的内外两层）。嵌套时**外层必须先
+ * 输出**，否则内层会被先消费掉、外层拿到错误的结束偏移。所以排序是
+ * `start 升序、end 降序` —— 与编号用的顺序（`end` 升序）正好相反，两者都要。
+ *
+ * 用递归渲染处理嵌套：渲染一个站点时，把它整段区间交给递归，递归里再处理落在
+ * 这段区间内的内层站点。
+ */
+export function rewriteEffectCalls(source: string, program: WorkflowProgram): string {
+  const spans = collectSiteSpans(program).sites.filter((site) => DISPATCHED_KINDS.has(site.kind));
+  if (spans.length === 0) return source;
+
+  // 换回**作者原文**坐标系，并按"外层在前"排序。
+  const ordered = spans
+    .map((site) => ({ id: site.id, start: toAuthorOffset(site.start), end: toAuthorOffset(site.end) }))
+    .sort((left, right) => left.start - right.start || right.end - left.end);
+
+  let index = 0;
+  /** 渲染 [start, end) 这段原文，把落在里面的站点改写成 `__site(...)`。 */
+  const render = (start: number, end: number): string => {
+    let out = '';
+    let cursor = start;
+    while (index < ordered.length && ordered[index].start < end) {
+      const site = ordered[index];
+      // 起点落在已消费区间里的，是刚才那次递归已经处理过的内层站点。
+      if (site.start < cursor) {
+        index += 1;
+        continue;
+      }
+      out += source.slice(cursor, site.start);
+      index += 1;
+      out += `${SITE_DISPATCH_FUNCTION_NAME}(${JSON.stringify(site.id)}, () => ${render(site.start, site.end)})`;
+      cursor = site.end;
+    }
+    out += source.slice(cursor, end);
+    return out;
+  };
+
+  return render(0, source.length);
 }
