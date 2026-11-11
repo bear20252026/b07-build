@@ -1,5 +1,5 @@
 import type { Translation } from '../../i18n/catalog';
-import type { WorkbenchNativeHostAuthenticationReport } from '../../runtime/task-client';
+import type { WorkbenchNativeHostAuthenticationReport } from '../../runtime/task-types';
 
 interface NativeHostAuthenticationBoardProps {
   report?: WorkbenchNativeHostAuthenticationReport;

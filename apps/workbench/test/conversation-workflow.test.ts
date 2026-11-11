@@ -12,7 +12,7 @@ test('会话分支保留原会话且只复制所选消息之前的可见账本',
 });
 
 test('检查点与导出不包含隐藏 context 或活动数据', () => {
-  const checkpoint = checkpointConversation(conversation, 'checkpoint-1', '澄清完成', 3);
+  const checkpoint = checkpointConversation(conversation, 'checkpoint-1', '澄清完成', 3, 1);
   assert.equal(checkpoint.messageCount, 2);
   const markdown = conversationMarkdown(conversation);
   const json = conversationJson(conversation);

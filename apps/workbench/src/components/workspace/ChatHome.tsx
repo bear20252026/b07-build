@@ -7,7 +7,7 @@ import { messageWindowStart, MESSAGE_RENDER_WINDOW } from './chat-timeline-windo
 import { parseMathSegments } from './math-text';
 import { useChatAutoScroll } from './use-chat-auto-scroll';
 import type { DirectConversation, DirectConversationActivity, DirectConversationMessage } from '../../runtime/use-direct-conversations';
-import type { WorkbenchProviderConnection, WorkbenchProviderModelDiscovery } from '../../runtime/task-client';
+import type { WorkbenchProviderConnection, WorkbenchProviderModelDiscovery } from '../../runtime/task-types';
 import { explicitHomeModelSelection, homeModelCapabilityHint, homeModelChoices, isSelectableHomeModel, resolveHomeModelSelection } from '../../runtime/home-model-switching';
 import { isSearchRunKind, searchRunLabel, searchRunMode, searchRunStatus, type SearchRunMode } from '../../runtime/search-run-card';
 import { recordSessionPerformance } from '../../runtime/session-performance-ledger';

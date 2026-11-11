@@ -1,5 +1,5 @@
 import type { Translation } from '../../i18n/catalog';
-import type { WorkbenchLocalModelHealth } from '../../runtime/task-client';
+import type { WorkbenchLocalModelHealth } from '../../runtime/task-types';
 
 interface LocalModelHealthBoardProps {
   readonly models: readonly WorkbenchLocalModelHealth[] | undefined;

@@ -1,5 +1,5 @@
 import type { Translation } from '../../i18n/catalog';
-import type { WorkbenchSecurityPostureReport } from '../../runtime/task-client';
+import type { WorkbenchSecurityPostureReport } from '../../runtime/task-types';
 
 interface SecurityPostureAuditBoardProps {
   report?: WorkbenchSecurityPostureReport;

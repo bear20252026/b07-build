@@ -1,0 +1,228 @@
+// 工作区文件回退 —— 把变更日志、规划器与原生写入面接起来。
+//
+// 三件事：
+// 1. `previewWorkspaceFileRewind`：读日志 → 过完整性闸 → 交给规划器。
+// 2. `planToPatchOperations`：把计划映射成原生 `workspace_patch` 的操作形状。
+// 3. 两个 IO 适配器：从 Tauri 读文件状态、用 WebCrypto 算摘要。
+//
+// ## 为什么"不完整就阻断"这一步在本层而不是规划器里
+//
+// 规划器只认识"记录 + 当前文件状态"，不认识日志的存储细节（丢过多少条、是否作废）。
+// 而这两件事恰恰决定"这份历史能不能用来还原文件"：有洞的历史会产出一个**漏掉文件
+// 的"安全"计划**——比明确拒绝更危险。故本层把不完整信号转成一个 `checkpoint_unreadable`
+// 的不安全条目，让规划器的整次阻断逻辑接管。
+//
+// ## 为什么映射不做二次翻译
+//
+// 规划器的 `FileRewindOperation` 与原生 `PatchOperation` 字段一一对应，本层只做
+// 命名转换（`action` → `kind`，camelCase → snake_case）。之所以能一一对应，是因为
+// 回退在设计上就**复用原生 patch 批次**，从而继承它的 CAS 校验、原生回滚与审批门，
+// 不新增任何原生写入命令（见 docs/design/workspace-file-rewind-cas-design.md §2.2）。
+
+import {
+  MISSING_CONTENT_SHA256,
+  type ContentHasher,
+  type CurrentFileStateReader,
+  type FileRewindOperation,
+  type FileRewindPlan,
+  type FileRewindUnsafeFile,
+  recordsAfterSequence,
+} from './workspace-file-rewind-contract.js';
+import { applyPreparedPatchBatch } from './workspace-tools.js';
+import type { WorkspaceWriteApprover } from './workspace-tools.js';
+import type { WorkspaceFileChangeRecorder } from './workspace-file-journal.js';
+import { buildWorkspaceFileRewindPlan } from './workspace-file-rewind.js';
+import {
+  readWorkspaceFileJournal,
+  type WorkspaceFileJournalStorage,
+} from './workspace-file-journal.js';
+
+/** 日志不完整（有洞或已作废）时的稳定错误码。 */
+export const FILE_REWIND_JOURNAL_INCOMPLETE_CODE = 'checkpoint_unreadable' as const;
+
+/** 原生 patch 操作形状（`workspace_stage_patch_batch` 的入参元素）。 */
+export interface WorkspacePatchOperationLike {
+  readonly kind: 'update' | 'add' | 'delete';
+  readonly path: string;
+  readonly previous_sha256?: string;
+  readonly next_sha256?: string;
+  readonly next_content?: string;
+}
+
+export interface WorkspaceFileRewindPreviewInput {
+  readonly storage: WorkspaceFileJournalStorage;
+  readonly conversationId: string;
+  readonly reader: CurrentFileStateReader;
+  readonly hasher: ContentHasher;
+  /**
+   * 目标检查点的日志位置（`DirectConversationCheckpoint.fileChangeSequence`）。
+   *
+   * **省略等于"回到会话开始"**，会撤掉本会话的全部文件改动。这是一个合法用法
+   * （"这轮对话的改动我全都不要了"），但它与"回到某个检查点"不是一回事 ——
+   * 所以调用方必须显式决定传什么，不能靠默认值蒙。
+   */
+  readonly fromSequence?: number;
+}
+
+/**
+ * 预览一次文件回退。
+ *
+ * 只读：不写任何文件、不领票据。回退是破坏性动作，必须先能看清"会动哪些、哪些被拦下"。
+ */
+export async function previewWorkspaceFileRewind(
+  input: WorkspaceFileRewindPreviewInput,
+): Promise<FileRewindPlan> {
+  const journal = readWorkspaceFileJournal(input.storage, input.conversationId);
+
+  // 完整性闸：日志有洞（丢过记录）或已作废时，**不能**拿它去规划。
+  // 一份漏了记录的历史会算出一个"安全"的计划，而那个计划会漏掉本该还原的文件 ——
+  // 用户看到"回退成功"，但工作区并没有回到那一刻。明确拒绝才是对的。
+  if (journal.unjournalable || journal.droppedCount > 0) {
+    const reason: FileRewindUnsafeFile = {
+      path: 'workspace',
+      reason: FILE_REWIND_JOURNAL_INCOMPLETE_CODE,
+      operationCount: journal.droppedCount,
+      toolNames: [],
+      message: journal.unjournalable
+        ? '该会话的文件变更历史已作废（曾出现无法记录的写入），无法安全还原文件。'
+        : `该会话的文件变更历史有 ${journal.droppedCount} 条记录已被丢弃，无法安全还原文件。`,
+    };
+    return { canApply: false, nothingToDo: false, safeFiles: [], unsafeFiles: [reason], ignoredFiles: [], operations: [] };
+  }
+
+  // 切片：只回退**目标位置之后**的改动。
+  //
+  // 不切片（把整份日志都退回去）在"回到中途某个检查点"时会把更早的改动一起撤掉，
+  // 而多退是不可逆的 —— 这是本模块最容易犯、也最难在测试里显形的一类错。
+  let records = journal.records;
+  if (input.fromSequence !== undefined) {
+    const sliced = recordsAfterSequence(journal.records, input.fromSequence);
+    if (sliced === undefined) {
+      // 够不到：更早的记录已被丢弃或清空过。此时"把现有的都退了"会漏文件，
+      // 而用户看到的是"回退成功"。
+      const reason: FileRewindUnsafeFile = {
+        path: 'workspace',
+        reason: FILE_REWIND_JOURNAL_INCOMPLETE_CODE,
+        operationCount: 0,
+        toolNames: [],
+        message: '该检查点之后的文件变更记录已不完整（日志被清空或丢弃过），无法安全还原到那一刻。',
+      };
+      return { canApply: false, nothingToDo: false, safeFiles: [], unsafeFiles: [reason], ignoredFiles: [], operations: [] };
+    }
+    records = sliced;
+  }
+
+  return buildWorkspaceFileRewindPlan({
+    records,
+    reader: input.reader,
+    hasher: input.hasher,
+  });
+}
+
+/**
+ * 把回退计划映射成原生 patch 批次的操作列表。
+ *
+ * 调用方应只在 `plan.canApply` 为真时使用它 —— 计划被阻断时 `operations` 已为空，
+ * 这里再返回空数组只是把同一条纪律表达两次。
+ */
+export function planToPatchOperations(plan: FileRewindPlan): readonly WorkspacePatchOperationLike[] {
+  return plan.operations.map((operation) => toPatchOperation(operation));
+}
+
+function toPatchOperation(operation: FileRewindOperation): WorkspacePatchOperationLike {
+  if (operation.action === 'delete') {
+    // 原生 delete 分支只接受 previous_sha256，不接受 next_*。
+    return { kind: 'delete', path: operation.path, previous_sha256: operation.previousSha256 };
+  }
+  // restore 在原生侧就是 update：把内容写成检查点时的样子。
+  return {
+    kind: 'update',
+    path: operation.path,
+    previous_sha256: operation.previousSha256,
+    ...(operation.nextContent !== null ? { next_content: operation.nextContent } : {}),
+    ...(operation.nextSha256 !== null ? { next_sha256: operation.nextSha256 } : {}),
+  };
+}
+
+/** 从原生读文件当前状态。读失败转成 `failed`，不抛异常（端口约定）。 */
+export function createTauriWorkspaceFileStateReader(
+  invokeCommand: (command: string, args?: Record<string, unknown>) => Promise<unknown>,
+): CurrentFileStateReader {
+  return {
+    async read(path) {
+      try {
+        const result = (await invokeCommand('workspace_read_file', { path })) as { content?: unknown };
+        if (typeof result?.content !== 'string') {
+          return { failed: '原生返回的文件内容形状不符。' };
+        }
+        return { exists: true, content: result.content };
+      } catch (error: unknown) {
+        // 文件不存在与"读不动"必须分开：前者是合法的当前状态（回退可能就是要删掉它），
+        // 后者是"判不了"（fail-closed）。原生用 `workspace-file-not-found` 区分。
+        const code = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
+        if (code.includes('file-not-found') || code.includes('not-found')) {
+          return { exists: false, content: null };
+        }
+        return { failed: code || '读取工作区文件失败。' };
+      }
+    },
+  };
+}
+
+/** 用 WebCrypto 算内容摘要。内容为 `null` 时返回缺失哨兵。 */
+export function createWebCryptoContentHasher(): ContentHasher {
+  return {
+    async sha256(content) {
+      if (content === null) return MISSING_CONTENT_SHA256;
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
+      return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    },
+  };
+}
+
+/**
+ * 落盘一次文件回退。
+ *
+ * 走的是与普通补丁**完全相同**的路径（`applyPreparedPatchBatch`：逐文件确认 →
+ * stage → commit → 为真正落盘的留痕）。回退是破坏性动作，绝不能有"不用确认"的旁路。
+ *
+ * 返回可直接展示给用户的一句话；调用方不要自己拼。
+ */
+export async function applyFileRewindPlan(input: {
+  readonly plan: FileRewindPlan;
+  readonly approve: WorkspaceWriteApprover;
+  readonly recordFileChange?: WorkspaceFileChangeRecorder;
+}): Promise<string> {
+  if (input.plan.nothingToDo) return '工作区已经处于该检查点的状态，无需改动。';
+  if (!input.plan.canApply) {
+    // 计划被阻断时不要"尽力而为"地退一部分：只退一半会让工作区停在一个
+    // 从未存在过的中间状态。把原因原样转告。
+    const reasons = input.plan.unsafeFiles.map((file) => `${file.path}：${file.message ?? file.reason}`);
+    return ['无法回退（整次阻断，未改动任何文件）：', ...reasons.map((line) => `- ${line}`)].join('\n');
+  }
+  const prepared = input.plan.operations.map((operation) => ({
+    operation: toPatchOperation(operation),
+    displayPath: operation.path,
+    // 审批界面要看到"会丢掉什么"，故 previous 用规划时读到的当前内容。
+    previous: operation.currentContent ?? '',
+    next: operation.nextContent ?? '',
+    // 回退的期望值来自记录，不做宽松匹配：对不上就是外部改动，已在规划阶段阻断。
+    lenient: false,
+  }));
+  const outcome = await applyPreparedPatchBatch({
+    prepared,
+    approve: input.approve,
+    recordFileChange: input.recordFileChange,
+    toolName: 'workspace_rewind_files',
+  });
+  if (!outcome.ok) return outcome.message;
+  const applied = outcome.result.applied;
+  const lines = [`已回退 ${applied.length} 个文件操作：`];
+  for (const item of applied) {
+    const verb = item.kind === 'delete' ? '删除' : '还原';
+    lines.push(`- ${verb} ${item.path}`);
+  }
+  if (outcome.result.rolledBack.length) lines.push(`- 提交过程中失败的操作已回滚：${outcome.result.rolledBack.join('、')}`);
+  if (outcome.result.rollbackErrors.length) lines.push(`- ⚠ 以下文件回滚失败，需要人工检查：${outcome.result.rollbackErrors.join('、')}`);
+  return lines.join('\n');
+}

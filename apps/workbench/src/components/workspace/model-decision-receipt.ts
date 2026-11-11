@@ -1,5 +1,5 @@
 import type { AgentProfileId } from '@awo/protocol';
-import type { WorkbenchAuthorityMode, WorkbenchProviderConnection } from '../../runtime/task-client';
+import type { WorkbenchAuthorityMode, WorkbenchProviderConnection } from '../../runtime/task-types';
 
 export interface ModelDecisionReceipt { profileId: AgentProfileId; authorityMode: WorkbenchAuthorityMode; connectionStatus: 'unconfigured' | 'available'; connectedProviderCount: number; summary: string; canAutoRoute: false; canReadSecret: false; }
 

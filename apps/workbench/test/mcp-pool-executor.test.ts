@@ -1,5 +1,8 @@
 // 一个文件=一种作用：池化执行器（McpAppToolExecutor 缺省实现）的端到端验收测试。
-// 覆盖 P0-1c 通电语义：canonical 名解析、业务/协议失败分流、租约必归还。
+// 覆盖：canonical 名解析、业务/协议失败分流、租约必归还。
+//
+// 会话协议已交给官方 SDK，所以假服务器必须真的会说 MCP（应答 initialize），
+// 且响应要满足 SDK 的 schema 校验（tools/list 的 `inputSchema` 是必填的）。
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -7,14 +10,18 @@ import { ToolRegistry } from '@awo/protocol';
 import { McpClientPool } from '../src/runtime/zcode/mcp-client-pool';
 import { createMcpPoolToolExecutor } from '../src/runtime/zcode/mcp-pool-executor';
 import { McpLoopbackTransport } from '../src/runtime/zcode/mcp-client-transport';
-import { encodeMcpFrame, parseMcpFrame, type McpJsonRpcRequest } from '../src/runtime/zcode/mcp-client-wire';
 
-/** 自动应答 initialize / tools/list / tools/call 的假服务器；可注入 error 与冻结。 */
+interface JsonRpcRequest {
+  id?: string | number;
+  method: string;
+  params?: unknown;
+}
+
+/** 自动应答 initialize / tools/list / tools/call 的假服务器；可注入 error。 */
 class FakeMcpServer {
-  readonly requests: McpJsonRpcRequest[] = [];
+  readonly requests: JsonRpcRequest[] = [];
   toolResult: unknown = { content: [{ type: 'text', text: 'note-body' }] };
   private failCall = false;
-  private readonly handlers = new Set<(line: string) => void>();
 
   constructor(private readonly peer: McpLoopbackTransport) {
     peer.subscribe({ onLine: (line) => void this.handle(line) });
@@ -25,24 +32,30 @@ class FakeMcpServer {
   }
 
   private async handle(line: string): Promise<void> {
-    const message = parseMcpFrame(line);
-    if (!message || !('method' in message) || !('id' in message)) return;
-    const request = message as McpJsonRpcRequest;
+    let request: JsonRpcRequest;
+    try {
+      request = JSON.parse(line) as JsonRpcRequest;
+    } catch {
+      return;
+    }
+    if (request.id === undefined) return; // 通知不回
     this.requests.push(request);
+    const reply = (payload: unknown): Promise<void> => this.peer.send(JSON.stringify(payload));
     // failToolsCall 只作用于 tools/call：initialize 必须正常握手，
     // 否则测的就是握手失败而不是协议失败路径。
     if (this.failCall && request.method === 'tools/call') {
-      await this.peer.send(encodeMcpFrame({ jsonrpc: '2.0', id: request.id, error: { code: -32603, message: 'server boom' } }));
+      await reply({ jsonrpc: '2.0', id: request.id, error: { code: -32603, message: 'server boom' } });
       return;
     }
-    const params = (request.params ?? {}) as Record<string, unknown>;
-    const result =
-      request.method === 'initialize'
-        ? { protocolVersion: '2025-11-25', capabilities: {}, serverInfo: { name: 'fake', version: '1' } }
-        : request.method === 'tools/call'
-          ? this.toolResult
-          : { tools: [] };
-    await this.peer.send(encodeMcpFrame({ jsonrpc: '2.0', id: request.id, result }));
+    if (request.method === 'initialize') {
+      await reply({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } } });
+      return;
+    }
+    if (request.method === 'tools/call') {
+      await reply({ jsonrpc: '2.0', id: request.id, result: this.toolResult });
+      return;
+    }
+    await reply({ jsonrpc: '2.0', id: request.id, result: { tools: [] } });
   }
 }
 
@@ -92,7 +105,12 @@ test('协议失败（tools/call error 应答）：抛错，且租约已归还', 
   const h = harness();
   h.server.failToolsCall();
   const executor = createMcpPoolToolExecutor({ pool: h.pool });
-  await assert.rejects(() => executor.execute('mcp__demo__read_note', {}), /mcp-request-failed:server boom/);
+  // 具体措辞来自 SDK（形如 "MCP error -32603: server boom"），
+  // 所以这里只钉住"原因码正确 + 服务端消息透传"，不钉 SDK 的措辞。
+  await assert.rejects(
+    () => executor.execute('mcp__demo__read_note', {}),
+    (error: Error) => error.message.startsWith('mcp-request-failed:') && error.message.includes('server boom'),
+  );
   await h.pool.close();
 });
 

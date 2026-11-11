@@ -5,9 +5,12 @@
 // 选一，与 ZCode 的 McpConnectionContext.isolation 同义）；引用归零后不立即
 // 断，宽限 30s 内的新 acquire 直接复用同一会话（省一次握手）；宽限到点才真
 // 关。close() 排空：先拒新 acquire，再关全部 entry（含宽限中的）。
+//
+// 会话由官方 SDK 承担（`SdkMcpSession`）——协议、分帧、请求关联、超时取消都不再由
+// 本仓自己实现。这里只剩**池化**：复用、引用计数、宽限回收。
 
-import { McpClientSession } from './mcp-client-session.js';
 import type { McpWireTransport } from './mcp-client-transport.js';
+import { SdkMcpSession, type McpLeaseSession } from './mcp-sdk-session.js';
 
 export type McpIsolation = 'session' | 'workspace';
 
@@ -29,7 +32,7 @@ export interface McpClientPoolOptions {
 
 export interface McpPoolLease {
   readonly entry: McpPoolEntryKey;
-  readonly session: McpClientSession;
+  readonly session: McpLeaseSession;
   /** 归还引用；归零后进入空闲宽限而非立即关闭。 */
   release(): void;
 }
@@ -38,11 +41,11 @@ interface PoolEntry {
   readonly key: string;
   readonly spec: McpPoolEntryKey;
   /** 握手完成后回填；connecting 在途期间为 undefined。 */
-  session: McpClientSession | undefined;
+  session: SdkMcpSession | undefined;
   transport: McpWireTransport | undefined;
   refs: number;
   closeTimer?: ReturnType<typeof setTimeout>;
-  connecting?: Promise<McpClientSession>;
+  connecting?: Promise<SdkMcpSession>;
 }
 
 const DEFAULT_IDLE_GRACE_MS = 30_000;
@@ -99,11 +102,10 @@ export class McpClientPool {
     entry.connecting = (async () => {
       const transport = await this.options.createTransport(spec);
       entry.transport = transport;
-      entry.session = new McpClientSession({
+      entry.session = new SdkMcpSession({
         serverId: spec.serverId,
         transport,
-        requestTimeoutMs: this.options.requestTimeoutMs,
-        ...(this.options.randomId ? { nextId: this.options.randomId } : {}),
+        ...(this.options.requestTimeoutMs !== undefined ? { requestTimeoutMs: this.options.requestTimeoutMs } : {}),
       });
       try {
         await entry.session.connect();

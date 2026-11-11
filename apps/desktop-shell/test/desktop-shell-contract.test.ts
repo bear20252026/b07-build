@@ -317,5 +317,8 @@ test('开屏仅是有界品牌过渡，尊重 reduced-motion 且不参与 Provid
   assert.equal(workbenchApp.includes('gatewayAttached={providerControl.connections.length > 0}'), false, 'Provider 连接数量不得伪装成 Gateway 附着状态');
   assert.ok(workbenchApp.includes('providerReady={providerControl.connections.length > 0}'), '首页必须使用 Provider 就绪状态而不是 Gateway 状态');
   assert.equal(chatHome.includes('gatewayAttached'), false, 'ChatHome 不得继续依赖 Gateway 命名');
-  assert.ok(workbenchApp.includes('const [localServiceReady] = useState(false)'), '当前直接 Provider 架构的本机辅助服务必须默认关闭');
+  // 本机辅助服务（apps/runtime-gateway）已于 2026-08-26 整体删除。此前这里断言的是
+  // "localServiceReady 必须默认 false"，即服务还在、只是关着。现在连开关都没有了 ——
+  // 断言变成"不得再出现该开关"，比原来更强：没有任何面板可以靠它假装"待启用"。
+  assert.equal(workbenchApp.includes('localServiceReady'), false, '本机辅助服务已移除，不应再有 localServiceReady 开关');
 });

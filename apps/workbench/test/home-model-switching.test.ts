@@ -1,16 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { explicitHomeModelSelection, homeModelCapabilityHint, homeModelChoices, isSelectableHomeModel } from '../src/runtime/home-model-switching';
+import type { WorkbenchProviderConnection } from '../src/runtime/task-types';
 
-const mimo = {
-  schemaVersion: 1 as const,
+// 夹具按生产契约类型标注：字面量类型（canReadSecret: false 等）由上下文决定，
+// 契约加必填字段时这里编译期就失败，而不是等到运行时。
+const mimo: WorkbenchProviderConnection = {
+  schemaVersion: 1,
   providerId: 'mimo-token-plan-cn',
   displayName: '我的 MiMo Token Plan（中国）',
   driverId: 'desktop-direct.openai-compatible',
   defaultModel: 'mimo-v2.5-pro',
   credentialReference: 'native-session',
-  credentialAvailability: 'available' as const,
-  profileStatus: 'active' as const,
+  credentialAvailability: 'available',
+  profileStatus: 'active',
   profileRevision: 1,
   canReadSecret: false,
   canAutoConnect: false,

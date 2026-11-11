@@ -1,6 +1,6 @@
 import type { TaskEvent } from '@awo/protocol';
 import { useLocale } from '../../i18n/LocaleProvider';
-import type { WorkbenchTaskSnapshot } from '../../runtime/task-client';
+import type { WorkbenchTaskSnapshot } from '../../runtime/task-types';
 
 export interface ControlPlaneInsightsProps {
   snapshot?: WorkbenchTaskSnapshot;

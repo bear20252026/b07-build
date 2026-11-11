@@ -13,6 +13,16 @@ import {
   type PluginPageTimer,
 } from '../src/runtime/zcode/plugin-page-manager';
 
+/**
+ * 受控结算的 Promise。不用 `Promise.withResolvers`：本项目 lib 是 ES2022，
+ * 它不在类型清单里——运行时能跑但类型检查看不见，正是这批要堵的洞。
+ */
+function deferred<T>(): { readonly promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((fulfill) => { resolve = fulfill; });
+  return { promise, resolve };
+}
+
 /** 可手动推进的假时钟：timer 注册回调，advance 按时间序触发到期回调。 */
 function createClock(): { timer: PluginPageTimer; advance: (ms: number) => void } {
   let now = 0;
@@ -60,7 +70,7 @@ function makePage(key: string, task = key): FakePage {
     visible: false,
     busy: () => busy,
     running: () => running,
-    suspend: () => {
+    suspend: async () => {
       suspendCalls += 1;
       running = false;
       return suspendImpl ? suspendImpl() : suspendResult;
@@ -203,11 +213,11 @@ test('迟到保护：排队准入在任务删除时被取消', async () => {
 test('迟到保护：异步回收期间页面被删除则拒绝占用已撤销槽位', async () => {
   const clock = createClock();
   const manager = createManager(clock);
-  const entered = Promise.withResolvers<void>();
-  const recycled = Promise.withResolvers<boolean>();
+  const entered = deferred<void>();
+  const recycled = deferred<boolean>();
   const first = makePage('first', 'task');
   first.setSuspendImpl(() => {
-    entered.resolve();
+    entered.resolve(undefined);
     return recycled.promise;
   });
   await manager.add(first);

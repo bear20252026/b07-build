@@ -27,17 +27,19 @@
     "android:init": "npm exec --workspace=@awo/desktop-shell -- tauri android init --ci",
     "android:build:apk": "npm exec --workspace=@awo/desktop-shell -- tauri android build --apk --target aarch64",
     "android:build:aab": "npm exec --workspace=@awo/desktop-shell -- tauri android build --aab",
-    "performance:check": "npm run build --workspace=@awo/workbench && node tools/performance-budget.mjs"
+    "performance:check": "npm run build --workspace=@awo/workbench && node tools/performance-budget.mjs",
+    "agency:catalog": "node --import tsx tools/generate-agency-role-catalog.mjs && node --import tsx tools/emit-workbench-agency-catalog.ts"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "colord": "2.9.4",
+    "decode-uri-component": "0.5.1",
     "dependency-cruiser": "^18.2.0",
+    "dompurify": "3.4.17",
     "esbuild": "0.25.0",
+    "fast-uri": "3.1.9",
     "postject": "1.0.0-alpha.6",
     "tsx": "^4.23.12",
     "typescript": "^5.5.4"
-  },
-  "overrides": {
-    "fast-uri": "^3.1.8"
   }
 }

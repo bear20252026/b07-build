@@ -1,0 +1,8 @@
+{
+  "name": "@awo/plugin-reference",
+  "version": "0.1.0",
+  "description": "AI Work OS - 插件 @ 引用：严格解析、会话内冻结目录与只含标识符的能力提示（纯包，无 IO）",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts"
+}

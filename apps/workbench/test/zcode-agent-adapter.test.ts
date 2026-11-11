@@ -3,7 +3,7 @@ import test from 'node:test';
 import { ZCodeAgentAdapter } from '../src/runtime/zcode/zcode-agent-adapter';
 import type { ZCodeProtocolDeps } from '../src/runtime/zcode/zcode-protocol-client';
 
-interface Frame { readonly id?: number; readonly method?: string; readonly params?: unknown; readonly result?: unknown; readonly error?: { readonly code: number; readonly message: string }; }
+interface Frame { readonly id?: number | string; readonly method?: string; readonly params?: unknown; readonly result?: unknown; readonly error?: { readonly code: number; readonly message: string }; }
 type Outcome = { readonly result?: unknown } | undefined;
 
 /**
@@ -330,10 +330,11 @@ test('补齐轮仍填不上洞即升级为 includeSnapshot 权威快照，快照
 
   await transport.pump((frame) => (frame.params as { includeSnapshot?: boolean })?.includeSnapshot === true ? { result: { sessionId: 'sess_abc', eventSeq: 6, snapshot: { runtime: { eventSeq: 6 }, messages: [] } } } : undefined, 4000);
   await transport.settle();
-  assert.deepEqual(events, [{ kind: 'notification', method: 'session/snapshot', payload: { runtime: { eventSeq: 6 }, messages: [] } }]);
+  // 逐条断言而非整数组 deepEqual：后者会把 events 收窄成快照那一条的类型。
+  assert.deepEqual(events.at(-1), { kind: 'notification', method: 'session/snapshot', payload: { runtime: { eventSeq: 6 }, messages: [] } });
   assert.equal(adapter.isStreamIncomplete, false);
   transport.feedLine(envelope(7));
-  assert.equal((events[1] as { envelope: { seq: number } }).envelope.seq, 7, '快照水位之后按新基准续播');
+  assert.equal((events.at(-1) as { kind: string; envelope: { seq: number } }).envelope.seq, 7, '快照水位之后按新基准续播');
   await adapter.close();
 });
 

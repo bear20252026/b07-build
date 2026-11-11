@@ -60,6 +60,8 @@ const missingPaths = new Set<string>();
 /** 批量提交桩的 scripted 行为：失败码或应答用的操作清单。 */
 let patchCommitFailure: string | undefined;
 let lastStagedOperations: readonly Record<string, unknown>[] | undefined;
+/** 断言侧读取要走函数：外层控制流只看到 `= undefined` 那次赋值，会把变量收窄成 undefined。 */
+const stagedOperations = (): readonly Record<string, unknown>[] => lastStagedOperations ?? [];
 (globalThis as unknown as { window: unknown }).window = {
   __TAURI_INTERNALS__: {
     invoke: async (cmd: string, args: Record<string, unknown>) => {
@@ -215,9 +217,9 @@ test('补丁：单文件精确修改走 读原文 → 逐文件审批 → 整批
     invokeCalls.map((call) => call.cmd),
     ['workspace_read_file', 'workspace_stage_patch_batch', 'workspace_commit_patch'],
   );
-  assert.equal(lastStagedOperations?.length, 1);
-  assert.equal(lastStagedOperations?.[0]?.kind, 'update');
-  assert.equal(lastStagedOperations?.[0]?.nextContent, 'const timeout = 10;\n');
+  assert.equal(stagedOperations().length, 1);
+  assert.equal(stagedOperations()[0]?.kind, 'update');
+  assert.equal(stagedOperations()[0]?.nextContent, 'const timeout = 10;\n');
   readOverrides.delete('src/app.ts');
 });
 
@@ -274,10 +276,10 @@ test('补丁第二期：add / delete / move 走原生批量事务，操作载荷
     'src/junk.ts|content|empty',
     'src/old.ts → src/renamed.ts|content|content',
   ]);
-  assert.equal(lastStagedOperations?.length, 3);
-  assert.deepEqual(lastStagedOperations?.map((operation) => operation.kind), ['add', 'delete', 'update']);
-  assert.equal(lastStagedOperations?.[0]?.nextContent, 'export const fresh = 1;\n');
-  assert.equal(lastStagedOperations?.[2]?.movePath, 'src/renamed.ts');
+  assert.equal(stagedOperations().length, 3);
+  assert.deepEqual(stagedOperations().map((operation) => operation.kind), ['add', 'delete', 'update']);
+  assert.equal(stagedOperations()[0]?.nextContent, 'export const fresh = 1;\n');
+  assert.equal(stagedOperations()[2]?.movePath, 'src/renamed.ts');
   readOverrides.delete('src/old.ts');
   missingPaths.delete('src/new.ts');
   missingPaths.delete('src/renamed.ts');

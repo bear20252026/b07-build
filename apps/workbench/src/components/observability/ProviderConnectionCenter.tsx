@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import './ProviderConnectionCenter.css';
-import type { WorkbenchProviderConnection, WorkbenchProviderConnectionProbe, WorkbenchProviderInference, WorkbenchProviderModelDiscovery } from '../../runtime/task-client';
+import type { WorkbenchProviderConnection, WorkbenchProviderConnectionProbe, WorkbenchProviderInference, WorkbenchProviderModelDiscovery } from '../../runtime/task-types';
 import type { WorkbenchProviderStreamingOutput } from '../../runtime/use-provider-control-plane';
 import type { DesktopDiagnosticsSnapshot } from '../../runtime/desktop-diagnostics-client';
 import { providerDiagnosticEntries, providerDiagnosticReport, subscribeProviderDiagnostics, type ProviderDiagnosticEntry } from '../../runtime/provider-diagnostics';

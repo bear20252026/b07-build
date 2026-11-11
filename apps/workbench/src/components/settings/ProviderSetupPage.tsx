@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useEffect } from 'react';
-import type { WorkbenchProviderConnection, WorkbenchProviderModelDiscovery } from '../../runtime/task-client';
+import type { WorkbenchProviderConnection, WorkbenchProviderModelDiscovery } from '../../runtime/task-types';
 import { OFFICIAL_PROVIDER_PRESETS, type OfficialProviderPreset } from '../../runtime/official-provider-catalog';
 import { deleteCredential, loadCredential, storeCredential } from '../../runtime/credentials';
 import './ProviderSetupPage.css';

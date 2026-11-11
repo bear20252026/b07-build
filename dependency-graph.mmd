@@ -5,14 +5,17 @@ graph LR
   m_capability_placeholder["capability-placeholder (managed)"]
   m_desktop_shell["desktop-shell (legacy)"]
   m_knowledge_workflow["knowledge-workflow (managed)"]
+  m_plugin_reference["plugin-reference (managed)"]
   m_protocol["protocol (managed)"]
   m_provider_sdk["provider-sdk (managed)"]
   m_provider_sdk_browser["provider-sdk-browser (managed)"]
   m_workbench["workbench (managed)"]
+  m_workflow_script["workflow-script (managed)"]
   m_agent_runtime --> m_capability_placeholder
   m_agent_runtime --> m_protocol
   m_capability_placeholder --> m_protocol
   m_provider_sdk_browser --> m_provider_sdk
   m_workbench --> m_capability_placeholder
+  m_workbench --> m_plugin_reference
   m_workbench --> m_protocol
   m_workbench --> m_provider_sdk_browser

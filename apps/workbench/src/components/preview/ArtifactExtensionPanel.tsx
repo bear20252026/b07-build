@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { WorkbenchTaskFile, WorkbenchTaskFilePreview } from '../../runtime/task-client';
+import type { WorkbenchTaskFile, WorkbenchTaskFilePreview } from '../../runtime/task-types';
 import type { AssistantArtifactEntry } from '../../runtime/assistant-artifact-ledger';
 import { projectArtifactRailEntries, projectArtifactRailTree, type ArtifactRailEntry, type ArtifactRailTreeNode } from './artifact-extension-projection';
 
@@ -7,12 +7,17 @@ const ARTIFACT_EXTENSION_STYLE = `.artifact-extension{position:relative;min-widt
 const EXPANDED_STORAGE_KEY = 'awo.artifact-rail-expanded.v1';
 
 export interface ArtifactExtensionPanelProps {
-  taskFiles: readonly WorkbenchTaskFile[];
+  /**
+   * 任务产出的文件。**可选** —— 任务执行引擎已随 `apps/runtime-gateway` 一并移除，
+   * 现在没有数据来源。省略时这一支不渲染，助手产物仍然可用。
+   */
+  taskFiles?: readonly WorkbenchTaskFile[];
   assistantArtifacts: readonly AssistantArtifactEntry[];
   width: number;
   onClose(): void;
   onResize(width: number): void;
-  onPreviewTaskFile(taskFileId: string): Promise<WorkbenchTaskFilePreview>;
+  /** 与 `taskFiles` 配套；两者必须同时提供或同时省略。 */
+  onPreviewTaskFile?(taskFileId: string): Promise<WorkbenchTaskFilePreview>;
   onPreviewAssistantArtifact(entry: AssistantArtifactEntry): Promise<Readonly<{ content: string; logicalPath: string; byteSize: number; truncated: boolean }>>;
   onExportAssistantArtifact(entry: AssistantArtifactEntry): Promise<Readonly<{ exported: boolean; displayName: string; byteSize: number }>>;
 }
@@ -48,7 +53,7 @@ function loadExpandedFolders(): ReadonlySet<string> {
   }
 }
 
-export function ArtifactExtensionPanel({ taskFiles, assistantArtifacts, width, onClose, onResize, onPreviewTaskFile, onPreviewAssistantArtifact, onExportAssistantArtifact }: ArtifactExtensionPanelProps) {
+export function ArtifactExtensionPanel({ taskFiles = [], assistantArtifacts, width, onClose, onResize, onPreviewTaskFile, onPreviewAssistantArtifact, onExportAssistantArtifact }: ArtifactExtensionPanelProps) {
   const entries = useMemo(() => projectArtifactRailEntries(taskFiles, assistantArtifacts), [taskFiles, assistantArtifacts]);
   const tree = useMemo(() => projectArtifactRailTree(entries), [entries]);
   const [selectedId, setSelectedId] = useState<string>();
@@ -91,6 +96,9 @@ export function ArtifactExtensionPanel({ taskFiles, assistantArtifacts, width, o
     setError(undefined);
     try {
       if (entry.kind === 'task') {
+        // 任务文件支路没有数据来源时不该走到这里（`taskFiles` 为空 ⇒ 树里不会有 task 条目）。
+        // 万一走到，明确什么都不做，而不是调用一个不存在的回调。
+        if (!onPreviewTaskFile) return;
         const file = taskFiles.find((item) => `task:${item.taskFileId}` === entry.id);
         if (!file) return;
         const result = await onPreviewTaskFile(file.taskFileId);

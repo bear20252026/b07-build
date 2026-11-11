@@ -1,4 +1,4 @@
-import type { WorkbenchTaskFile } from '../../runtime/task-client';
+import type { WorkbenchTaskFile } from '../../runtime/task-types';
 import type { AssistantArtifactEntry } from '../../runtime/assistant-artifact-ledger';
 
 export type ArtifactRailEntry = Readonly<{

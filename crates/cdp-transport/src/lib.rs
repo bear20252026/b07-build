@@ -316,34 +316,38 @@ impl CdpConnection {
         Ok(registered)
     }
 
-    /// 把方法名与参数编成一行 JSON，并把当前目标会话 id 附到 `sessionId`。
+    /// 把方法名与参数编成一行 JSON；有目标会话时把 `sessionId` 放在**顶层**。
+    ///
+    /// ## 为什么 `sessionId` 不能并入 `params`
+    ///
+    /// CDP 的扁平会话模型要求目标会话由与 `id`、`method` **并列**的顶层 `sessionId`
+    /// 表达。曾经这里把 sessionId 插进 `params`，后果不是报错而是**静默走偏**：对端
+    /// 不认这个位置，于是把命令当作浏览器级命令执行——`Runtime.evaluate` 会在浏览器级
+    /// 上下文求值，而不是在那个已 attach 的页面里。
+    ///
+    /// 原先的传输测试恰好断言了 `params.sessionId`，把错误格式固定成了通过条件；
+    /// 现在的测试断言顶层字段**并反向断言 `params` 内不得出现 sessionId**。
     fn encode_command(
         &self,
         id: CommandId,
         method: &str,
         params: Option<serde_json::Value>,
     ) -> Result<String, TransportError> {
-        // 目标会话：附在 `sessionId` 字段上（CDP 的扁平会话模型）。
-        let params = match (self.session_id.as_deref(), params) {
-            (None, params) => params,
-            (Some(session_id), None) => Some(serde_json::json!({ "sessionId": session_id })),
-            (Some(session_id), Some(serde_json::Value::Object(mut map))) => {
-                map.insert(
-                    "sessionId".to_string(),
-                    serde_json::Value::String(session_id.to_string()),
-                );
-                Some(serde_json::Value::Object(map))
-            }
-            // 参数不是对象却要附加会话 id：这属于上层构造错了，直接拒绝而不是
-            // 把原参数塞进一个 `_params` 字段——后者会发出一条语义不明的命令，
-            // 对端可能接受它并做出意外动作。
-            (Some(_), Some(_)) => {
+        // 参数一旦出现必须是 JSON 对象：CDP 的 `params` 就是对象，数组/标量属于
+        // 上层构造错误。拒绝而不是发出去——对端可能接受一条语义不明的命令并做出
+        // 意外动作。
+        if let Some(value) = params.as_ref() {
+            if !value.is_object() {
                 return Err(TransportError::SendFailed(
-                    "带目标会话的命令，参数必须是 JSON 对象".to_string(),
-                ))
+                    "CDP 命令的参数必须是 JSON 对象".to_string(),
+                ));
             }
+        }
+        let frame = match self.session_id.as_deref() {
+            Some(session_id) => CommandFrame::with_session(id, method, params, session_id),
+            None => CommandFrame::new(id, method, params),
         };
-        CommandFrame::new(id, method, params)
+        frame
             .encode()
             .map_err(|error| TransportError::SendFailed(error.to_string()))
     }
