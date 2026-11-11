@@ -676,9 +676,7 @@ async fn execute_steps(
         }
         // 后置动作：依赖这一步的返回值。
         if let Some(follow_up) = step.then.as_ref() {
-            if let Err(failure) = apply_follow_up(session, step, follow_up, &value).await {
-                return Err(failure);
-            }
+            apply_follow_up(session, step, follow_up, &value).await?;
         }
         collected.push(value);
     }

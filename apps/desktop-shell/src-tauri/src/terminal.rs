@@ -500,7 +500,6 @@ mod tests {
         //
         // 用栅栏把两条路径凑到同一时刻，并跑多轮，让"偶然没撞上"的概率可忽略。
         const ROUNDS: usize = 300;
-        let mut both_admitted = 0;
         for round in 0..ROUNDS {
             let runs = Arc::new(Mutex::new(HashMap::<String, u32>::new()));
             let reserved = Arc::new(Mutex::new(HashSet::<String>::new()));
@@ -533,14 +532,9 @@ mod tests {
             let promoted = promoter.join().unwrap();
             let admitted = admitter.join().unwrap();
             if promoted && admitted {
-                both_admitted += 1;
-                assert!(
-                    false,
-                    "第 {round} 轮：交接与准入同时成功 = 同一 run_id 起了两个进程"
-                );
+                panic!("第 {round} 轮：交接与准入同时成功 = 同一 run_id 起了两个进程");
             }
         }
-        assert_eq!(both_admitted, 0);
     }
 
     #[test]

@@ -24,7 +24,7 @@
 //! ## 运行建议
 //!
 //! 每个用例各拉起一个浏览器，并行跑会压满机器（截图在 6 个并行 headless 下会超过 30s）。
-//! 机器较忙时用 `cargo test --test real_browser_e2e -- --test-threads=1`。
+//! 文件内的 `SERIAL` 锁已经保证串行，`--test-threads=1` 不再必要。
 //!
 //! 测试名用中文描述行为（仓库既有风格），故关闭该 lint。
 #![allow(non_snake_case)]
@@ -44,13 +44,15 @@ use serde_json::Value;
 ///
 /// 与其要求调用方记得加 `--test-threads=1`（默认行为就应该是稳的），
 /// 不如在文件内保证：所有用例先抢这把锁，拿到才启动浏览器。
-static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+///
+/// 必须是 **async** 锁：守卫要跨越 `.await`（连 WebSocket、等响应都在持锁期间）。
+/// 用 `std::sync::Mutex` 时守卫跨 await 会被 clippy 的 `await_holding_lock` 拦下，
+/// 而在多线程运行时里它确实可能死锁。
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// 抢串行锁。被毒化也继续 —— 一个用例 panic 不该让其余用例全挂。
-fn serialize() -> std::sync::MutexGuard<'static, ()> {
-    SERIAL
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+/// 抢串行锁。tokio 的 `Mutex` 没有毒化概念，直接 `.lock().await` 即可。
+async fn serialize() -> tokio::sync::MutexGuard<'static, ()> {
+    SERIAL.lock().await
 }
 
 /// 找不到浏览器时的统一处理：默认跳过，被要求时必须失败。
@@ -318,7 +320,7 @@ async fn 真实浏览器上顶层sessionId能路由到已attach的页面() {
     // 本项缺陷的端到端回归钉：旧实现把 sessionId 放进 `params`，命令落在浏览器级
     // 会话上，`Runtime.evaluate` 会以"方法不存在"失败。假端点抓不到这个 —— 它按
     // 我们的理解回话。
-    let _serial = serialize();
+    let _serial = serialize().await;
     let Some(executable) = find_browser() else {
         skip_or_fail("未找到 Chrome/Edge");
         return;
@@ -348,7 +350,7 @@ async fn 真实浏览器上顶层sessionId能路由到已attach的页面() {
 async fn 真实浏览器上不带会话的命令走浏览器级() {
     // 反向钉子：不设 sessionId 时 `Target.getTargets` 这类浏览器级方法必须可用。
     // 少了它，一个"把所有命令都塞进某个会话"的实现也能通过上一条测试。
-    let _serial = serialize();
+    let _serial = serialize().await;
     let Some(executable) = find_browser() else {
         skip_or_fail("未找到 Chrome/Edge");
         return;
@@ -384,7 +386,7 @@ async fn 真实浏览器上不带会话的命令走浏览器级() {
 async fn 真实浏览器上attach后能导航并读到新地址() {
     // 覆盖"动作真的发生"：导航后地址必须变。只发命令不看结果的话，
     // 一条永远不生效的导航也能让测试通过。
-    let _serial = serialize();
+    let _serial = serialize().await;
     let Some(executable) = find_browser() else {
         skip_or_fail("未找到 Chrome/Edge");
         return;
@@ -460,7 +462,7 @@ async fn 真实浏览器上失败的导航以errorText报错而不是CDP错误()
     // 不依赖 DNS、不依赖外网，也不依赖浏览器的安全策略。
     // （曾经用 `data:` 顶层导航，以为它会被策略挡下；实测它**能成功**，
     //  当时看到的 errorText 其实是冷启动抖动。写错的依据比没有依据更糟。）
-    let _serial = serialize();
+    let _serial = serialize().await;
     let Some(executable) = find_browser() else {
         skip_or_fail("未找到 Chrome/Edge");
         return;
@@ -507,7 +509,7 @@ async fn 真实浏览器上失败的导航以errorText报错而不是CDP错误()
 async fn 真实浏览器上点击能真的触发页面事件() {
     // 覆盖 click 的**后置条件**：坐标点击必须真的落到元素上，页面要收到事件。
     // 只算坐标不点击（旧实现）时，页面计数器永远停在 0。
-    let _serial = serialize();
+    let _serial = serialize().await;
     let Some(executable) = find_browser() else {
         skip_or_fail("未找到 Chrome/Edge");
         return;
@@ -587,7 +589,7 @@ async fn 真实浏览器上点击能真的触发页面事件() {
 async fn 真实浏览器上截图返回可解码的PNG() {
     // 覆盖 P2-8：截图必须是**完整**的图片数据。
     // 上一版把它当文本截断到 128_000 字符，产出不可解码的半个 base64。
-    let _serial = serialize();
+    let _serial = serialize().await;
     let Some(executable) = find_browser() else {
         skip_or_fail("未找到 Chrome/Edge");
         return;
