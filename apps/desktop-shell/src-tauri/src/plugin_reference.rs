@@ -90,7 +90,10 @@ fn parse_app_manifest(manifest_json: &str) -> (Option<String>, Vec<String>) {
 fn parse_entry(record_json: &str, app_manifest_json: Option<&str>) -> Option<PluginReferenceEntry> {
     let record: serde_json::Value = serde_json::from_str(record_json).ok()?;
     let plugin_id = record.get("id").and_then(|item| item.as_str())?.to_owned();
-    let name = record.get("name").and_then(|item| item.as_str())?.to_owned();
+    let name = record
+        .get("name")
+        .and_then(|item| item.as_str())?
+        .to_owned();
     let marketplace = record
         .get("marketplace")
         .and_then(|item| item.as_str())

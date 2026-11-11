@@ -422,7 +422,10 @@ pub async fn call_browser_tool(
             // 如实报错而不是当成"成功执行了 0 步"。
             return BrowserToolCallResult::err(
                 "browser-local-tool-misrouted",
-                format!("工具 {} 应在本地处理，不应走到 CDP 映射路径。", call.tool_name),
+                format!(
+                    "工具 {} 应在本地处理，不应走到 CDP 映射路径。",
+                    call.tool_name
+                ),
             );
         }
         ToolMapOutcome::Unmappable(failure) => {
@@ -697,7 +700,8 @@ fn rejected_action_text(value: &Value) -> Option<&str> {
 }
 
 /// 从 `Runtime.evaluate` 的 `exceptionDetails` 里取出可读原因。
-fn exception_text(details: &Value) -> String {    if let Some(exception) = details.get("exception") {
+fn exception_text(details: &Value) -> String {
+    if let Some(exception) = details.get("exception") {
         if let Some(description) = exception.get("description").and_then(Value::as_str) {
             return description.to_string();
         }
@@ -862,7 +866,11 @@ async fn evaluate(
             format!("页面脚本抛出异常：{}", exception_text(details)),
         ));
     }
-    Ok(value.get("result").and_then(|result| result.get("value")).cloned().unwrap_or(Value::Null))
+    Ok(value
+        .get("result")
+        .and_then(|result| result.get("value"))
+        .cloned()
+        .unwrap_or(Value::Null))
 }
 
 /// 等待的默认与上限（毫秒）。上限存在是为了不让一次工具调用把整个回合挂死。
@@ -973,7 +981,6 @@ async fn execute_wait_for(
 fn url_matches(current: &str, expected: &str) -> bool {
     current == expected || current.starts_with(expected)
 }
-
 
 /// 把收集到的原始结果渲染成工具返回值。
 ///
@@ -1326,7 +1333,12 @@ fn summarize_sessions(
         summaries.push(BrowserSessionSummary {
             session_id: session_id.clone(),
             target_id: Some(target_id.clone()),
-            status: if closing.contains(session_id) { "closing" } else { "active" }.to_owned(),
+            status: if closing.contains(session_id) {
+                "closing"
+            } else {
+                "active"
+            }
+            .to_owned(),
         });
     }
     // 在途会话不在 `active` 里（被取出去执行命令了），但**确实存在**。
@@ -1438,8 +1450,15 @@ mod tests {
         state.set_enabled(true).unwrap();
         state.inflight.lock().unwrap().insert("s1".to_string());
         let result = close_session(&state, Some(&serde_json::json!({ "sessionId": "s1" })));
-        assert!(!result.is_error, "在途会话的关闭请求应被接受：{:?}", result.content[0].text);
-        assert!(state.closing.lock().unwrap().contains("s1"), "关闭请求必须被登记");
+        assert!(
+            !result.is_error,
+            "在途会话的关闭请求应被接受：{:?}",
+            result.content[0].text
+        );
+        assert!(
+            state.closing.lock().unwrap().contains("s1"),
+            "关闭请求必须被登记"
+        );
     }
 
     #[test]
@@ -1448,19 +1467,31 @@ mod tests {
         state.set_enabled(true).unwrap();
         let result = close_session(&state, Some(&serde_json::json!({ "sessionId": "nope" })));
         assert!(result.is_error);
-        assert_eq!(result.error_code.as_deref(), Some("browser-session-unknown"));
+        assert_eq!(
+            result.error_code.as_deref(),
+            Some("browser-session-unknown")
+        );
     }
 
     #[test]
     fn 只有关闭会话时列表如实报告它在执行命令() {
         let state = BrowserToolState::new();
         state.set_enabled(true).unwrap();
-        assert_eq!(list_sessions(&state).content[0].text.as_deref(), Some("当前没有浏览会话。"));
+        assert_eq!(
+            list_sessions(&state).content[0].text.as_deref(),
+            Some("当前没有浏览会话。")
+        );
         state.inflight.lock().unwrap().insert("s1".to_string());
-        let text = list_sessions(&state).content[0].text.clone().unwrap_or_default();
+        let text = list_sessions(&state).content[0]
+            .text
+            .clone()
+            .unwrap_or_default();
         // 空表 ≠ 没有会话：在途那条被临时取出了，必须如实区分。
         assert!(text.contains("s1"), "应列出在途会话，实际：{text}");
-        assert!(text.contains("正在执行命令"), "应说明它在执行命令，实际：{text}");
+        assert!(
+            text.contains("正在执行命令"),
+            "应说明它在执行命令，实际：{text}"
+        );
     }
 
     #[test]
@@ -1472,7 +1503,10 @@ mod tests {
         assert_eq!(state.closing.lock().unwrap().len(), 1);
         state.set_enabled(false).unwrap();
         // 关闭后端已经让一切作废，残留的关闭请求会在下次启用后误伤同名会话。
-        assert!(state.closing.lock().unwrap().is_empty(), "关闭后端应清掉关闭请求");
+        assert!(
+            state.closing.lock().unwrap().is_empty(),
+            "关闭后端应清掉关闭请求"
+        );
     }
 
     #[test]
@@ -1482,18 +1516,29 @@ mod tests {
         let state = BrowserToolState::new();
         let initial = state.current_generation().unwrap();
         state.set_enabled(true).unwrap();
-        assert_eq!(state.current_generation().unwrap(), initial, "启用不应推进代际");
+        assert_eq!(
+            state.current_generation().unwrap(),
+            initial,
+            "启用不应推进代际"
+        );
         state.set_enabled(false).unwrap();
         assert_eq!(state.current_generation().unwrap(), initial + 1);
         state.set_enabled(false).unwrap();
-        assert_eq!(state.current_generation().unwrap(), initial + 2, "再次关闭继续推进");
+        assert_eq!(
+            state.current_generation().unwrap(),
+            initial + 2,
+            "再次关闭继续推进"
+        );
     }
 
     #[test]
     fn 代际未变才允许放回会话() {
         assert!(generation_allows_restore(Ok(7), 7), "同代际应放回");
         assert!(!generation_allows_restore(Ok(8), 7), "代际变了必须丢弃");
-        assert!(!generation_allows_restore(Err("x"), 7), "读不到代际时按不可放回处理（fail-closed）");
+        assert!(
+            !generation_allows_restore(Err("x"), 7),
+            "读不到代际时按不可放回处理（fail-closed）"
+        );
     }
 
     #[test]
@@ -1776,7 +1821,13 @@ mod tests {
         let closing: std::collections::HashSet<String> = ["s2".to_owned()].into_iter().collect();
         let summaries = summarize_sessions(&active, &std::collections::HashSet::new(), &closing);
         // 按会话 id 排序，界面顺序稳定。
-        assert_eq!(summaries.iter().map(|item| item.session_id.as_str()).collect::<Vec<_>>(), vec!["s1", "s2"]);
+        assert_eq!(
+            summaries
+                .iter()
+                .map(|item| item.session_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["s1", "s2"]
+        );
         assert_eq!(summaries[0].status, "active");
         assert_eq!(summaries[0].target_id.as_deref(), Some("tab-1"));
         // 已请求关闭的会话仍在表里，但状态必须是 closing —— 否则用户会以为它还能用。
@@ -1813,27 +1864,50 @@ mod tests {
             Some("net::ERR_ABORTED")
         );
         // 正常导航的结果里没有 errorText。
-        assert_eq!(rejected_action_text(&serde_json::json!({ "frameId": "F1" })), None);
+        assert_eq!(
+            rejected_action_text(&serde_json::json!({ "frameId": "F1" })),
+            None
+        );
         // 空串不算拒绝（有些实现会带一个空的 errorText）。
-        assert_eq!(rejected_action_text(&serde_json::json!({ "errorText": "   " })), None);
+        assert_eq!(
+            rejected_action_text(&serde_json::json!({ "errorText": "   " })),
+            None
+        );
         assert_eq!(rejected_action_text(&serde_json::json!({})), None);
         // 形状不符按"没有拒绝"处理：不能因为字段类型不对就把正常导航判成失败。
-        assert_eq!(rejected_action_text(&serde_json::json!({ "errorText": 42 })), None);
+        assert_eq!(
+            rejected_action_text(&serde_json::json!({ "errorText": 42 })),
+            None
+        );
     }
 
     #[test]
     fn 真值判定按脚本返回值() {
         // 定位脚本找不到元素时返回 false —— 必须被认出来，否则会继续往下输入。
-        assert!(!is_truthy_evaluation(&serde_json::json!({ "result": { "value": false } })));
-        assert!(is_truthy_evaluation(&serde_json::json!({ "result": { "value": true } })));
+        assert!(!is_truthy_evaluation(
+            &serde_json::json!({ "result": { "value": false } })
+        ));
+        assert!(is_truthy_evaluation(
+            &serde_json::json!({ "result": { "value": true } })
+        ));
         // 形状不符一律按假值处理：宁可误判为"没找到"而中止，也不能误判成"找到了"。
         assert!(!is_truthy_evaluation(&serde_json::json!({})));
         assert!(!is_truthy_evaluation(&serde_json::json!({ "result": {} })));
-        assert!(!is_truthy_evaluation(&serde_json::json!({ "result": { "value": null } })));
-        assert!(!is_truthy_evaluation(&serde_json::json!({ "result": { "value": 0 } })));
-        assert!(!is_truthy_evaluation(&serde_json::json!({ "result": { "value": "" } })));
-        assert!(is_truthy_evaluation(&serde_json::json!({ "result": { "value": 1 } })));
-        assert!(is_truthy_evaluation(&serde_json::json!({ "result": { "value": "x" } })));
+        assert!(!is_truthy_evaluation(
+            &serde_json::json!({ "result": { "value": null } })
+        ));
+        assert!(!is_truthy_evaluation(
+            &serde_json::json!({ "result": { "value": 0 } })
+        ));
+        assert!(!is_truthy_evaluation(
+            &serde_json::json!({ "result": { "value": "" } })
+        ));
+        assert!(is_truthy_evaluation(
+            &serde_json::json!({ "result": { "value": 1 } })
+        ));
+        assert!(is_truthy_evaluation(
+            &serde_json::json!({ "result": { "value": "x" } })
+        ));
     }
 
     #[test]
@@ -1843,8 +1917,14 @@ mod tests {
             Some((1.5, 2.5))
         );
         // null（元素没找到）不得被当成 (0,0) —— 那会在页面左上角点一下。
-        assert_eq!(returned_point(&serde_json::json!({ "result": { "value": null } })), None);
-        assert_eq!(returned_point(&serde_json::json!({ "result": { "value": { "x": 1 } } })), None);
+        assert_eq!(
+            returned_point(&serde_json::json!({ "result": { "value": null } })),
+            None
+        );
+        assert_eq!(
+            returned_point(&serde_json::json!({ "result": { "value": { "x": 1 } } })),
+            None
+        );
         assert_eq!(
             returned_point(&serde_json::json!({ "result": { "value": { "x": 1, "y": "2" } } })),
             None
@@ -1860,7 +1940,10 @@ mod tests {
             })),
             "TypeError: x is not a function"
         );
-        assert_eq!(exception_text(&serde_json::json!({ "text": "Uncaught" })), "Uncaught");
+        assert_eq!(
+            exception_text(&serde_json::json!({ "text": "Uncaught" })),
+            "Uncaught"
+        );
         assert_eq!(exception_text(&serde_json::json!({})), "（无描述）");
     }
 
@@ -1938,7 +2021,8 @@ mod tests {
     #[test]
     fn 非截图工具仍走文本块() {
         let steps = vec![step("Page.navigate")];
-        let result = render_tool_result("navigate", &steps, &[serde_json::json!({ "frameId": "F" })]);
+        let result =
+            render_tool_result("navigate", &steps, &[serde_json::json!({ "frameId": "F" })]);
         assert!(!result.is_error);
         assert_eq!(result.content[0].kind, "text");
         assert_eq!(result.content[0].data, None);

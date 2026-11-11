@@ -48,7 +48,9 @@ static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// 抢串行锁。被毒化也继续 —— 一个用例 panic 不该让其余用例全挂。
 fn serialize() -> std::sync::MutexGuard<'static, ()> {
-    SERIAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    SERIAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// 找不到浏览器时的统一处理：默认跳过，被要求时必须失败。
@@ -86,7 +88,12 @@ fn browser_candidates() -> Vec<PathBuf> {
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        for name in ["google-chrome", "chromium", "chromium-browser", "microsoft-edge"] {
+        for name in [
+            "google-chrome",
+            "chromium",
+            "chromium-browser",
+            "microsoft-edge",
+        ] {
             if let Ok(path) = which(name) {
                 candidates.push(path);
             }
@@ -154,7 +161,10 @@ fn launch_browser(executable: &Path) -> Result<(BrowserGuard, String), String> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|error| format!("启动浏览器失败：{error}"))?;
-    let guard = BrowserGuard { child, profile: profile.clone() };
+    let guard = BrowserGuard {
+        child,
+        profile: profile.clone(),
+    };
 
     // DevToolsActivePort 两行：端口 + 浏览器级 WS 路径。
     let port_file = profile.join("DevToolsActivePort");
@@ -194,7 +204,9 @@ async fn call(
         .map_err(|error| format!("发送 {method} 失败：{}", error.detail()))?;
     match connection.await_response(registered.id).await {
         Ok(CommandOutcome::Ok(value)) => Ok(value),
-        Ok(CommandOutcome::Err { code, message }) => Err(format!("{method} 返回错误 {code}：{message}")),
+        Ok(CommandOutcome::Err { code, message }) => {
+            Err(format!("{method} 返回错误 {code}：{message}"))
+        }
         Err(error) => Err(format!("等待 {method} 响应失败：{}", error.detail())),
     }
 }
@@ -248,7 +260,9 @@ async fn attach_to_page(websocket_url: &str) -> Result<(CdpConnection, String), 
 /// - **写完显式 shutdown 写半端**：给对端一个干净的 EOF，而不是靠 drop 关连接。
 async fn serve_one_page(html: &'static str) -> u16 {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("绑定本地端口");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("绑定本地端口");
     let port = listener.local_addr().expect("取本地地址").port();
     tokio::spawn(async move {
         while let Ok((mut socket, _)) = listener.accept().await {
@@ -293,7 +307,10 @@ async fn evaluate(connection: &mut CdpConnection, expression: &str) -> Result<Va
     if let Some(details) = result.get("exceptionDetails") {
         return Err(format!("页面脚本抛异常：{details}"));
     }
-    Ok(result.pointer("/result/value").cloned().unwrap_or(Value::Null))
+    Ok(result
+        .pointer("/result/value")
+        .cloned()
+        .unwrap_or(Value::Null))
 }
 
 #[tokio::test]
@@ -355,7 +372,10 @@ async fn 真实浏览器上不带会话的命令走浏览器级() {
         .await
         .expect("浏览器级 Target.getTargets 应成功");
     assert!(
-        targets.pointer("/targetInfos").and_then(Value::as_array).is_some(),
+        targets
+            .pointer("/targetInfos")
+            .and_then(Value::as_array)
+            .is_some(),
         "应返回 targetInfos 列表，实际：{targets}"
     );
 }
@@ -395,9 +415,13 @@ async fn 真实浏览器上attach后能导航并读到新地址() {
     let mut refusal = String::from("（从未收到 errorText）");
     let mut accepted = false;
     for attempt in 1..=5u32 {
-        let navigated = call(&mut connection, "Page.navigate", Some(serde_json::json!({ "url": url })))
-            .await
-            .expect("导航命令本身应成功返回");
+        let navigated = call(
+            &mut connection,
+            "Page.navigate",
+            Some(serde_json::json!({ "url": url })),
+        )
+        .await
+        .expect("导航命令本身应成功返回");
         match navigated.get("errorText").and_then(Value::as_str) {
             None => {
                 accepted = true;
@@ -461,9 +485,13 @@ async fn 真实浏览器上失败的导航以errorText报错而不是CDP错误()
         probe.local_addr().expect("取地址").port()
     };
     let url = format!("http://127.0.0.1:{dead_port}/");
-    let navigated = call(&mut connection, "Page.navigate", Some(serde_json::json!({ "url": url })))
-        .await
-        .expect("命令本身应当成功返回（失败在 errorText 里）");
+    let navigated = call(
+        &mut connection,
+        "Page.navigate",
+        Some(serde_json::json!({ "url": url })),
+    )
+    .await
+    .expect("命令本身应当成功返回（失败在 errorText 里）");
     let error_text = navigated.get("errorText").and_then(Value::as_str);
     assert!(
         error_text.is_some(),
@@ -505,9 +533,13 @@ async fn 真实浏览器上点击能真的触发页面事件() {
     )
     .await;
     let url = format!("http://127.0.0.1:{port}/");
-    call(&mut connection, "Page.navigate", Some(serde_json::json!({ "url": url })))
-        .await
-        .expect("导航应成功");
+    call(
+        &mut connection,
+        "Page.navigate",
+        Some(serde_json::json!({ "url": url })),
+    )
+    .await
+    .expect("导航应成功");
     // 等页面就绪（按钮存在）。
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -545,7 +577,9 @@ async fn 真实浏览器上点击能真的触发页面事件() {
         .expect("派发鼠标事件应成功");
     }
 
-    let hits = evaluate(&mut connection, "window.__hits || 0").await.expect("应能读到计数器");
+    let hits = evaluate(&mut connection, "window.__hits || 0")
+        .await
+        .expect("应能读到计数器");
     assert_eq!(hits, serde_json::json!(1), "点击应真的触发页面 onclick");
 }
 
@@ -579,7 +613,10 @@ async fn 真实浏览器上截图返回可解码的PNG() {
     )
     .await
     .expect("截图应成功");
-    let data = captured.get("data").and_then(Value::as_str).expect("截图应带 data");
+    let data = captured
+        .get("data")
+        .and_then(Value::as_str)
+        .expect("截图应带 data");
 
     // PNG 魔数：能解码的最直接证据。被截断的 base64 解不出这个头。
     use base64::Engine as _;

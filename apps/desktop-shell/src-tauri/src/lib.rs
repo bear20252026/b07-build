@@ -25,9 +25,9 @@ mod hybrid_search;
 #[cfg(not(mobile))]
 mod last30days;
 mod mcp_app_host;
+mod mcp_process;
 mod mcp_server_config;
 mod plugin_reference;
-mod mcp_process;
 #[cfg(not(mobile))]
 mod project_memory;
 #[cfg(not(mobile))]

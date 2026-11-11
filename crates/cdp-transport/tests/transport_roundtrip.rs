@@ -331,7 +331,11 @@ async fn 无会话的命令不带sessionId且参数原样() {
     // 无会话时不得凭空出现 `sessionId`（浏览器级命令）。
     let (mut client, mut server) = connected_with_server().await;
     let _ = client
-        .send("Page.navigate", Some(serde_json::json!({ "url": "about:blank" })), None)
+        .send(
+            "Page.navigate",
+            Some(serde_json::json!({ "url": "about:blank" })),
+            None,
+        )
         .await
         .unwrap();
     let received = server.read_json().await.unwrap().unwrap();

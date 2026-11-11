@@ -444,7 +444,10 @@ pub async fn cancel_terminal_command(
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_terminal_command, promote_reserved_to_running, valid_run_id, ClassifyTerminalCommandRequest};
+    use super::{
+        classify_terminal_command, promote_reserved_to_running, valid_run_id,
+        ClassifyTerminalCommandRequest,
+    };
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
     use tokio::sync::Mutex;
@@ -505,14 +508,22 @@ mod tests {
             let barrier = Arc::new(std::sync::Barrier::new(2));
 
             let promoter = {
-                let (runs, reserved, barrier) = (Arc::clone(&runs), Arc::clone(&reserved), Arc::clone(&barrier));
+                let (runs, reserved, barrier) = (
+                    Arc::clone(&runs),
+                    Arc::clone(&reserved),
+                    Arc::clone(&barrier),
+                );
                 std::thread::spawn(move || {
                     barrier.wait();
                     block_on(promote_reserved_to_running(&runs, &reserved, "run-1", 1))
                 })
             };
             let admitter = {
-                let (runs, reserved, barrier) = (Arc::clone(&runs), Arc::clone(&reserved), Arc::clone(&barrier));
+                let (runs, reserved, barrier) = (
+                    Arc::clone(&runs),
+                    Arc::clone(&reserved),
+                    Arc::clone(&barrier),
+                );
                 std::thread::spawn(move || {
                     barrier.wait();
                     block_on(try_admit(&runs, &reserved, "run-1"))
@@ -523,12 +534,14 @@ mod tests {
             let admitted = admitter.join().unwrap();
             if promoted && admitted {
                 both_admitted += 1;
-                assert!(false, "第 {round} 轮：交接与准入同时成功 = 同一 run_id 起了两个进程");
+                assert!(
+                    false,
+                    "第 {round} 轮：交接与准入同时成功 = 同一 run_id 起了两个进程"
+                );
             }
         }
         assert_eq!(both_admitted, 0);
     }
-
 
     #[test]
     fn 预留到运行的交接是原子的() {
@@ -548,10 +561,16 @@ mod tests {
 
             let mut handles = Vec::new();
             for index in 0..THREADS as u32 {
-                let (runs, reserved, barrier) = (Arc::clone(&runs), Arc::clone(&reserved), Arc::clone(&barrier));
+                let (runs, reserved, barrier) = (
+                    Arc::clone(&runs),
+                    Arc::clone(&reserved),
+                    Arc::clone(&barrier),
+                );
                 handles.push(std::thread::spawn(move || {
                     barrier.wait();
-                    block_on(promote_reserved_to_running(&runs, &reserved, "run-1", index))
+                    block_on(promote_reserved_to_running(
+                        &runs, &reserved, "run-1", index,
+                    ))
                 }));
             }
             // join 消耗 handle，故用显式循环而不是 filter（filter 给的是 &handle）。
@@ -563,7 +582,11 @@ mod tests {
             }
 
             assert_eq!(succeeded, 1, "第 {round} 轮：同一 run_id 只应成功启动一次");
-            assert_eq!(block_on(runs.lock()).len(), 1, "第 {round} 轮：运行表只应有一条");
+            assert_eq!(
+                block_on(runs.lock()).len(),
+                1,
+                "第 {round} 轮：运行表只应有一条"
+            );
             assert!(
                 !block_on(reserved.lock()).contains("run-1"),
                 "第 {round} 轮：交接后不应仍处于预留态"
@@ -577,7 +600,9 @@ mod tests {
         let runs = Mutex::new(HashMap::<String, u32>::new());
         let reserved = Mutex::new(HashSet::<String>::new());
         block_on(reserved.lock()).insert("run-2".to_string());
-        assert!(block_on(promote_reserved_to_running(&runs, &reserved, "run-2", 7)));
+        assert!(block_on(promote_reserved_to_running(
+            &runs, &reserved, "run-2", 7
+        )));
         assert!(block_on(runs.lock()).contains_key("run-2"));
         assert!(!block_on(reserved.lock()).contains("run-2"));
     }
@@ -588,8 +613,13 @@ mod tests {
         // 而应让调用方失败、由 kill_on_drop 收尾。
         let runs = Mutex::new(HashMap::<String, u32>::new());
         let reserved = Mutex::new(HashSet::<String>::new());
-        assert!(!block_on(promote_reserved_to_running(&runs, &reserved, "run-3", 1)));
-        assert!(block_on(runs.lock()).is_empty(), "未预留的 id 不得进入运行表");
+        assert!(!block_on(promote_reserved_to_running(
+            &runs, &reserved, "run-3", 1
+        )));
+        assert!(
+            block_on(runs.lock()).is_empty(),
+            "未预留的 id 不得进入运行表"
+        );
     }
 
     #[test]
@@ -599,8 +629,12 @@ mod tests {
         for id in ["a", "b"] {
             block_on(reserved.lock()).insert(id.to_string());
         }
-        assert!(block_on(promote_reserved_to_running(&runs, &reserved, "a", 1)));
-        assert!(block_on(promote_reserved_to_running(&runs, &reserved, "b", 2)));
+        assert!(block_on(promote_reserved_to_running(
+            &runs, &reserved, "a", 1
+        )));
+        assert!(block_on(promote_reserved_to_running(
+            &runs, &reserved, "b", 2
+        )));
         assert_eq!(block_on(runs.lock()).len(), 2);
     }
 

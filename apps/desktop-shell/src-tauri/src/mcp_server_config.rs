@@ -60,7 +60,11 @@ fn validate(entry: &McpServerConfig) -> Result<(), &'static str> {
     if entry.id.trim().is_empty() {
         return Err("mcp-server-config-id-empty");
     }
-    if !entry.id.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.')) {
+    if !entry
+        .id
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+    {
         return Err("mcp-server-config-id-invalid");
     }
     if entry.command.trim().is_empty() {
@@ -82,7 +86,8 @@ fn read_configs_from(path: &Path) -> Result<Vec<McpServerConfig>, &'static str> 
     if text.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let parsed: Vec<McpServerConfig> = serde_json::from_str(&text).map_err(|_| "mcp-server-config-corrupt")?;
+    let parsed: Vec<McpServerConfig> =
+        serde_json::from_str(&text).map_err(|_| "mcp-server-config-corrupt")?;
     Ok(parsed)
 }
 
@@ -119,7 +124,9 @@ pub fn mcp_server_config_list() -> Result<Vec<McpServerConfig>, &'static str> {
 
 /// 新增或更新一条配置，返回保存后的全量列表。
 #[tauri::command]
-pub fn mcp_server_config_save(entry: McpServerConfig) -> Result<Vec<McpServerConfig>, &'static str> {
+pub fn mcp_server_config_save(
+    entry: McpServerConfig,
+) -> Result<Vec<McpServerConfig>, &'static str> {
     validate(&entry)?;
     let path = resolve_path()?;
     let mut entries = read_configs_from(&path)?;
@@ -154,22 +161,35 @@ mod tests {
     }
 
     fn temp_path(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("b07-mcp-config-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("b07-mcp-config-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("临时目录");
         dir.join("mcp-servers.json")
     }
 
     #[test]
     fn 校验拒绝空id与空命令() {
-        assert_eq!(validate(&entry("", "node")), Err("mcp-server-config-id-empty"));
-        assert_eq!(validate(&entry("ok", "   ")), Err("mcp-server-config-command-empty"));
+        assert_eq!(
+            validate(&entry("", "node")),
+            Err("mcp-server-config-id-empty")
+        );
+        assert_eq!(
+            validate(&entry("ok", "   ")),
+            Err("mcp-server-config-command-empty")
+        );
     }
 
     #[test]
     fn 校验拒绝含空格的id() {
         // id 会被用作日志与插件引用的键，含空格/冒号会让"这个 server 是谁"变得有歧义。
-        assert_eq!(validate(&entry("my server", "node")), Err("mcp-server-config-id-invalid"));
-        assert_eq!(validate(&entry("my:server", "node")), Err("mcp-server-config-id-invalid"));
+        assert_eq!(
+            validate(&entry("my server", "node")),
+            Err("mcp-server-config-id-invalid")
+        );
+        assert_eq!(
+            validate(&entry("my:server", "node")),
+            Err("mcp-server-config-id-invalid")
+        );
         assert!(validate(&entry("my-server_1.2", "node")).is_ok());
     }
 
@@ -213,12 +233,19 @@ mod tests {
         assert_eq!(entries.len(), 2, "不得重复插入");
         assert_eq!(entries[0].command, "new");
         upsert(&mut entries, entry("c", "node"));
-        assert_eq!(entries.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(), vec!["a", "b", "c"]);
+        assert_eq!(
+            entries
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "b", "c"]
+        );
     }
 
     #[test]
     fn enabled缺省为true() {
-        let parsed: McpServerConfig = serde_json::from_str(r#"{"id":"x","command":"node"}"#).expect("解析");
+        let parsed: McpServerConfig =
+            serde_json::from_str(r#"{"id":"x","command":"node"}"#).expect("解析");
         assert!(parsed.enabled);
         assert!(parsed.args.is_empty());
     }

@@ -1470,15 +1470,21 @@ mod tests {
         }];
         let payload = super::payload_for(&session, "model", &messages, &[]);
         assert_eq!(
-            payload.pointer("/messages/0/tool_call_id").and_then(|value| value.as_str()),
+            payload
+                .pointer("/messages/0/tool_call_id")
+                .and_then(|value| value.as_str()),
             Some("call-1")
         );
         assert_eq!(
-            payload.pointer("/messages/0/content/0/text").and_then(|value| value.as_str()),
+            payload
+                .pointer("/messages/0/content/0/text")
+                .and_then(|value| value.as_str()),
             Some("已捕获截图")
         );
         assert_eq!(
-            payload.pointer("/messages/0/content/1/image_url/url").and_then(|value| value.as_str()),
+            payload
+                .pointer("/messages/0/content/1/image_url/url")
+                .and_then(|value| value.as_str()),
             Some("data:image/png;base64,aGVsbG8=")
         );
     }
@@ -1501,7 +1507,9 @@ mod tests {
         }];
         let payload = super::payload_for(&session, "model", &messages, &[]);
         assert_eq!(
-            payload.pointer("/messages/0/content").and_then(|value| value.as_str()),
+            payload
+                .pointer("/messages/0/content")
+                .and_then(|value| value.as_str()),
             Some("文件已写入")
         );
     }
@@ -1522,7 +1530,9 @@ mod tests {
         }];
         let payload = super::payload_for(&session, "model", &messages, &[]);
         assert_eq!(
-            payload.pointer("/messages/0/content").and_then(|value| value.as_str()),
+            payload
+                .pointer("/messages/0/content")
+                .and_then(|value| value.as_str()),
             Some("纯文本")
         );
     }
