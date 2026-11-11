@@ -92,13 +92,20 @@ const [localServiceReady] = useState(false);   // 只取值，不取 setter
 
 ### 3.1 动态工作流**执行**（`packages/workflow-script`）
 
-已交付：facade、类型检查、站点枚举、journal 重放、校验器 CLI。**缺驱动层**：
+已交付：facade、类型检查、站点枚举、journal 重放、校验器 CLI、**runner 驱动层**、
+**CLI 宿主适配层**（`tools/workflow-script-host.ts`）。
 
-- 派活（起子代理、发 ask、等结果）
-- 跑命令（`world.run`）
-- journal 落盘
+**CLI 侧已经能跑**（`run` 子命令）：跑命令、读文件、journal 落盘续跑都通了。
+`agent().ask()` 在 CLI 里降级成"问用户"—— 诚实的降级，但不是子代理。
 
-前两项在应用里没有对应物（workbench 无子代理）；第三项需要持久化。
+**应用内仍然缺**，缺的是**子代理能力本身**：
+
+- 派活（起子代理、发 ask、等结果）—— workbench 里没有对应物
+- 跑命令 —— 已有 Tauri 命令面，但没接进工作流
+- journal 落盘 —— CLI 侧已通；应用内需要持久化位置
+
+所以"缺驱动层"这句现在只对**应用内**成立。工作流只是子代理能力的编排语法，
+真正的缺口是那个能力（见 §5 第 3 条）。
 
 ### 3.2 插件 `@` 引用**注入**（`packages/plugin-reference`）
 
