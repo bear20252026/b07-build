@@ -149,7 +149,8 @@ fn launch_browser(executable: &Path) -> Result<(BrowserGuard, String), String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
-    let profile = std::env::temp_dir().join(format!("b07-cdp-e2e-{}-{}", std::process::id(), nanos));
+    let profile =
+        std::env::temp_dir().join(format!("b07-cdp-e2e-{}-{}", std::process::id(), nanos));
     std::fs::create_dir_all(&profile).map_err(|error| format!("建 profile 目录失败：{error}"))?;
 
     let child = Command::new(executable)
