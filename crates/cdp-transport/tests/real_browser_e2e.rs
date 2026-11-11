@@ -141,11 +141,15 @@ impl Drop for BrowserGuard {
 /// `<profile>/DevToolsActivePort` 读回实际端口与 WS 路径。
 /// 自己挑端口会有"挑完到启动之间被占用"的竞态，交给浏览器最稳。
 fn launch_browser(executable: &Path) -> Result<(BrowserGuard, String), String> {
-    let profile = std::env::temp_dir().join(format!(
-        "b07-cdp-e2e-{}-{}",
-        std::process::id(),
-        Instant::now().elapsed().as_nanos()
-    ));
+    // profile 目录必须**每次唯一**。`BrowserGuard::drop` 会删掉它，但 `child.kill()`
+    // 是异步的 —— 进程还在退出时目录可能已被删而 DevToolsActivePort 还残留，
+    // 下一个用例若复用同名目录就会读到上一个的端口（已死）→ Connection refused。
+    // 用单调时钟的纳秒时间戳，同进程内也不会撞。
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let profile = std::env::temp_dir().join(format!("b07-cdp-e2e-{}-{}", std::process::id(), nanos));
     std::fs::create_dir_all(&profile).map_err(|error| format!("建 profile 目录失败：{error}"))?;
 
     let child = Command::new(executable)
