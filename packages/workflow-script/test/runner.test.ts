@@ -71,6 +71,38 @@ test('续跑复用记录，一次都不重跑', async () => {
   assert.deepEqual(outcome.outcomes[0]?.site.id, 'world-run#1');
 });
 
+test('journalStore.load() 是续跑的历史来源（不传 journal 时也要读）', async () => {
+  // 回归钉：runner 曾只调 `save` 从不调 `load`，于是 CLI 传了 journalStore 也
+  // 永远从空 journal 开始 —— 每次跑都把所有效应重做一遍，续跑形同虚设。
+  const { runtime, calls } = makeRuntime();
+  let stored = emptyJournal('run-1');
+  stored = appendRecord(stored, 'world-run#1', 1, { exitCode: 0, stdout: '旧的', stderr: '' }).journal;
+
+  const outcome = await runWorkflowScript(`await world.run('git', ['status']);\n`, {
+    runtime,
+    journalStore: { load: () => stored, save: () => {} },
+  });
+  assert.equal(outcome.completed, true);
+  assert.deepEqual(calls, [], 'store 里的历史必须生效，命令不该重跑');
+  assert.equal(outcome.outcomes[0]?.reused, true);
+});
+
+test('显式 journal 优先于 journalStore', async () => {
+  // 两个来源都给了时，显式传的赢 —— 那是调用方对"用哪份历史"的明确表态。
+  const { runtime, calls } = makeRuntime();
+  let explicit = emptyJournal('run-1');
+  explicit = appendRecord(explicit, 'world-run#1', 1, { exitCode: 0, stdout: '显式的', stderr: '' }).journal;
+  const store = { load: () => emptyJournal('run-2'), save: () => {} };
+
+  const outcome = await runWorkflowScript(`await world.run('git', ['status']);\n`, {
+    runtime,
+    journal: explicit,
+    journalStore: store,
+  });
+  assert.deepEqual(calls, []);
+  assert.equal(outcome.outcomes[0]?.reused, true);
+});
+
 test('同一站点第二次执行是 attempt 2，不复用 attempt 1', async () => {
   // 循环里的站点会执行多次。只用站点身份做键会让第二次复用第一次的结果 ——
   // 一条命令跑两次只算一次。

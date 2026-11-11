@@ -136,6 +136,8 @@ export interface WorkflowRunOutcome {
   readonly journal: WorkflowJournal;
   /** 脚本 `return` 的值（如果有）。 */
   readonly returned: unknown;
+  /** 本轮**新增**的记录数。调用方据此决定要不要落盘、以及向用户报什么。 */
+  readonly appended: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +178,11 @@ function compileForExecution(source: string, program: WorkflowProgram): string {
 /**
  * 跑一次脚本。
  *
- * `journal` 传**上一轮的**记录（续跑）；不传按空 journal 算。
+ * 续跑的依据是**上一轮的 journal**，它有两个来源，优先级从高到低：
+ * ① 调用方显式传的 `journal`（测试或已自己管文件的宿主）；
+ * ② `journalStore.load()`（CLI 这类把文件读写交给端口的宿主）。
+ * 两者都没有时按空 journal 算 —— 那意味着"没有历史，全部重跑"，是安全的一侧。
+ *
  * `caps` 不传用默认额度。
  *
  * **不抛异常**（除非宿主实现有问题）：脚本执行中的失败被记成 diagnostic，
@@ -198,7 +204,7 @@ export async function runWorkflowScript(
   // 入参的 journal **不可变**（它是上一轮的记录，是续跑判断的依据）。
   // 本轮的追加累到 `current` 上 —— `appendRecord` 是纯函数，不接收返回值
   // 就等于没记，而“没记”会让续跑把做过的效应**重做一遍**。
-  const previous = options.journal ?? emptyJournal(runId);
+  const previous = options.journal ?? options.journalStore?.load() ?? emptyJournal(runId);
   let current = previous;
   const diagnostics: RunnerDiagnostic[] = [];
   const outcomes: RunnerSiteOutcome[] = [];
@@ -212,6 +218,7 @@ export async function runWorkflowScript(
       diagnostics: program.diagnostics.map((d) => ({ code: String(d.code), message: d.message, siteId: undefined })),
       journal: previous,
       returned: undefined,
+      appended: 0,
     };
   }
   const table = collectSites(program);
@@ -226,6 +233,7 @@ export async function runWorkflowScript(
       ],
       journal: previous,
       returned: undefined,
+      appended: 0,
     };
   }
 
@@ -303,13 +311,15 @@ export async function runWorkflowScript(
     );
     // 只有**真的新增**了记录才落盘。全部复用时写一份一样的 journal 没有意义，
     // 还会掩盖“这一轮其实什么都没做”——而那是续跑时最想被看见的信息。
-    if (current.records.length > previous.records.length) options.journalStore?.save(current);
-    return { completed: true, outcomes, diagnostics, journal: current, returned };
+    const appended = current.records.length - previous.records.length;
+    if (appended > 0) options.journalStore?.save(current);
+    return { completed: true, outcomes, diagnostics, journal: current, returned, appended };
   } catch (error) {
     if (error instanceof WorkflowRunAbort) {
       // 已经记过 diagnostic；journal 只保留已成功的部分（那是有意义的续跑基础）。
-      if (current.records.length > previous.records.length) options.journalStore?.save(current);
-      return { completed: false, outcomes, diagnostics, journal: current, returned: undefined };
+      const appended = current.records.length - previous.records.length;
+      if (appended > 0) options.journalStore?.save(current);
+      return { completed: false, outcomes, diagnostics, journal: current, returned: undefined, appended };
     }
     throw error;
   }

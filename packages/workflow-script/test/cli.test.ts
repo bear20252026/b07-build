@@ -103,3 +103,170 @@ test('读不到文件退出码 2', async () => {
   assert.equal(result.code, WORKFLOW_CLI_USAGE);
   assert.match(result.err, /读不到脚本/);
 });
+
+// ---------------------------------------------------------------------------
+// run：真的执行脚本。
+//
+// 与 check/effects 的关键区别：run 需要执行端口（runtime），缺了要明确报错
+// 而不是伪造一个"跑过了"的结果。
+// ---------------------------------------------------------------------------
+
+import type { WorkflowJournal } from '../src/journal.js';
+import type { WorkflowJournalStore, WorkflowRuntime } from '../src/runner.js';
+
+/** 一个内存 runtime，记录调用并可指定返回值。 */
+function makeRuntime(overrides: Partial<WorkflowRuntime> = {}) {
+  const calls: string[] = [];
+  const runtime: WorkflowRuntime = {
+    log: () => {},
+    run: async (cmd, args) => {
+      calls.push(`run:${cmd}:${args.join(' ')}`);
+      return { exitCode: 0, stdout: '', stderr: '' };
+    },
+    glob: async (pattern) => {
+      calls.push(`glob:${pattern}`);
+      return [];
+    },
+    read: async (path) => {
+      calls.push(`read:${path}`);
+      return '';
+    },
+    grep: async (pattern) => {
+      calls.push(`grep:${pattern}`);
+      return [];
+    },
+    ask: async (instructions) => {
+      calls.push(`ask:${instructions}`);
+      return null;
+    },
+    ...overrides,
+  };
+  return { runtime, calls };
+}
+
+/** 跑一次 run 子命令。 */
+async function runRun(
+  argv: readonly string[],
+  files: Readonly<Record<string, string>>,
+  runtime: WorkflowRuntime,
+  journalStore?: WorkflowJournalStore,
+) {
+  const out: string[] = [];
+  const err: string[] = [];
+  const code = await runWorkflowScriptCli(
+    argv,
+    { stdout: (text) => out.push(text), stderr: (text) => err.push(text) },
+    {
+      readFile: (path) => {
+        if (!(path in files)) throw new Error(`ENOENT: ${path}`);
+        return files[path]!;
+      },
+    },
+    { runtime, journalStore },
+  );
+  return { code, out: out.join(''), err: err.join('') };
+}
+
+test('run 真的执行效应并报告新增记录', async () => {
+  const { runtime, calls } = makeRuntime();
+  const result = await runRun(['run', 'w.ts'], { 'w.ts': CLEAN }, runtime);
+  assert.equal(result.code, WORKFLOW_CLI_OK);
+  assert.match(result.out, /运行完成/);
+  assert.match(result.out, /本轮新增 2 条/);
+  assert.ok(calls.includes('run:git:status'), '命令真的跑了');
+  assert.ok(calls.some((line) => line.startsWith('ask:')), '派活真的发生了');
+});
+
+test('run 缺执行端口时退出码 2，不伪造执行', async () => {
+  // 关键：不能返回 0 让用户以为跑过了。
+  const out: string[] = [];
+  const err: string[] = [];
+  const code = await runWorkflowScriptCli(
+    ['run', 'w.ts'],
+    { stdout: (text) => out.push(text), stderr: (text) => err.push(text) },
+    { readFile: () => CLEAN },
+  );
+  assert.equal(code, WORKFLOW_CLI_USAGE);
+  assert.match(err.join(''), /需要执行端口/);
+  assert.equal(out.join(''), '', '不该报告任何"跑过了"的输出');
+});
+
+test('run 在诊断时拒绝执行（不做出未批准的效应）', async () => {
+  const { runtime, calls } = makeRuntime();
+  const result = await runRun(['run', 'w.ts'], { 'w.ts': "log(undefinedName);\nawait world.run('git');\n" }, runtime);
+  assert.equal(result.code, WORKFLOW_CLI_DIAGNOSTICS);
+  assert.match(result.err, /拒绝执行/);
+  assert.deepEqual(calls, [], '一个效应都不该跑');
+});
+
+test('run 的 json 输出含逐站点结果', async () => {
+  const { runtime } = makeRuntime();
+  const result = await runRun(['run', 'w.ts', '--json'], { 'w.ts': CLEAN }, runtime);
+  const parsed = JSON.parse(result.out) as {
+    completed: boolean;
+    outcomes: { siteId: string; attempt: number; reused: boolean }[];
+    appended: unknown;
+  };
+  assert.equal(parsed.completed, true);
+  assert.deepEqual(
+    parsed.outcomes.map((entry) => `${entry.siteId}:${entry.attempt}:${entry.reused}`),
+    ['ask#1:1:false', 'world-run#1:1:false'],
+  );
+});
+
+test('run 不落盘时也能跑（journalStore 可选）', async () => {
+  const { runtime, calls } = makeRuntime();
+  const result = await runRun(['run', 'w.ts'], { 'w.ts': CLEAN }, runtime);
+  assert.equal(result.code, WORKFLOW_CLI_OK);
+  assert.ok(calls.length > 0);
+});
+
+test('run 只在有新增时落盘', async () => {
+  let saved = 0;
+  const { runtime } = makeRuntime();
+  const store = { load: () => undefined, save: () => { saved += 1; } };
+  await runRun(['run', 'w.ts'], { 'w.ts': CLEAN }, runtime, store);
+  assert.equal(saved, 1, '有新增要落盘');
+});
+
+test('run 的 journal 路径进了 runId', async () => {
+  // runId 是 journal 的身份，续跑时靠它区分"哪一轮"。--journal 给的路径应当
+  // 成为它，而不是再生成一个时间戳。
+  const { runtime } = makeRuntime();
+  let saved: WorkflowJournal | undefined;
+  await runRun(['run', 'w.ts', '--journal', 'j.json'], { 'w.ts': CLEAN }, runtime, {
+    load: () => undefined,
+    save: (journal) => { saved = journal; },
+  });
+  assert.equal(saved?.runId, 'j.json');
+});
+
+test('run 两次：第二次从 store 续跑，效应不重做', async () => {
+  // 端到端续跑钉。runner 曾只调 save 从不调 load，于是每次跑都重做所有效应 ——
+  // 这个测试在 CLI 层把那条路径钉住（CLI 只传 store，不传 journal）。
+  const { runtime, calls } = makeRuntime();
+  let stored: WorkflowJournal | undefined;
+  const store: WorkflowJournalStore = {
+    load: () => stored,
+    save: (journal) => { stored = journal; },
+  };
+  const files = { 'w.ts': "await world.run('git', ['status']);\n" };
+
+  const first = await runRun(['run', 'w.ts', '--journal', 'j.json'], files, runtime, store);
+  assert.equal(first.code, WORKFLOW_CLI_OK);
+  assert.match(first.out, /本轮新增 1 条/);
+  assert.equal(calls.length, 1);
+
+  const second = await runRun(['run', 'w.ts', '--journal', 'j.json'], files, runtime, store);
+  assert.equal(second.code, WORKFLOW_CLI_OK);
+  assert.match(second.out, /本轮新增 0 条/);
+  assert.equal(calls.length, 1, '第二次不该重跑任何命令');
+});
+
+test('run 用法错误退出码 2', async () => {
+  const { runtime } = makeRuntime();
+  for (const argv of [['run'], ['run', 'w.ts', '--journal'], ['run', 'w.ts', '--bogus']]) {
+    const result = await runRun(argv as string[], { 'w.ts': CLEAN }, runtime);
+    assert.equal(result.code, WORKFLOW_CLI_USAGE, `argv=${JSON.stringify(argv)}`);
+  }
+});

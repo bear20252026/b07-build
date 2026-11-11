@@ -2,13 +2,14 @@
 //
 // ## 为什么要有它
 //
-// 动态工作流的**执行**需要一个能跑子代理与命令的驱动层，而那一层还没接
-// （见 `docs/design/` 里的能力桥说明）。但**校验**不需要它：类型检查、站点枚举、
-// 额度判定全是纯逻辑。
+// 动态工作流脚本要跑起来，需要一个能跑子代理与命令的驱动层。**校验**不需要它
+// （类型检查、站点枚举、额度判定全是纯逻辑），但**执行**需要：spawn 进程、
+// 读工作区文件、把 journal 落盘。这些 IO 全部由调用方注入，本模块只做编排。
 //
-// 所以在驱动层落地之前，作者仍然可以：写完脚本 → 立刻知道
-// ① 哪里类型不对（带行号）② 它会做哪些有副作用的事 ③ 会不会超额。
-// 这三件事恰好是"批准一次运行"所需要的全部信息 —— 只是现在还不能真的跑。
+// 三个子命令，对应"批准一次运行"的完整闭环：
+// - `check`：写完脚本立刻知道①哪里类型不对②会做哪些有副作用的事③会不会超额。
+// - `effects`：只列"会做什么"，用于确认清单。
+// - `run`：真的跑，带 journal 续跑与额度闸门。
 //
 // ## 为什么放在 Node 而不是渲染进程
 //
@@ -18,10 +19,11 @@
 //
 // ## 退出码
 //
-// 0 = 干净；1 = 有诊断（脚本有问题）；2 = 用法错误（参数不对、文件读不到）。
+// 0 = 干净（或运行完成）；1 = 有诊断（脚本有问题或运行失败）；2 = 用法错误（参数不对、文件读不到）。
 // 与常见 CLI 一致，便于挂在 CI 或 git hook 上。
 
 import { describeEffects, prepareWorkflowRun } from './prepare.js';
+import { runWorkflowScript, type WorkflowJournalStore, type WorkflowRuntime } from './runner.js';
 
 /** 输出端口。注入而不是直接摸 `process`：本模块要能在测试里断言输出。 */
 export interface WorkflowScriptCliIo {
@@ -35,6 +37,18 @@ export interface WorkflowScriptCliDependencies {
   readonly readFile: (path: string) => string;
 }
 
+/**
+ * `run` 子命令需要的执行端口。
+ *
+ * 与基础依赖分开：`check`/`effects` 一个字节都不执行，不该被迫提供一个
+ * 能 spawn 进程的实现。缺执行端口时 `run` 报用法错误（退出码 2），
+ * 而不是伪造一个"跑过了"的结果。
+ */
+export interface WorkflowScriptCliExecution {
+  readonly runtime: WorkflowRuntime;
+  readonly journalStore?: WorkflowJournalStore;
+}
+
 /** 退出码。 */
 export const WORKFLOW_CLI_OK = 0;
 export const WORKFLOW_CLI_DIAGNOSTICS = 1;
@@ -44,19 +58,23 @@ const USAGE = [
   '用法：',
   '  workflow-script check <脚本路径> [--max-effects N] [--json]',
   '  workflow-script effects <脚本路径>',
+  '  workflow-script run <脚本路径> [--journal <路径>] [--max-effects N] [--json]',
   '',
   '  check     类型检查 + 站点枚举 + 额度判定；有诊断时退出码 1',
   '  effects   只打印"这次运行会做哪些有副作用的事"',
+  '  run       真的执行脚本；journal 存在时续跑（已做过的效应不重做）',
   '',
   '  --max-effects N  效应次数上限（默认 1000）',
+  '  --journal <路径>  journal 的读写位置（run 专用；不给则本轮不落盘）',
   '  --json           机器可读输出',
 ].join('\n');
 
 /** 解析出来的选项。 */
 interface ParsedArguments {
-  readonly command: 'check' | 'effects';
+  readonly command: 'check' | 'effects' | 'run';
   readonly path: string;
   readonly maxEffects: number;
+  readonly journalPath?: string;
   readonly json: boolean;
 }
 
@@ -64,6 +82,7 @@ interface ParsedArguments {
 function parseArguments(argv: readonly string[]): ParsedArguments | string {
   const positional: string[] = [];
   let maxEffects = 1000;
+  let journalPath: string | undefined;
   let json = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -81,14 +100,23 @@ function parseArguments(argv: readonly string[]): ParsedArguments | string {
       maxEffects = parsed;
       continue;
     }
+    if (argument === '--journal') {
+      const raw = argv[index + 1];
+      index += 1;
+      if (!raw) return '--journal 需要一个路径。';
+      journalPath = raw;
+      continue;
+    }
     if (argument.startsWith('-')) return `未知选项：${argument}`;
     positional.push(argument);
   }
   const [command, path, ...rest] = positional;
-  if (command !== 'check' && command !== 'effects') return `未知子命令：${command ?? '（缺失）'}`;
+  if (command !== 'check' && command !== 'effects' && command !== 'run') {
+    return `未知子命令：${command ?? '（缺失）'}`;
+  }
   if (!path) return '缺少脚本路径。';
   if (rest.length > 0) return `多余的参数：${rest.join(' ')}`;
-  return { command, path, maxEffects, json };
+  return { command, path, maxEffects, journalPath, json };
 }
 
 /** 一条诊断的可读行。 */
@@ -101,6 +129,7 @@ export async function runWorkflowScriptCli(
   argv: readonly string[],
   io: WorkflowScriptCliIo,
   dependencies: WorkflowScriptCliDependencies,
+  execution?: WorkflowScriptCliExecution,
 ): Promise<number> {
   const parsed = parseArguments(argv);
   if (typeof parsed === 'string') {
@@ -139,26 +168,81 @@ export async function runWorkflowScriptCli(
     return prepared.ok ? WORKFLOW_CLI_OK : WORKFLOW_CLI_DIAGNOSTICS;
   }
 
-  if (parsed.json) {
-    io.stdout(`${JSON.stringify({
-      ok: prepared.ok,
-      diagnostics: prepared.diagnostics,
-      sites: prepared.sites,
-      effects: describeEffects(prepared.sites),
-    }, null, 2)}\n`);
+  if (parsed.command === 'check') {
+    if (parsed.json) {
+      io.stdout(`${JSON.stringify({
+        ok: prepared.ok,
+        diagnostics: prepared.diagnostics,
+        sites: prepared.sites,
+        effects: describeEffects(prepared.sites),
+      }, null, 2)}\n`);
+      return prepared.ok ? WORKFLOW_CLI_OK : WORKFLOW_CLI_DIAGNOSTICS;
+    }
+
+    if (prepared.diagnostics.length > 0) {
+      io.stdout(['脚本有诊断：', ...prepared.diagnostics.map((diagnostic) => formatDiagnostic(diagnostic))].join('\n') + '\n');
+    }
+    const effects = describeEffects(prepared.sites);
+    io.stdout([
+      prepared.diagnostics.length === 0 ? '脚本检查通过。' : '',
+      `效应站点 ${prepared.sites.filter((site) => site.kind !== 'actor').length} 个：`,
+      ...(effects.length > 0 ? effects.map((line) => `  - ${line}`) : ['  （无）']),
+      // 说明现状，避免用户以为它已经能跑。
+      '注意：本工具只做校验与预览，不会执行脚本。',
+    ].filter((line) => line !== '').join('\n') + '\n');
     return prepared.ok ? WORKFLOW_CLI_OK : WORKFLOW_CLI_DIAGNOSTICS;
   }
 
-  if (prepared.diagnostics.length > 0) {
-    io.stdout(['脚本有诊断：', ...prepared.diagnostics.map((diagnostic) => formatDiagnostic(diagnostic))].join('\n') + '\n');
+  // ---- run ----
+
+  // 执行端口缺失时**明确报错**，而不是伪造一个"跑过了"的空结果：
+  // 那会让用户以为效应真的发生了。
+  if (!execution?.runtime) {
+    io.stderr('run 需要执行端口（runtime），但调用方没有提供。\n');
+    return WORKFLOW_CLI_USAGE;
+  }
+
+  // 静态判定不过就不该开始跑：类型错乱时站点表是误导性的，跑起来只会做出
+  // 用户没批准过的效应。
+  if (!prepared.ok) {
+    io.stderr(['脚本有诊断，拒绝执行：', ...prepared.diagnostics.map((diagnostic) => formatDiagnostic(diagnostic))].join('\n') + '\n');
+    return WORKFLOW_CLI_DIAGNOSTICS;
+  }
+
+  const outcome = await runWorkflowScript(source, {
+    runtime: execution.runtime,
+    caps: { maxEffects: parsed.maxEffects },
+    journalStore: execution.journalStore,
+    runId: parsed.journalPath ?? `run-${Date.now()}`,
+  });
+
+  if (parsed.json) {
+    io.stdout(`${JSON.stringify({
+      completed: outcome.completed,
+      diagnostics: outcome.diagnostics,
+      outcomes: outcome.outcomes.map((entry) => ({
+        siteId: entry.site.id,
+        kind: entry.site.kind,
+        line: entry.site.line,
+        attempt: entry.attempt,
+        reused: entry.reused,
+      })),
+      records: outcome.journal.records.length,
+      appended: outcome.appended,
+      returned: outcome.returned,
+    }, null, 2)}\n`);
+    return outcome.completed ? WORKFLOW_CLI_OK : WORKFLOW_CLI_DIAGNOSTICS;
+  }
+
+  if (outcome.diagnostics.length > 0) {
+    io.stdout(['运行中有诊断：', ...outcome.diagnostics.map((d) => `  [${d.code}] ${d.message}`)].join('\n') + '\n');
   }
   const effects = describeEffects(prepared.sites);
   io.stdout([
-    prepared.diagnostics.length === 0 ? '脚本检查通过。' : '',
-    `效应站点 ${prepared.sites.filter((site) => site.kind !== 'actor').length} 个：`,
+    outcome.completed ? '运行完成。' : '运行未完成（见诊断）。',
+    `效应站点 ${effects.length} 个：`,
     ...(effects.length > 0 ? effects.map((line) => `  - ${line}`) : ['  （无）']),
-    // 说明现状，避免用户以为它已经能跑。
-    '注意：本工具只做校验与预览，不会执行脚本。',
+    `journal 记录 ${outcome.journal.records.length} 条，本轮新增 ${outcome.appended} 条。`,
   ].filter((line) => line !== '').join('\n') + '\n');
-  return prepared.ok ? WORKFLOW_CLI_OK : WORKFLOW_CLI_DIAGNOSTICS;
+  return outcome.completed ? WORKFLOW_CLI_OK : WORKFLOW_CLI_DIAGNOSTICS;
 }

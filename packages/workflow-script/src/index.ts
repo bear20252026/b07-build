@@ -78,5 +78,6 @@ export {
   WORKFLOW_CLI_USAGE,
   runWorkflowScriptCli,
   type WorkflowScriptCliDependencies,
+  type WorkflowScriptCliExecution,
   type WorkflowScriptCliIo,
 } from './cli.js';
